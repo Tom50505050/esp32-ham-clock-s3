@@ -1,0 +1,7 @@
+.pio/
+.vscode/
+*.log
+compile_commands.json
+TFT_eSPI.d
+download/esp32-ham-clock-repo.bundle
+*.bundle

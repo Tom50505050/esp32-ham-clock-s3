@@ -1,0 +1,552 @@
+================================================================================
+          ESP32-HAM-CLOCK - INSTRUKCJA OBSŁUGI
+          Autor: Konrad Wisniewski SP3KON
+          Kontakt: sp3kon@gmail.com
+================================================================================
+
+
+1. OPIS URZĄDZENIA
+==================
+
+ESP32-HAM-CLOCK to wielofunkcyjny panel informacyjny dla krótkofalowców,
+oparty na mikrokontrolerze ESP32 z kolorowym ekranem dotykowym TFT
+(CYD ESP32-2432S028R).
+
+Urządzenie wyświetla na ekranie TFT i udostępnia przez panel WWW
+(przeglądarkę internetową) następujące informacje:
+
+  - Zegar UTC i lokalny z datą (ekran HAM CLOCK)
+  - Spoty z DX Cluster w czasie rzeczywistym (ekran i zakładka DX CLUSTER)
+  - Spoty POTA (Parks on the Air) pobierane z publicznego API
+  - Alerty i spoty z serwisu HamAlert (Telnet)
+  - Stacje APRS-IS w Twojej okolicy (lista i radar)
+  - Dane propagacyjne HF: Solar Flux Index, K-index, A-index, MUF
+  - Warunki na pasmach KF (dzień/noc)
+  - Aktualna pogoda i prognoza godzinowa (OpenWeather API)
+  - System alertów dla wybranych znaków APRS (z sygnalizacją LED)
+  - Ekran "Matrix" (zegar w stylu wizualnym)
+
+Panel WWW dostępny z dowolnego komputera lub telefonu w tej samej sieci WiFi
+umożliwia pełną konfigurację urządzenia, przeglądanie danych na żywo
+oraz zmianę ustawień bez potrzeby podłączania kabla.
+
+
+2. PIERWSZE URUCHOMIENIE - TRYB AP (PUNKT DOSTĘPU)
+====================================================
+
+Po wgraniu oprogramowania urządzenie nie zna jeszcze danych do sieci WiFi.
+W takim przypadku automatycznie uruchamia własną sieć bezprzewodową (tryb AP),
+do której można się podłączyć i skonfigurować urządzenie.
+
+Dane sieci AP tworzonej przez ESP32-HAM-CLOCK:
+  Nazwa sieci (SSID): ESP32-HAM-CLOCK
+  Hasło:              1234567890
+
+KROK PO KROKU - PIERWSZE LOGOWANIE:
+
+  1. Włącz urządzenie (podłącz do zasilania USB).
+     Na ekranie TFT pojawi się informacja o braku konfiguracji
+     i uruchomieniu trybu AP.
+
+  2. Na komputerze lub telefonie otwórz listę dostępnych sieci WiFi.
+
+  3. Znajdź sieć o nazwie "ESP32-HAM-CLOCK" i połącz się z nią,
+     używając hasła: 1234567890
+
+  4. Po połączeniu otwórz przeglądarkę internetową (Chrome, Edge, Firefox)
+     i wpisz adres:
+         http://192.168.4.1
+
+  5. Otworzy się panel konfiguracyjny ESP32-HAM-CLOCK.
+
+  6. Przejdź do zakładki "Ustawienia" i wprowadź dane swojej sieci WiFi
+     (SSID i hasło) oraz pozostałe parametry (patrz rozdział 5).
+
+  7. Kliknij "Zapisz Konfigurację". Urządzenie automatycznie się zrestartuje
+     i połączy z Twoją siecią WiFi.
+
+  8. Po restarcie na ekranie TFT pojawi się adres IP urządzenia przydzielony
+     przez router (np. 192.168.1.105). Wpisz ten adres w przeglądarce,
+     aby uzyskać dostęp do panelu WWW.
+
+UWAGA: Po zapisaniu konfiguracji i restarcie urządzenia zawsze odśwież
+stronę w przeglądarce (klawisz F5 lub Ctrl+R) lub wpisz nowy adres IP.
+
+
+3. ZAKŁADKI PANELU WWW
+=======================
+
+Po zalogowaniu do panelu WWW u góry ekranu widoczny jest pasek zakładek.
+Poniżej krótki opis każdej zakładki:
+
+  DXSPOT
+  ------
+  Tabela spotów DX pobieranych na żywo z serwera DX Cluster.
+  Możliwość filtrowania według modulacji (ALL / CW / SSB / FT8/FT4)
+  i pasma (160m - 10m lub wszystkie).
+  Filtry kontynentów (AF / AN / AS / EU / NA / SA / OC) pozwalają
+  wyświetlać spoty tylko od stacji spotterów z wybranych kontynentów.
+  Kliknięcie znaku wywoławczego otwiera profil stacji w QRZ.com.
+  Kliknięcie częstotliwości otwiera odbiór w KiwiSDR (jeśli skonfigurowany).
+
+  POTA
+  ----
+  Tabela spotów POTA (Parks on the Air) - aktywacje parków przez krótkofalowców.
+  Filtrowanie po modulacji i paśmie.
+  Linki do QRZ i KiwiSDR jak w zakładce DXSPOT.
+
+  HAMALERT
+  --------
+  Spoty i alerty z serwisu HamAlert (połączenie Telnet).
+  Filtrowanie po modulacji i paśmie (pasma KF + VHF/UHF/SHF).
+  Wymaga skonfigurowanego konta HamAlert (login i hasło Telnet).
+
+  APRS
+  ----
+  Lista stacji APRS odebranych z serwera APRS-IS w zdefiniowanym promieniu
+  od Twojej lokalizacji. Wyświetla: czas, znak wywoławczy, symbol APRS,
+  odległość od Twojej pozycji oraz komentarz stacji.
+
+  Propagacja
+  ----------
+  Aktualne parametry propagacji radiowej:
+    - Solar Flux Index (SFI)
+    - Indeks K i A (aktywność geomagnetyczna)
+    - MUF (maksymalna częstotliwość użytkowa)
+    - Warunki na poszczególnych pasmach KF w dzień i w nocy.
+
+  ALERT
+  -----
+  Konfiguracja systemu alertów APRS: lista obserwowanych znaków wywoławczych,
+  progi czasowe, zasięg wykrywania stacji ruchomych, alerty pogodowe WX
+  oraz sygnalizacja diodą LED (GPIO17). Szczegóły w rozdziale Ustawienia.
+
+  Ekran TFT
+  ---------
+  Ustawienia wyświetlacza TFT: jasność podświetlenia, język ekranu (PL/EN),
+  rozmiar tabel, kolejność i zawartość slotów ekranów (1-11),
+  tryb auto-przełączania, obrót i kalibracja dotyku.
+
+  Ustawienia
+  ----------
+  Pełna konfiguracja urządzenia. Szczegółowy opis w rozdziale 5.
+
+  Instrukcja
+  ----------
+  Podgląd pliku z instrukcją obsługi wczytywanego z urządzenia.
+
+
+4. EKRANY TFT
+==============
+
+Na wyświetlaczu TFT dostępnych jest 11 slotów ekranów. Każdy slot możesz
+przypisać do jednego z poniższych ekranów (lub wyłączyć - OFF):
+
+  HAM CLOCK           - zegar UTC i lokalny, data, status urządzenia
+  DX CLUSTER          - tabela spotów DX z filtrem MODE / BAND
+  APRS-IS             - lista odebranych stacji APRS
+  APRS RADAR          - widok radarowy stacji APRS wokół Twojej pozycji
+  BAND INFO           - informacje o warunkach na pasmach KF
+  SUN SPOTS           - dane propagacyjne (aktywność słoneczna)
+  WEATHER             - bieżąca pogoda dla Twojej lokalizacji
+  WEATHER FORECAST    - prognoza pogody godzinowa / dobowa + PM2.5/PM10
+  POTA                - spoty POTA
+  HAMALERT            - spoty i alerty z HamAlert
+  MATRIX              - zegar w stylu wizualnym Matrix
+
+Dotknięcie ekranu zmienia wyświetlany widok. Przytrzymanie dotyku przez ~3 s
+w środku ekranu otwiera menu jasności (suwak LIVE) i przełącznik języka TFT.
+
+
+5. ZAKŁADKA USTAWIENIA - SZCZEGÓŁOWY OPIS
+==========================================
+
+Zakładka "Ustawienia" zawiera pełną konfigurację urządzenia podzieloną
+na sekcje. Po wypełnieniu wszystkich pól kliknij przycisk:
+
+    [ Zapisz Konfigurację ]
+
+Urządzenie zrestartuje się i zastosuje nowe ustawienia.
+Po restarcie odśwież stronę w przeglądarce (F5) i wpisz adres IP
+urządzenia widoczny na ekranie TFT.
+
+
+5.1 Połączenie WiFi
+-------------------
+Ustawienie sieci WiFi, z którą urządzenie ma się łączyć po restarcie.
+
+  WiFi SSID
+    Nazwa (SSID) Twojej sieci WiFi (sieć domowa/stacyjna).
+
+  WiFi Hasło
+    Hasło do sieci WiFi. Dla sieci otwartej pozostaw puste.
+
+  WiFi SSID (zapasowe)
+    Opcjonalna druga sieć WiFi. Urządzenie połączy się z nią,
+    gdy sieć główna jest niedostępna.
+
+  WiFi Hasło (zapasowe)
+    Hasło do sieci zapasowej. Dla sieci otwartej pozostaw puste.
+
+
+5.2 DX Cluster
+--------------
+Konfiguracja połączenia Telnet z serwerem DX Cluster.
+
+  DX Cluster Host
+    Adres hosta serwera DX Cluster.
+    Przykłady: dxspots.com (port 7300), dxfun.com (port 8000)
+
+  DX Cluster Port
+    Numer portu serwera. Typowe wartości: 7300, 8000, 23 (Telnet).
+
+  Wyłącz ogłoszenia (set/noann)
+    Zaznacz, aby ukryć ogłoszenia administracyjne z klastra.
+    Zalecane - redukuje niepotrzebne wpisy w tabelach.
+
+  Wyłącz WWV (set/nowwv)
+    Zaznacz, aby ukryć komunikaty WWV (dane propagacyjne z zegarów atomowych).
+
+  Wyłącz WCY (set/nowcy)
+    Zaznacz, aby ukryć komunikaty WCY (dane geomagnetyczne z zegarów atomowych).
+
+  Użyj filtrów (set/filter)
+    Włącza zaawansowane filtrowanie spotów po stronie serwera DX Cluster.
+    Wymaga wpisania komend filtrujących w polu poniżej.
+
+  Komendy filtrów (jedna na linię)
+    Komendy filtrowania dla systemu CC-Cluster.
+    Każda komenda w osobnej linii. Przykłady:
+      set/filter k,ve/pass           - pokaż tylko spoty z K i VE
+      set/filter dxbm/pass hf        - tylko pasma KF
+      set/filter dxbm/reject 6-cw,6-ssb,6-fm  - odrzuć 6m
+
+
+5.3 POTA Cluster
+----------------
+  External POTA API Link
+    Adres API, z którego urządzenie pobiera spoty POTA.
+    Domyślna wartość: https://api.pota.app/v1/spots
+    Zmień tylko jeśli korzystasz z własnego proxy/cache API.
+
+
+5.4 HAMALERT
+------------
+Konfiguracja połączenia z serwisem HamAlert (telnet).
+Gdy login i hasło są puste, HAMALERT jest wyłączony.
+
+  Telnet Host
+    Adres serwera HamAlert. Domyślnie: hamalert.org
+
+  Telnet Port
+    Port Telnet. Domyślnie: 7300
+
+  Login
+    Twoja nazwa użytkownika konta HamAlert.
+
+  Hasło Telnet
+    Hasło Telnet do logowania HamAlert.
+    UWAGA: To hasło Telnet utwórz wcześniej w serwisie HamAlert
+    (w ustawieniach konta na stronie hamalert.org - jest inne
+    niż hasło do logowania na stronę WWW HamAlert).
+
+
+5.5 Twoja Stacja
+----------------
+Podstawowe dane identyfikacyjne stacji. Używane przez APRS, obliczanie
+odległości do spotów, pogodę oraz filtr APRS-IS.
+
+  Twój Znak Wywoławczy
+    Twój znak krótkofalarski (np. SP3KON).
+    Używany do logowania do DX Cluster i identyfikacji w APRS.
+
+  Twój Locator (Maidenhead)
+    Lokator Maidenhead (4 lub 6 znaków, np. JO82LK).
+    Używany pomocniczo do obliczania odległości.
+
+  Strefa czasowa (UTC)
+    Przesunięcie względem czasu UTC.
+    Przykłady: Polska zimą = 1, Polska latem (CEST) = 2.
+    Dozwolony krok co 0.5 godziny (np. 5.5 dla Indii).
+
+  Szerokość geograficzna (Latitude)
+    Szerokość geograficzna Twojej lokalizacji w formacie dziesiętnym.
+    Przykład: 52.406400 dla Poznania.
+    Możesz skopiować z Google Maps (kliknij prawym na mapie).
+
+  Długość geograficzna (Longitude)
+    Długość geograficzna w formacie dziesiętnym.
+    Przykład: 16.925200 dla Poznania.
+    Wartości zachodnie (W) podaj ze znakiem minus (np. -3.7038 dla Madrytu).
+
+
+5.6 QRZ.com
+-----------
+  QRZ.com Username
+    Nazwa użytkownika konta QRZ.com.
+
+  QRZ.com Password (XML API)
+    Hasło do konta QRZ.com (dostępu do XML API).
+    Po podaniu danych urządzenie automatycznie uzupełnia opisy kraju
+    i dystansu dla stacji w zakładkach DX i POTA.
+
+  Status QRZ
+    Pole tylko do odczytu - wyświetla aktualny status połączenia z QRZ.com.
+    Aktualizuje się automatycznie po załadowaniu zakładki Ustawienia.
+
+
+5.7 OpenWeather
+---------------
+  OpenWeather API Key
+    Klucz API z serwisu openweathermap.org.
+    Wymagany do wyświetlania bieżącej pogody i prognozy na ekranach TFT
+    (WEATHER i WEATHER FORECAST).
+    Klucz API możesz uzyskać bezpłatnie po rejestracji na openweathermap.org.
+
+
+5.8 KiwiSDR
+-----------
+  KiwiSDR URL
+    Adres odbiornika KiwiSDR, do którego mają prowadzić linki
+    przy kliknięciu częstotliwości w zakładkach DXSPOT i POTA.
+    Przykład: http://okno.ddns.net:8073/
+    Lista dostępnych odbiorników: http://kiwisdr.com/.public/
+    Zostaw puste jeśli nie chcesz używać tej funkcji.
+
+
+5.9 APRS-IS
+-----------
+Konfiguracja połączenia z siecią APRS-IS (Automatic Packet Reporting System
+przez Internet) oraz opcjonalnego wysyłania beaconu pozycyjnego.
+
+  APRS-IS Host
+    Adres serwera APRS-IS. Zalecany: rotate.aprs2.net
+    (serwer obrotowy - automatycznie wybiera najbliższy węzeł).
+
+  APRS-IS Port
+    Port serwera APRS-IS. Standardowy port z filtrem: 14580
+
+  APRS Callsign
+    Twój znak wywoławczy do logowania się do APRS-IS.
+    Przykład: sp3kon (małe litery są akceptowane).
+
+  APRS SSID (0-15)
+    SSID dopisywany do znaku przy wysyłaniu beaconu.
+    0 = bez sufiksu (znak bez SSID).
+    Np. 9 = stacja ruchoma, 7 = pieszy, 1 = HF gateway.
+
+  APRS Passcode
+    Kod autoryzacyjny do logowania do APRS-IS.
+    Możesz go wygenerować na stronie: https://apps.magicbug.co.uk/passcode/
+    Przykład dla SP3KON: 23735
+
+  Promień filtrowania (km)
+    Urządzenie pobiera z APRS-IS tylko stacje w podanym promieniu
+    od Twojej lokalizacji (z sekcji "Twoja Stacja").
+    Zakres: 0-50 km. Wartość 0 = brak filtra odległości.
+
+  Wysyłaj beacon do APRS-IS
+    Zaznacz, aby urządzenie co jakiś czas wysyłało Twoją pozycję GPS
+    do sieci APRS-IS (TCPIP*). Wymaga poprawnych współrzędnych
+    i prawidłowego znaku (nie może to być NOCALL).
+    Pierwszy beacon wysyłany jest ~1 minutę po starcie urządzenia.
+
+  Symbol APRS (2 znaki)
+    Symbol identyfikujący stację na mapach APRS.
+    Pierwszy znak = tabela symboli (/ lub \).
+    Drugi znak = konkretny symbol.
+    Przykład: /- = dom, /> = samochód, /[ = pieszy.
+
+  Komentarz APRS
+    Tekst komentarza dołączany do beaconu. Maks. 43 znaki ASCII.
+    Co 5. beacon (zamiast komentarza) wysyłany jest link do projektu.
+
+  Wysyłaj z odstępem (minuty)
+    Częstotliwość wysyłania beacon po pierwszym (który idzie po 1 min).
+    Zakres: 1-180 minut. Zalecana wartość: 29 minut (normy APRS).
+
+
+5.10 Zakładka "Ekran TFT" - Ustawienia wyświetlacza
+-----------------------------------------------------
+(Dostępna w osobnej zakładce "Ekran TFT" w menu głównym)
+
+  Jasność (0-100%)
+    Suwak jasności podświetlenia ekranu TFT.
+    Wartość 0 = wyłączone, 100 = maksymalna jasność.
+    Zmiana na żywo jest dostępna przez długie przytrzymanie ekranu TFT (~3 s).
+
+  Język interfejsu TFT
+    Wybór języka napisów wyświetlanych na ekranie (Polski / English).
+    Zmiana wymaga restartu urządzenia.
+
+  Rozmiar tabel
+    Wybór rozmiaru tabel na ekranie TFT: Normalne lub Powiększone.
+    Powiększone ułatwia odczyt z większej odległości.
+
+  AUTO-SWITCH
+    Gdy zaznaczone - urządzenie automatycznie co określony czas
+    przełącza ekran TFT na kolejny aktywny slot.
+
+  SWITCH-TIME (sekundy)
+    Czas między automatycznymi przełączeniami ekranów.
+    Zakres: 1-3600 sekund. Domyślnie: 30 sekund.
+
+  Kolejność ekranów (Strony 1-11)
+    Każda "Strona" to jeden slot w rotacji ekranów TFT.
+    Dla każdego slotu wybierz jeden z ekranów:
+      HAM CLOCK, DX CLUSTER, APRS-IS, APRS RADAR, BAND INFO,
+      SUN SPOTS, WEATHER, WEATHER FORECAST, POTA, HAMALERT, MATRIX
+    lub ustaw OFF, aby wyłączyć dany slot (pomijany w rotacji).
+    Strona 1 wyświetlana jest jako pierwsza po włączeniu urządzenia.
+
+  TFT Rotation (0-3)
+    Obrót wyświetlacza TFT:
+      0 - Portrait (pionowy)
+      1 - Landscape 90° (krajobraz w prawo) - domyślne
+      2 - Portrait 180° (pionowy odwrócony)
+      3 - Landscape 270° (krajobraz w lewo)
+    Zmiana wymaga restartu.
+
+  Inwersja kolorów TFT
+    Normalne / Odwrócone - przydatne jeśli kolory ekranu wyglądają błędnie.
+
+  Touch Rotation (0-3)
+    Obrót kalibracji dotyku (analogicznie do TFT Rotation).
+    Domyślnie: 1.
+
+  Ręczna zamiana osi
+    Dodatkowe korekty orientacji dotyku:
+      Brak (NONE)             - bez zmian
+      Zamień osie X↔Y         - zamiana osi
+      Odwróć oś X             - lustro poziome
+      Odwróć oś Y             - lustro pionowe
+      Odwróć X i Y            - obrót 180°
+      Obrót 90° w prawo       - SWAP XY + INVERT X
+      Obrót 90° w lewo        - SWAP XY + INVERT Y
+      Zamień + odwróć oba     - SWAP XY + INVERT BOTH
+
+  Przywróć domyślną rotację TFT
+    Resetuje TFT Rotation do wartości 1 i restartuje urządzenie.
+
+  Przywróć domyślne (DEFAULT) kalibracji dotyku
+    Przywraca domyślne wartości kalibracji dotyku z kodu.
+
+  Po kliknięciu "Zapisz ustawienia TFT" odśwież przeglądarkę (F5).
+
+
+5.11 Zakładka "ALERT" - System alertów APRS
+--------------------------------------------
+(Dostępna w zakładce "ALERT" w menu głównym)
+
+  Lista poszukiwanych znaków (po przecinku)
+    Lista do 20 znaków APRS do monitorowania.
+    Format: ZNAK1, ZNAK2, ZNAK3*
+    Gwiazdka (*) na końcu oznacza dowolny SSID (np. SP3KON* = SP3KON-0 do SP3KON-15).
+    Przykład: SQ3NIK-9, SP3YOR, SP3KON-7
+
+  Włącz powiadomienia APRS ALERT
+    Gdy wyłączone - lista jest zachowana, ale alerty nie są generowane.
+
+  Minimalny odstęp alertu dla tej samej stacji (sekundy)
+    Minimalny czas między kolejnymi alertami od tej samej stacji.
+    0 = alert przy każdym odebraniu pakietu.
+    Zakres: 0-86400 sekund (maks. 24 godziny).
+    Domyślnie: 300 sekund (5 minut).
+
+  Czas wyświetlania ALERT na ekranie TFT (sekundy)
+    Przez ile sekund ekran TFT wyświetla okno alertu.
+    Zakres: 1-60 sekund. Domyślnie: 5 sekund.
+
+  Włącz wykrywanie stacji ruchomych w zasięgu (-7 i -9)
+    Automatycznie generuje alert gdy stacja z SSID -7 (pieszy)
+    lub -9 (pojazd) znajdzie się w zasięgu zdefiniowanym przez
+    ALERT_Distance. Działa niezależnie od listy znaków.
+
+  Włącz powiadomienia ze stacji pogodowych APRS (WX)
+    Alert jest generowany gdy odbierana jest stacja APRS
+    oznaczona symbolem WX (stacja meteorologiczna).
+    Alert zawiera zdekodowane dane pogodowe.
+
+  ALERT_Distance dla stacji ruchomych (km)
+    Maksymalny zasięg wykrywania stacji ruchomych (-7, -9).
+    Zakres: 0.1-500 km. Domyślnie: 1 km.
+
+  Włącz optyczny alert LED (GPIO17)
+    Gdy zaznaczone - przy wykryciu alertu miga dioda LED podłączona
+    do GPIO17. W tym miejscu można dolutować buzzer 3V.
+
+  Czas trwania alertu LED (ms)
+    Jak długo trwa sygnalizacja LED po wyzwoleniu alertu.
+    Zakres: 100-60000 ms. Domyślnie: 5000 ms (5 sekund).
+
+  Tempo migania LED (ms)
+    Czas trwania jednego cyklu mignięcia (włącz/wyłącz).
+    Zakres: 50-5000 ms. Domyślnie: 500 ms.
+
+  Po kliknięciu "Zapisz ALERT" odśwież przeglądarkę (F5).
+
+
+6. UWAGI OGÓLNE
+================
+
+  - Po każdym zapisaniu konfiguracji urządzenie restartuje się.
+    Poczekaj ~10 sekund, a następnie odśwież przeglądarkę (F5)
+    i wpisz adres IP urządzenia widoczny na ekranie TFT.
+
+  - Gdy urządzenie nie może połączyć się z żadną zapisaną siecią WiFi,
+    automatycznie wraca do trybu AP:
+      Sieć: ESP32-HAM-CLOCK  |  Hasło: 1234567890  |  Adres: 192.168.4.1
+
+  - Dane QRZ, OpenWeather i HAMALERT są opcjonalne - urządzenie działa
+    bez nich, ale z ograniczonymi funkcjami.
+
+  - Współrzędne lokalizacji (Latitude/Longitude) mają kluczowe znaczenie
+    dla: filtrowania APRS, obliczania odległości, pogody oraz alertów.
+    Wpisz je dokładnie w formacie dziesiętnym (jak Google Maps).
+
+  - Przycisk "Postaw kawę" w lewym górnym rogu panelu WWW prowadzi
+    do strony wsparcia autora projektu. Miłe gesty są mile widziane :)
+
+================================================================================
+ESP32-HAM-CLOCK - https://github.com/sp3kon | sp3kon@gmail.com
+================================================================================
+
+
+7. SLEDZENIE SATELITOW (ISS) - ZAKLADKA "SATELITY"
+===================================================
+
+  Ekran i zakladka "Satelity" pokazuja pozycje ISS na mapie swiata, trajektorie
+  naziemna (SGP4), cien nocy (dzien/noc), okno widocznosci, radar azymut/elevacja
+  oraz dystans do stacji.
+
+  FLAGA KRAJU POD ISS:
+    - Pod nazwa kraju wyswietlana jest flaga panstwa, nad ktorym aktualnie
+      przelatuje ISS (np. flaga Polski).
+    - Brak flagi = pozycja nad oceanem lub brak danych o kraju (chwilowy brak
+      polaczenia z usluga geokodowania). Sprobuj ponownie za kilkanascie sekund.
+
+  NASTEPNY PRZELOT:
+    - Panel pokazuje najblizszy przelot ISS nad Twoja lokalizacja (godzina AOS).
+    - Gdy ISS jest widoczny w danym momencie, zamiast godziny AOS pojawia sie
+      koniec biezacego przelotu ("do HH:MM").
+    - "brak danych" oznacza, ze najblizszy przelot jest dalej niz 24 h (albo brak
+      danych orbitalnych TLE / brak synchronizacji czasu NTP). Przeloty ISS nad
+      danym miejscem zdarzaja sie srednio co kilka godzin - najblizszy bywa
+      dopiero po 8-12 h.
+    - Dla dokladniejszych i szybszych wynikow mozna podac darmowy klucz API
+      n2yo.com w Ustawieniach; bez klucza obliczenia wykonuje ESP32 lokalnie (SGP4).
+
+  WAZNE: pozycje Lat/Lon (Ustawienia -> Twoja Stacja) lub poprawny lokator sa
+  potrzebne do wyliczenia najblizszego przelotu i filtrow APRS.
+
+
+8. PSK REPORTER - MAPA
+========================
+
+  Mapa PSK pokazuje stacje raportujace (spoty) oraz linie od Twojej pozycji (QTH)
+  do kazdej stacji. Kolor linii zalezy od odleglosci DX, a kolor kropki - od pasma.
+
+  - Dla dzialajacego rysowania linii potrzebna jest Twoja pozycja: wpisane
+    wspolrzedne Lat/Lon LUB lokator (Maidenhead). Bez nich mapa nie zna punktu
+    startowego i nie rysuje linii ani czerwonej kropki QTH.
+  - Pole "Dni" w menu PSK okresla zakres czasu raportow: od 1 do 30 dni.
