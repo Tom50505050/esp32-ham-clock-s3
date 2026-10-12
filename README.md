@@ -1,5 +1,10 @@
 # ESP32-HAM-CLOCK — wersja dla ESP32-S3 N16R8 + ILI9488 3.5"
 
+[![PlatformIO](https://img.shields.io/badge/PlatformIO-esp32--s3--n16r8-orange?logo=platformio&logoColor=white)](platformio.ini)
+[![ESP32-S3](https://img.shields.io/badge/MCU-ESP32--S3%20N16R8-red?logo=espressif&logoColor=white)](platformio.ini)
+[![Display](https://img.shields.io/badge/Display-ILI9488%203.5%22%20%2B%20XPT2046-blue)](README_S3.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Zaawansowany zegar i terminal krótkofalarski na **ESP32-S3-WROOM-1 N16R8**
 (16 MB flash, 8 MB PSRAM) z zewnętrznym wyświetlaczem **ILI9488 3.5" IPS 480×320**
 po SPI i panelem dotykowym **XPT2046**.
@@ -89,6 +94,33 @@ esptool.py -p COM9 write_flash 0x0 merged-flash.bin
 
 ---
 
+## Releases
+
+Gotowe, zbudowane obrazy i paczki są dostępne na stronie
+**[Releases](https://github.com/Tom50505050/esp32-ham-clock-s3/releases)**.
+
+| Wersja | Data | Najważniejsze zmiany |
+|---|---|---|
+| **v1.4.3** | 12.10.2026 | Ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
+| v1.4 | 2026 | Flagi krajów pod ISS · czytelny brak danych następnego przelotu · tracker WWW (noc/dzień, okno widoczności) · stabilizacja SPI |
+| v1.3 | — | Mapy PSK, poprawki rysowania |
+| v1.2b | — | Wersja bazowa dla ESP32-S3 N16R8 |
+
+### Wgrywanie z wydania
+
+```bash
+# cały obraz (firmware + LittleFS) - offset 0x0
+esptool.py -p COM9 write_flash 0x0 merged-flash.bin
+
+# albo osobno
+esptool.py -p COM9 write_flash 0x10000 firmware.bin   # firmware
+esptool.py -p COM9 write_flash 0x810000 littlefs.bin  # dane WWW
+```
+
+W plikach `flash.bat` / `flash.sh` znajdują się gotowe skrypty wgrywania.
+
+---
+
 ## Struktura repozytorium
 
 ```
@@ -110,5 +142,7 @@ INSTRUKCJA.md            # instrukcja obsługi
 - Projekt bazowy: **Konrad Wiśniewski SP3KON** — ESP32-HAM-CLOCK.
 - Adaptacja i rozwój: **Tomasz SP9TNV**.
 - Kontakt: SP9TNV@gmail.com
+
+Projekt udostępniany na licencji **MIT** — szczegóły w pliku [`LICENSE`](LICENSE).
 
 Korzystasz na własną odpowiedzialność — to konstrukcja hobbystyczna.
