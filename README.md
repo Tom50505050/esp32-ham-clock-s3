@@ -101,10 +101,7 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
-| **v1.4.3** | 12.10.2026 | Ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
-| v1.4 | 2026 | Flagi krajów pod ISS · czytelny brak danych następnego przelotu · tracker WWW (noc/dzień, okno widoczności) · stabilizacja SPI |
-| v1.3 | — | Mapy PSK, poprawki rysowania |
-| v1.2b | — | Wersja bazowa dla ESP32-S3 N16R8 |
+| **v1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
 
 ### Wgrywanie z wydania
 

@@ -1,4 +1,4 @@
-# ESP32-HAM-CLOCK v1.4.3 — ESP32-S3 N16R8 + ILI9488 3.5"
+# ESP32-HAM-CLOCK v1 — ESP32-S3 N16R8 + ILI9488 3.5"
 
 ## Zmiany w tym wydaniu
 
