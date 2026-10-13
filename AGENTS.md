@@ -594,4 +594,7 @@ domyslnie 0xFFFF bialy) mozna teraz ustawic na dwa sposoby:
   wstrzymane, gdy `callsignColorMenuActive`.
 - Klawisze tlumaczen: `TR_CALLSIGN_COLOR`, `TR_SATURATION`, `TR_VALUE`
   (dodane na koncu enum i tablic TR_PL/TR_EN - kolejnosc musi sie zgadzac).
+- UWAGA (naprawione): `hsv565()` liczy kanaly w skali 0..255 przed `rgb565()`
+  (nie 0..100!) - inaczej 100% jasnosci dawalo ~39% ("polowa jasnosci").
+  Domyslne suwaki: nasycenie 100%, jasnosc 100%.
 
