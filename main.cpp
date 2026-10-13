@@ -124,9 +124,8 @@ void drawHamalertFilterMenu();
 void drawAprsSortMenu();
 void drawWeatherMenu();
 void drawHamClockTimeMenu();
-static bool isScreen6RadarZoomTopHit(uint16_t x, uint16_t y);
+static bool isScreen6RadarRangeTileHit(uint16_t x, uint16_t y, int &index);
 static void triggerScreen6RadarHint();
-static bool isScreen6RadarZoomBottomHit(uint16_t x, uint16_t y);
 float calculateBearing(double lat1, double lon1, double lat2, double lon2);
 float calculateDistance(double lat1, double lon1, double lat2, double lon2);
 
@@ -5212,26 +5211,15 @@ void handleTouchNavigation() {
       }
     }
       if (currentScreen == SCREEN_APRS_RADAR) {
-      if (isScreen6RadarZoomTopHit(x, y)) {
+      int tileIdx = -1;
+      if (isScreen6RadarRangeTileHit(x, y, tileIdx)) {
         if ((now - screen6RadarLastZoomTapMs) < SCREEN6_RADAR_ZOOM_TAP_COOLDOWN_MS) {
           return;
         }
         screen6RadarLastZoomTapMs = now;
-        if (aprsRadarRangeIndex < APRS_RADAR_RANGE_COUNT - 1) {
-          aprsRadarRangeIndex++;
-          triggerScreen6RadarHint();
-          drawScreen(SCREEN_APRS_RADAR);
-          resetTftAutoSwitchTimer();
-        }
-        return;
-      }
-      if (isScreen6RadarZoomBottomHit(x, y)) {
-        if ((now - screen6RadarLastZoomTapMs) < SCREEN6_RADAR_ZOOM_TAP_COOLDOWN_MS) {
-          return;
-        }
-        screen6RadarLastZoomTapMs = now;
-        if (aprsRadarRangeIndex > 0) {
-          aprsRadarRangeIndex--;
+        if (tileIdx >= 0 && tileIdx < APRS_RADAR_RANGE_COUNT &&
+            tileIdx != aprsRadarRangeIndex) {
+          aprsRadarRangeIndex = tileIdx;
           triggerScreen6RadarHint();
           drawScreen(SCREEN_APRS_RADAR);
           resetTftAutoSwitchTimer();
@@ -5451,6 +5439,27 @@ void drawHamburgerMenuButton3D(int x, int y) {
   tft.fillRect(x, y + 14, iconW, 3, TFT_BLACK);
 }
 
+// Hamburger rysowany do sprite'a radaru (ten sam wyglad co wersja na tft).
+// Rysowany w sprite przed pushSprite => brak migotania przy kazdej klatce.
+static void drawHamburgerMenuButton3DSprite(TFT_eSprite &sp, int x, int y) {
+  const int iconW = 20;
+  const int iconH = 17;
+  const int pad = 3;
+  const int btnX = x - pad;
+  const int btnY = y - pad;
+  const int btnW = iconW + (pad * 2);
+  const int btnH = iconH + (pad * 2);
+  const uint16_t edgeLight = lerpColor565(TFT_WHITE, TFT_RADIO_ORANGE, 140);
+  const uint16_t edgeShadow = lerpColor565(TFT_BLACK, TFT_RADIO_ORANGE, 115);
+  sp.fillRoundRect(btnX, btnY, btnW, btnH, 3, TFT_RADIO_ORANGE);
+  sp.drawRoundRect(btnX, btnY, btnW, btnH, 3, edgeLight);
+  sp.drawLine(btnX + 1, btnY + btnH - 1, btnX + btnW - 2, btnY + btnH - 1, edgeShadow);
+  sp.drawLine(btnX + btnW - 1, btnY + 1, btnX + btnW - 1, btnY + btnH - 2, edgeShadow);
+  sp.fillRect(x, y, iconW, 3, TFT_BLACK);
+  sp.fillRect(x, y + 7, iconW, 3, TFT_BLACK);
+  sp.fillRect(x, y + 14, iconW, 3, TFT_BLACK);
+}
+
 static void drawScreen6ViewToggleButton3D(int x, int y, Screen6ViewMode mode) {
   const int iconW = 20;
   const int iconH = 17;
@@ -5480,26 +5489,35 @@ static bool isScreen6ViewToggleHit(uint16_t x, uint16_t y) {
           y <= (SCREEN6_VIEW_BTN_HIT_Y + SCREEN6_VIEW_BTN_HIT_H));
 }
 
-static bool isScreen6RadarZoomTopHit(uint16_t x, uint16_t y) {
-  if (currentScreen != SCREEN_APRS_RADAR) {
-    return false;
-  }
-  int w = tft.width();
-  int h = tft.height();
-  int xMin = w / 4;
-  int xMax = (3 * w) / 4;
-  return (x >= xMin && x <= xMax && y < (h / 2));
+// Kafelki zakresu (x0.2..x4) wysrodkowane na dole ekranu - geometria wspolna
+// dla rysowania i testu dotyku. Zwraca indeks trafionego kafelka.
+static const int ARP_TILE_W = 52;
+static const int ARP_TILE_H = 18;
+static const int ARP_TILE_GAP = 6;
+static const int ARP_TILE_Y = 300;
+
+static int aprsRadarTileStartX() {
+  const int total = APRS_RADAR_RANGE_COUNT * ARP_TILE_W +
+                    (APRS_RADAR_RANGE_COUNT - 1) * ARP_TILE_GAP;
+  return (480 - total) / 2;
 }
 
-static bool isScreen6RadarZoomBottomHit(uint16_t x, uint16_t y) {
+static bool isScreen6RadarRangeTileHit(uint16_t x, uint16_t y, int &index) {
   if (currentScreen != SCREEN_APRS_RADAR) {
     return false;
   }
-  int w = tft.width();
-  int h = tft.height();
-  int xMin = w / 4;
-  int xMax = (3 * w) / 4;
-  return (x >= xMin && x <= xMax && y >= (h / 2));
+  if (y < ARP_TILE_Y || y > (ARP_TILE_Y + ARP_TILE_H)) {
+    return false;
+  }
+  int startX = aprsRadarTileStartX();
+  for (int i = 0; i < APRS_RADAR_RANGE_COUNT; i++) {
+    int bx = startX + i * (ARP_TILE_W + ARP_TILE_GAP);
+    if (x >= bx && x <= (bx + ARP_TILE_W)) {
+      index = i;
+      return true;
+    }
+  }
+  return false;
 }
 
 static void triggerScreen6RadarHint() {
@@ -5515,7 +5533,7 @@ static bool isScreen6RadarHintVisible() {
 // Cala klatka jest rysowana do bufora i wypychana jednym pushSprite(),
 // wiec nie ma migotania ani resztek poprzedniej klatki. Kolory taktyczne
 // wg typu stacji, panel boczny z telemetria, siatka + pierscienie + wskaznik
-// polnocny, panel zakresow (5/10/25/50/100 km).
+// polnocny, wysrodkowane kafelki zakresu (x0.2..x4) przelaczane dotykiem.
 // ============================================================================
 
 // Paleta retro-zielona + kolory taktyczne (RGB565).
@@ -5598,25 +5616,26 @@ static void aprsRadarRow(int y, const char *label, const char *value, uint16_t v
   aprsRadarSprite.drawString(value, ARP_PANEL_X + 92, y, 1);
 }
 
-// Panel zakresow na dole - aktualny podswietlony.
-static void aprsRadarRangeTiles(int y) {
+// Panel zakresow na dole, wysrodkowany; aktywny kafelek podswietlony.
+static void aprsRadarRangeTiles() {
   const char *labels[] = {"x0.2", "x0.5", "x1", "x2", "x4"};
-  const int tileW = 44;
-  const int tileH = 16;
+  const int startX = aprsRadarTileStartX();
   for (int i = 0; i < APRS_RADAR_RANGE_COUNT; i++) {
-    int bx = 4 + i * 50;
+    int bx = startX + i * (ARP_TILE_W + ARP_TILE_GAP);
+    int by = ARP_TILE_Y;
     bool active = (i == aprsRadarRangeIndex);
     if (active) {
-      aprsRadarSprite.fillRect(bx, y, tileW, tileH, ARP_COL_TEXT);
+      aprsRadarSprite.fillRect(bx, by, ARP_TILE_W, ARP_TILE_H, ARP_COL_TEXT);
       aprsRadarSprite.setTextColor(ARP_COL_BG, ARP_COL_TEXT);
     } else {
-      aprsRadarSprite.drawRect(bx, y, tileW, tileH, ARP_COL_GRID);
+      aprsRadarSprite.drawRect(bx, by, ARP_TILE_W, ARP_TILE_H, ARP_COL_GRID);
       aprsRadarSprite.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
     }
-    aprsRadarSprite.setTextDatum(TL_DATUM);
+    aprsRadarSprite.setTextDatum(MC_DATUM);
     aprsRadarSprite.setTextSize(1);
-    aprsRadarSprite.drawString(labels[i], bx + 6, y + 5, 1);
+    aprsRadarSprite.drawString(labels[i], bx + ARP_TILE_W / 2, by + ARP_TILE_H / 2, 1);
   }
+  aprsRadarSprite.setTextDatum(TL_DATUM);
 }
 
 // Rysuje jedna klatke radaru. angleDeg - kat smugi; advanceBlips - czy
@@ -5726,8 +5745,19 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     if ((shown & 0x03) == 0) yield();
   }
 
-  // Wlasna stacja (QTH) w centrum.
+  // Wlasna stacja (QTH) w centrum + podpis CALL/LOKATOR przy znaczniku.
   sp.fillCircle(ARP_CX, ARP_CY, 3, ARP_COL_TEXT);
+  {
+    String c = userCallsign.length() > 0 ? userCallsign : String("QTH");
+    if (c.length() > 10) c = c.substring(0, 10);
+    String lab = c;
+    if (userLocator.length() > 0) lab += " " + userLocator;
+    sp.setTextDatum(TC_DATUM);
+    sp.setTextSize(1);
+    sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
+    sp.drawString(lab, ARP_CX, ARP_CY + 8, 1);
+    sp.setTextDatum(TL_DATUM);
+  }
 
   // --- Panel boczny ---
   sp.fillRect(ARP_PANEL_X - 1, 0, ARP_PANEL_W + 1, 320, ARP_COL_PANEL);
@@ -5739,17 +5769,17 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   {
     String call = userCallsign.length() > 0 ? userCallsign : String("(brak)");
     if (call.length() > 12) call = call.substring(0, 12);
-    aprsRadarRow(20, "CALL:", call.c_str(), ARP_COL_TEXT);
-    aprsRadarRow(32, "LOK:", userLocator.length() > 0 ? userLocator.c_str() : "--",
+    aprsRadarRow(16, "CALL:", call.c_str(), ARP_COL_TEXT);
+    aprsRadarRow(27, "LOK:", userLocator.length() > 0 ? userLocator.c_str() : "--",
                  ARP_COL_TEXT);
     if (userLatLonValid) {
       snprintf(buf, sizeof(buf), "%.4f", userLat);
-      aprsRadarRow(44, "SZER:", buf, ARP_COL_TEXT);
+      aprsRadarRow(38, "SZER:", buf, ARP_COL_TEXT);
       snprintf(buf, sizeof(buf), "%.4f", userLon);
-      aprsRadarRow(56, "DLUG:", buf, ARP_COL_TEXT);
+      aprsRadarRow(49, "DLUG:", buf, ARP_COL_TEXT);
     } else {
-      aprsRadarRow(44, "SZER:", "--", ARP_COL_DIM);
-      aprsRadarRow(56, "DLUG:", "--", ARP_COL_DIM);
+      aprsRadarRow(38, "SZER:", "--", ARP_COL_DIM);
+      aprsRadarRow(49, "DLUG:", "--", ARP_COL_DIM);
     }
   }
 
@@ -5811,27 +5841,29 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     sp.setTextDatum(TL_DATUM);
     sp.setTextSize(1);
     sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
-    sp.drawString(tb, 48, 8, 1);
+    sp.drawString(tb, 48, 2, 1);
   }
 
   // --- Panel zakresow na dole ---
-  aprsRadarRangeTiles(300);
+  aprsRadarRangeTiles();
 
-  // Krotka podpowiedz po zmianie zakresu (dotkniecie gornej/dolnej polowy).
+  // Krotka podpowiedz po zmianie zakresu (dotkniecie kafelka na dole).
   if (isScreen6RadarHintVisible()) {
+    static const char *tileLabels[] = {"x0.2", "x0.5", "x1", "x2", "x4"};
+    char hint[24];
+    snprintf(hint, sizeof(hint), "ZAKRES %s", tileLabels[aprsRadarRangeIndex]);
     sp.setTextDatum(TC_DATUM);
     sp.setTextSize(1);
     sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
-    sp.drawString("+ ZAKRES", ARP_CX, 6, 1);
-    sp.drawString("- ZAKRES", ARP_CX, 290, 1);
+    sp.drawString(hint, ARP_CX, 283, 1);
     sp.setTextDatum(TL_DATUM);
   }
 
-  sp.pushSprite(0, 0);
+  // Przycisk menu rysujemy do sprite'a, przed pushSprite - wtedy kazda klatka
+  // zawiera hamburger i nie ma migotania zwiazanego z przerysowaniem na tft.
+  drawHamburgerMenuButton3DSprite(sp, 5, 7);
 
-  // Przycisk menu rysujemy na TFT po pushSprite - sprite i tak nadpisuje ekran,
-  // wiec musi byc odtwarzany w kazdej klatce animacji.
-  drawHamburgerMenuButton3D(5, 7);
+  sp.pushSprite(0, 0);
 
   if (locked) {
     xSemaphoreGive(aprsRadarSpriteMux);
