@@ -428,3 +428,26 @@ Jesli po tej poprawce nadal nie laczy — problem jest po stronie routera/zasila
   poluzowana antena (community: "antena byla luzna").
 
 
+
+
+### Log 18:45 - drabinka mocy NIE pomogla => problem poza firmware
+```
+[WIFI] Proba, moc=78 (idx 0) -> AUTH_EXPIRE (2)
+[WIFI] Proba, moc=60 (idx 1) -> AUTH_EXPIRE (2)
+[WIFI] Proba, moc=44 (idx 2) -> AUTH_EXPIRE (2), potem AUTH_FAIL (202)
+```
+AUTH_EXPIRE przy WSZYSTKICH mocach (19,5/15/11 dBm) wyklucza brownout/zasilanie.
+Ostatni skan zwrocil -2 (radio zajete), stad falszywe "Nie widze Twojego SSID".
+`AUTH_EXPIRE -> AUTH_FAIL` przy widocznej sieci (RSSI=-53, ch=4, enc=3) to wg
+spolecznosci ESP klasyczny objaw ODRZUCANIA stacji przez AP:
+- band steering / "Smart Connect" (router wypycha 2,4 GHz klienta na 5 GHz),
+- tryb WPA2/WPA3-mixed + PMF (transition mode),
+- filtr MAC / izolacja klienta,
+- albo po prostu zle haslo (router nie rozroznia "zle haslo" od "auth timeout").
+
+Nie ma reguly kodowej, ktora to naprawi - to konfiguracja routera/hasla.
+Dodano tylko przypinanie do BSSID (`begin(ssid,pass,ch,bssid)`) jako obejscie
+band-steeringu. TEST ROZSTRZYGAJACY: polaczyc sie z `Multiplay_C984` telefonem
+z haslem `ZTEEQFWL7H01091` (z logu). Telefon tez nie laczy => haslo/polityka AP.
+Telefon laczy => interop ESP-router: wylaczyc Smart Connect, osobne SSID 2,4 GHz,
+WPA2-PSK(AES) bez WPA3/PMF, sprawdzic antene (RX dziala = skan, TX moze nie).
