@@ -14554,6 +14554,36 @@ void requestRestart(unsigned long delayMs = 1500) {
   restartAtMs = millis() + delayMs;
 }
 
+// Powod ostatniego rozlaczenia STA - zapisywany przez handler WiFi.onEvent.
+static volatile int g_lastWifiReason = 0;
+
+// Jedna proba polaczenia STA przy danej mocy nadawania.
+// AUTH_EXPIRE (2) powtarzane przy pelnej mocy to czesto problem zasilania
+// (skok pradu przy TX) albo routera - dlatego probujemy kilku poziomow mocy.
+static bool wifiAttemptAtPower(const String &ssid, const String &pass, int channel,
+                               wifi_power_t power, int timeoutMs) {
+  g_lastWifiReason = 0;
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(200);
+  WiFi.mode(WIFI_STA);
+  delay(50);
+  WiFi.setTxPower(power);
+  if (channel > 0) {
+    WiFi.begin(ssid.c_str(), pass.c_str(), channel);
+  } else {
+    WiFi.begin(ssid.c_str(), pass.c_str());
+  }
+  unsigned long t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && (millis() - t0) < (unsigned long)timeoutMs) {
+    delay(250);
+    yield();
+    Serial.print(".");
+  }
+  Serial.println("");
+  return WiFi.status() == WL_CONNECTED;
+}
+
 bool connectToWiFi() {
   if (wifiSSID.length() == 0 && wifiSSID2.length() == 0) {
     return false;
@@ -14575,6 +14605,7 @@ bool connectToWiFi() {
       switch (event) {
         case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
           wifi_err_reason_t r = (wifi_err_reason_t)info.wifi_sta_disconnected.reason;
+          g_lastWifiReason = (int)r;
           Serial.printf("[WIFI EVT] DISCONNECTED reason=%u (%s)\n", (unsigned)r,
                         WiFi.disconnectReasonName(r));
           break;
@@ -14645,29 +14676,24 @@ bool connectToWiFi() {
     WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
     WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
 
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    delay(250);
-
-    WiFi.mode(WIFI_STA);
-    delay(50);
-    if (channel > 0) {
-      WiFi.begin(cred.ssid.c_str(), cred.pass.c_str(), channel);
-    } else {
-      WiFi.begin(cred.ssid.c_str(), cred.pass.c_str());
-    }
-
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-      delay(500);
-      yield();
-      Serial.print(".");
-      attempts++;
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("");
-      return true;
+    // Drabinka mocy TX. Powtarzane AUTH_EXPIRE (reason 2) przy pelnej mocy to
+    // typowy objaw problemu zasilania (skok pradu przy TX) albo routera -
+    // obnizenie mocy czesto dziala. 0 = pelna moc (domyslna).
+    wifi_power_t powers[] = {WIFI_POWER_19_5dBm, WIFI_POWER_15dBm, WIFI_POWER_11dBm};
+    for (int p = 0; p < 3; p++) {
+      Serial.printf("[WIFI] Proba, moc=%d (idx %d)\n", (int)powers[p], p);
+      if (wifiAttemptAtPower(cred.ssid, cred.pass, channel, powers[p], 9000)) {
+        return true;
+      }
+      Serial.printf("[WIFI] Nieudane przy mocy idx %d, reason=%d\n", p, (int)g_lastWifiReason);
+      // Reason 201 = AP chwilowo nieosiagalny; daj routerowi chwile i sprobuj
+      // na tym samym poziomie mocy raz jeszcze, zanim obnizymy moc.
+      if (g_lastWifiReason == 201) {
+        delay(500);
+        if (wifiAttemptAtPower(cred.ssid, cred.pass, channel, powers[p], 9000)) {
+          return true;
+        }
+      }
     }
 
     Serial.println("");

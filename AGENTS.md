@@ -401,3 +401,30 @@ albo zly SSID. `reason=15` → zle haslo. `reason=205` (CONNECTION_FAIL) → rou
 UWAGA: blok "TYMCZASOWA NAPRAWA KONFIGURACJI" w `setup()` (main.cpp ~21519)
 ma na sztywno `Multiplay_C984` jako "poprawna" siec — do usuniecia docelowo.
 
+### Wynik z realnego urzadzenia (log 18:20, firmware z diagnostyka)
+```
+[SKANOWANIE WIFI] Multiplay_C984 widoczna: RSSI=-60 ch=4 enc=3  (WPA2, silny sygnal)
+[WIFI EVT] ROZŁĄCZONO powód=2 (AUTH_EXPIRE)  x5
+[WIFI EVT] ROZŁĄCZONO powód=201 (NO_AP_FOUND)
+WiFi.status(): 1
+```
+Czyli: SSID widoczny, silny sygnal, standardowe WPA2 — ale autoryzacja wygasa.
+To NIE zasieg i NIE 5 GHz i NIE zle haslo (enc=3, haslo z NVS 15 znakow).
+`AUTH_EXPIRE` (2) powtarzane przy pelnej mocy to klasyczny objaw problemu
+zasilania/TX-power (skok pradu przy nadawaniu) albo routera (Smart Connect,
+PMF/WPA3 transition, deauth). Ten board juz ogranicza prad w AP
+(`setTxPower(WIFI_POWER_11dBm)` w `startAPMode`, komentarz o brownoucie).
+
+### Poprawka: drabinka mocy TX (`wifiAttemptAtPower`)
+`attemptConnect()` probuje kolejno `WIFI_POWER_19_5dBm` → `15dBm` → `11dBm`,
+kazda po 9 s; przy `reason=201` dodatkowa powtorka na tym samym poziomie.
+Gdy ktoras moc zadziala, laczy sie i konczy. Loguje `[WIFI] Proba, moc=idx` i
+`[WIFI] Nieudane przy mocy idx=N, reason=R`.
+
+Jesli po tej poprawce nadal nie laczy — problem jest po stronie routera/zasilania:
+- w routerze: wylaczyc "Smart Connect"/band steering, ustawic WPA2 (nie WPA2/WPA3 mixed),
+  sprawdzić liste MAC (filtr), kanal 1-11, ewentualnie osobne SSID dla 2.4 GHz,
+- na urzadzeniu: sprawdzic zasilanie (USB 5 V/2 A, kondensator, slabosc 3V3),
+  poluzowana antena (community: "antena byla luzna").
+
+
