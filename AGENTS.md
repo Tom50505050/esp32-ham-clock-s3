@@ -472,3 +472,26 @@ setMinSecurity(OPEN)) zostaje jako wartosciowa diagnostyka/odpornosc.
 Drabinka mocy TX okazala sie nieskuteczna dla tego przypadku (AUTH_EXPIRE przy
 kazdej mocy) - kandydat do uproszczenia/usuniecia, bo dodaje ~27 s opoznienia,
 gdy AP jest nieosiagalny.
+
+
+## EKRAN APRS RADAR (SCREEN_APRS_RADAR = 9) - nowy render taktyczny
+Zastapiono stary ekran APRS RADAR renderem opartym o TFT_eSprite 480x320
+w PSRAM (wzorzec jak ekran ISS):
+- `aprsRadarSprite` + `ensureAprsRadarSprite()` - alokacja w PSRAM, jeden
+  `pushSprite(0,0)` na klatke => brak migotania i resztek.
+- `aprsRadarRenderFrame(angleDeg, advanceBlips)` - rysuje pelna klatke.
+  advanceBlips=false przy pelnym odswiezeniu (drawAprsRadarBody), true w animacji.
+- `aprsRadarTick()` wolane z `loop()` co ~100 ms gdy ekran aktywny; obraca
+  smuge (`aprsRadarSweepAngle += 4`) i zapala blipy (`aprsRadarBlip[]`).
+- Geometria: ARP_CX=127, ARP_CY=158, ARP_RADIUS=122, panel ARP_PANEL_X=262.
+- Kolory taktyczne `aprsRadarStationColor()`: zolty=mobilne, cyjan=WX,
+  magenta=digi/repeater/node/LoRa, bialy=stale (wg `getAPRSSymbolShort`).
+- Zakresy: `APRS_RADAR_RANGES[] = {5,10,25,50,100} km`, `aprsRadarRangeIndex`.
+  Dotkniecie gornej/dolnej polowy ekranu przelacza zakres (zastepuje stary
+  procentowy `screen6RadarZoom`, ktory usunieto).
+- Panel boczny: QTH, STATUS (WiFi/APRS-IS), VFO 144.800, ZAKRES + lista stacji
+  z odlegloscia, zegar UTC.
+
+UWAGA: jesli PSRAM/sprite sie nie zaalokuje, ekran nie rysuje sie wcale
+(`ensureAprsRadarSprite` zwraca false) - to celowe, zeby nie mieszac sprite
+z bezposrednim rysowaniem do tft. Sprawdz `[APRS RADAR] Brak sprite...` w logu.
