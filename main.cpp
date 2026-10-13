@@ -19142,6 +19142,11 @@ void uiTaskLoop(void *parameter) {
         aprsRadarTick();
       }
     }
+    // Drugi odczyt dotyku po animacji: pushSprite (~60 ms na 40 MHz) blokuje
+    // zadanie, wiec bez tego dotkniecie miedzy odczytami przepadalo.
+    if (tftInitialized) {
+      handleTouchNavigation();
+    }
 
     // Diagnostyka: co 15 s potwierdz, ze zadanie UI zyje i na jakim ekranie.
     // "Ekran zgasl" = UI_Task zawieszony/nie rysuje; brak tego logu = task nie zyje.
