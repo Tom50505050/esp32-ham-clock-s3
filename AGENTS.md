@@ -481,16 +481,27 @@ w PSRAM (wzorzec jak ekran ISS):
   `pushSprite(0,0)` na klatke => brak migotania i resztek.
 - `aprsRadarRenderFrame(angleDeg, advanceBlips)` - rysuje pelna klatke.
   advanceBlips=false przy pelnym odswiezeniu (drawAprsRadarBody), true w animacji.
-- `aprsRadarTick()` wolane z `loop()` co ~100 ms gdy ekran aktywny; obraca
-  smuge (`aprsRadarSweepAngle += 4`) i zapala blipy (`aprsRadarBlip[]`).
+- `aprsRadarTick()` wolane z `UI_Task` (NIE z `loopTask`!) co ~100 ms gdy ekran
+  aktywny; obraca smuge (`aprsRadarSweepAngle += 4`) i zapala blipy
+  (`aprsRadarBlip[]`). Wolanie z `loop()` powodowalo reset: `pushSprite` z dwoch
+  zadan na tym samym SPI zawieszalo magistrale. `aprsRadarRenderFrame` dodatkowo
+  bierze mutex `aprsRadarSpriteMux` (pomija klatke zamiast czekac).
 - Geometria: ARP_CX=127, ARP_CY=158, ARP_RADIUS=122, panel ARP_PANEL_X=262.
 - Kolory taktyczne `aprsRadarStationColor()`: zolty=mobilne, cyjan=WX,
   magenta=digi/repeater/node/LoRa, bialy=stale (wg `getAPRSSymbolShort`).
-- Zakresy: `APRS_RADAR_RANGES[] = {5,10,25,50,100} km`, `aprsRadarRangeIndex`.
-  Dotkniecie gornej/dolnej polowy ekranu przelacza zakres (zastepuje stary
-  procentowy `screen6RadarZoom`, ktory usunieto).
+- Zakresy: `APRS_RADAR_RANGE_MULT[] = {0.2,0.5,1,2,4}` - mnozniki promienia
+  filtra APRS-IS (`aprsFilterRadius`, max 50 km; serwer wysyla tylko stacje w
+  tym promieniu). Srodek radaru = `userLat/userLon` z fallbackiem 52.40/16.92
+  (ten sam co `station.distance`). Dotkniecie gornej/dolnej polowy przelacza zakres.
 - Panel boczny: QTH, STATUS (WiFi/APRS-IS), VFO 144.800, ZAKRES + lista stacji
   z odlegloscia, zegar UTC.
+
+UWAGA (nawigacja/dotyk): XPT2046 dzieli magistrale SPI z TFT, wiec ciagly
+`pushSprite` zaklocal odczyt dotyku i "zajadal" tapniecia (nie dalo sie przejsc
+na inny ekran / otworzyc menu). Dlatego animacja jest wstrzymywana na ~500 ms od
+ostatniej aktywnosci dotyku (`screenSleepLastActivityMs`). Przycisk menu
+(hamburger) rysowany jest na `tft` PO `pushSprite`, w kazdej klatce - sprite
+nadpisuje caly ekran, wiec musi byc odtwarzany przy kazdym odswiezeniu.
 
 UWAGA: jesli PSRAM/sprite sie nie zaalokuje, ekran nie rysuje sie wcale
 (`ensureAprsRadarSprite` zwraca false) - to celowe, zeby nie mieszac sprite
