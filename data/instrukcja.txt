@@ -1,8 +1,12 @@
 ================================================================================
           ESP32-HAM-CLOCK - INSTRUKCJA OBSŁUGI
-          Autor: Konrad Wisniewski SP3KON
-          Kontakt: sp3kon@gmail.com
+          Projekt bazowy: Konrad Wiśniewski SP3KON — ESP32-HAM-CLOCK.
+          Adaptacja i rozwój: Tomasz SP9TNV.
+          Kontakt: SP9TNV@gmail.com
+          Projekt udostępniany na licencji MIT — szczegóły w pliku LICENSE.
 ================================================================================
+
+Korzystasz na własną odpowiedzialność — to konstrukcja hobbystyczna.
 
 
 1. OPIS URZĄDZENIA

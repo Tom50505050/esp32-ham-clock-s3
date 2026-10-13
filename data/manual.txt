@@ -1,8 +1,12 @@
 ================================================================================
                  ESP32-HAM-CLOCK - USER MANUAL
-                 Author: Konrad Wisniewski SP3KON
-                 Contact: sp3kon@gmail.com
+                 Base project: Konrad Wiśniewski SP3KON — ESP32-HAM-CLOCK.
+                 Adaptation and development: Tomasz SP9TNV.
+                 Contact: SP9TNV@gmail.com
+                 Distributed under the MIT license — see the LICENSE file.
 ================================================================================
+
+Use at your own risk — this is a hobbyist construction.
 
 
 1. DEVICE DESCRIPTION
