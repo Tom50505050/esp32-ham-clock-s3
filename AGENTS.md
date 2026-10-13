@@ -503,6 +503,13 @@ ostatniej aktywnosci dotyku (`screenSleepLastActivityMs`). Przycisk menu
 (hamburger) rysowany jest na `tft` PO `pushSprite`, w kazdej klatce - sprite
 nadpisuje caly ekran, wiec musi byc odtwarzany przy kazdym odswiezeniu.
 
+UWAGA (pozycja/QTH): `userLatLonValid` + `userLat/userLon` steruja srodkiem
+radaru, filtrem APRS-IS i odleglosciami. Formularz WWW wysyla puste pola jako
+`parseFloat(...)||0` => `(0,0)`. Dlatego `(0,0)` jest traktowane jako BRAK
+pozycji (applyConfigJson, loadPreferences i srodek radaru), a wtedy pozycja
+liczona jest z `userLocator`. Bez tego puste pola dawaly srodek na oceanie i
+radar byl pusty. Panel QTH pokazuje CALL + LOKATOR + SZER/DLUG.
+
 UWAGA: jesli PSRAM/sprite sie nie zaalokuje, ekran nie rysuje sie wcale
 (`ensureAprsRadarSprite` zwraca false) - to celowe, zeby nie mieszac sprite
 z bezposrednim rysowaniem do tft. Sprawdz `[APRS RADAR] Brak sprite...` w logu.
