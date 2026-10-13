@@ -27,10 +27,6 @@ namespace fs { class File; }
 
 static const uint8_t WEATHER_DETAIL_COLS = 5;
 
-// Forward declarations for UnlisHunter state used before global definitions.
-extern bool unlisRunning;
-extern bool unlisGameOver;
-
 void normalizePolish(String &text);
 
 // ========== KONFIGURACJA WYĹšWIETLACZA TFT ==========
@@ -108,9 +104,6 @@ static bool isAprsAlertCloseButtonHit(uint16_t x, uint16_t y);
 static void dismissAprsAlertScreen();
 void drawBrightnessMenu();
 void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap);
-void unlisStopGame();
-void unlisStartResetGame();
-void unlisHandlePttPress(unsigned long nowMs);
 void handleScreen1MenuTouch(uint16_t x, uint16_t y);
 void handleScreen2MenuTouch(uint16_t x, uint16_t y);
 void handleScreen6MenuTouch(uint16_t x, uint16_t y);
@@ -251,7 +244,7 @@ enum ScreenType : uint8_t {
   SCREEN_HAMALERT_CLUSTER = 8,
   SCREEN_APRS_RADAR = 9,
   SCREEN_MATRIX_CLOCK = 10,
-  SCREEN_UNLIS_HUNTER = 11,
+  SCREEN_SYSTEM_INFO = 11,
   SCREEN_WEATHER_FORECAST = 12,
   SCREEN_PSK_MAP = 13,
   SCREEN_ISS_PASS_TRACKING = 14
@@ -575,7 +568,7 @@ const ScreenType DEFAULT_SCREEN_ORDER[SCREEN_PAGE_COUNT] = {
   SCREEN_HAMALERT_CLUSTER,
   SCREEN_PSK_MAP,
   SCREEN_MATRIX_CLOCK,
-  SCREEN_UNLIS_HUNTER,
+  SCREEN_SYSTEM_INFO,
   SCREEN_ISS_PASS_TRACKING
 };
 
@@ -592,7 +585,7 @@ ScreenType screenOrder[SCREEN_PAGE_COUNT] = {
   SCREEN_HAMALERT_CLUSTER,
   SCREEN_PSK_MAP,
   SCREEN_MATRIX_CLOCK,
-  SCREEN_UNLIS_HUNTER,
+  SCREEN_SYSTEM_INFO,
   SCREEN_ISS_PASS_TRACKING
 };
 ScreenType currentScreen = SCREEN_OFF;  // Ustawiany po wczytaniu preferencji
@@ -660,32 +653,7 @@ const int TFT_TABLE_TOP = 32;
 const int TFT_TABLE_BOTTOM = 320;
 const int TFT_TABLE_WIDTH = 460;
 const int TFT_TABLE_HEIGHT = TFT_TABLE_BOTTOM - TFT_TABLE_TOP;
-// UnlisHunter constants must be visible before touch handling code uses them.
-const int UNLIS_CENTER_X = 240;
-const int UNLIS_CENTER_Y = 120;
-const int UNLIS_OUTER_R = 115; // 2m
-const int UNLIS_INNER_R = 60;  // 70cm
-const int UNLIS_BTN_SIZE = 100;
-const int UNLIS_DRAW_BTN_SIZE = UNLIS_BTN_SIZE / 2;
-const int UNLIS_START_X = 0;
-const int UNLIS_START_Y = 0;
-const int UNLIS_PTT_X = 480 - UNLIS_BTN_SIZE;
-const int UNLIS_PTT_Y = 320 - UNLIS_BTN_SIZE;
-const int UNLIS_EXIT_X = 0;
-const int UNLIS_EXIT_Y = 320 - UNLIS_BTN_SIZE;
-const unsigned long UNLIS_FRAME_MS = 40UL;
-const float UNLIS_BASE_SCAN_DEG_PER_SEC = 46.0f;
-const float UNLIS_ACCEL_PER_CATCH_EARLY = 0.05f;
-const float UNLIS_ACCEL_PER_CATCH_LATE = 0.03f;
-const float UNLIS_TARGET_LIFE_ROTATIONS = 2.5f;
-const unsigned long UNLIS_TARGET_RESPAWN_MIN_MS = 450UL;
-const unsigned long UNLIS_TARGET_RESPAWN_MAX_MS = 1200UL;
-const unsigned long UNLIS_SECOND_TARGET_DELAY_MS = 60000UL;
-const unsigned long UNLIS_SECOND_TARGET_RESPAWN_MIN_MS = 3500UL;
-const unsigned long UNLIS_SECOND_TARGET_RESPAWN_MAX_MS = 9500UL;
-const unsigned long UNLIS_GREEN_STATION_LIFE_MS = 5000UL;
-const unsigned long UNLIS_GREEN_STATION_RESPAWN_MIN_MS = 9000UL;
-const unsigned long UNLIS_GREEN_STATION_RESPAWN_MAX_MS = 18000UL;
+// (ekran UnlisHunter usuniety - zastapiony ekranem "Informacje systemowe")
 const unsigned long TABLE_NAV_FOOTER_VISIBLE_MS = 5000UL;
 unsigned long tableNavFooterVisibleUntilMs = 0;
 #ifndef TFT_TABLE_SPRITE_COLOR_DEPTH
@@ -2079,7 +2047,7 @@ const int QRZ_CACHE_SIZE = 20;
 QrzCacheEntry qrzCache[QRZ_CACHE_SIZE];
 
 // Forward declarations
-void drawUnlisHunter();
+void drawSystemInfo();
 void drawPskMap();
 void drawIssPassTracking();
 
@@ -2533,8 +2501,8 @@ void drawScreen(ScreenType screenNum) {
     case SCREEN_MATRIX_CLOCK:
       drawMatrixClock();
       break;
-    case SCREEN_UNLIS_HUNTER:
-      drawUnlisHunter();
+    case SCREEN_SYSTEM_INFO:
+      drawSystemInfo();
       break;
     case SCREEN_PSK_MAP:
       drawPskMap();
@@ -4825,7 +4793,7 @@ ScreenType normalizeScreenType(uint8_t raw) {
     case SCREEN_HAMALERT_CLUSTER:
     case SCREEN_PSK_MAP:
     case SCREEN_MATRIX_CLOCK:
-    case SCREEN_UNLIS_HUNTER:
+    case SCREEN_SYSTEM_INFO:
     case SCREEN_ISS_PASS_TRACKING:
       return (ScreenType)raw;
     default:
@@ -4847,7 +4815,7 @@ const char* screenTypeToCodeStr(ScreenType t) {
     case SCREEN_HAMALERT_CLUSTER: return "hamalert";
     case SCREEN_PSK_MAP: return "pskmap";
     case SCREEN_MATRIX_CLOCK: return "matrix";
-    case SCREEN_UNLIS_HUNTER: return "unlishunter";
+    case SCREEN_SYSTEM_INFO: return "systeminfo";
     case SCREEN_ISS_PASS_TRACKING: return "iss";
     case SCREEN_OFF:
     default:
@@ -4871,7 +4839,7 @@ ScreenType screenCodeToType(const String &code) {
   if (c == "hamalert") return SCREEN_HAMALERT_CLUSTER;
   if (c == "pskmap" || c == "pskreporter") return SCREEN_PSK_MAP;
   if (c == "matrix") return SCREEN_MATRIX_CLOCK;
-  if (c == "unlishunter") return SCREEN_UNLIS_HUNTER;
+  if (c == "systeminfo" || c == "unlishunter") return SCREEN_SYSTEM_INFO;
   if (c == "iss") return SCREEN_ISS_PASS_TRACKING;
   return SCREEN_OFF;
 }
@@ -5039,7 +5007,7 @@ void handleTouchNavigation() {
 
     if (!brightnessMenuActive && !longPressHandled && matrixGameHoldCandidate) {
       if (currentScreen == SCREEN_MATRIX_CLOCK && !inMenu && (now - touchStartMs) >= 2000) {
-        currentScreen = SCREEN_UNLIS_HUNTER;
+        currentScreen = SCREEN_SYSTEM_INFO;
         drawScreen(currentScreen);
         resetTftAutoSwitchTimer();
         longPressHandled = true;
@@ -5073,28 +5041,8 @@ void handleTouchNavigation() {
       return;
     }
 
-    if (currentScreen == SCREEN_UNLIS_HUNTER) {
-      if (x >= UNLIS_EXIT_X && x < (UNLIS_EXIT_X + UNLIS_BTN_SIZE) &&
-          y >= UNLIS_EXIT_Y && y < (UNLIS_EXIT_Y + UNLIS_BTN_SIZE)) {
-        currentScreen = SCREEN_MATRIX_CLOCK;
-        drawScreen(currentScreen);
-        resetTftAutoSwitchTimer();
-        return;
-      }
-      if (x >= UNLIS_START_X && x < (UNLIS_START_X + UNLIS_BTN_SIZE) &&
-          y >= UNLIS_START_Y && y < (UNLIS_START_Y + UNLIS_BTN_SIZE)) {
-        if (unlisRunning && !unlisGameOver) {
-          unlisStopGame();
-        } else {
-          unlisStartResetGame();
-        }
-        return;
-      }
-      if (x >= UNLIS_PTT_X && x < (UNLIS_PTT_X + UNLIS_BTN_SIZE) &&
-          y >= UNLIS_PTT_Y && y < (UNLIS_PTT_Y + UNLIS_BTN_SIZE)) {
-        unlisHandlePttPress(now);
-        return;
-      }
+    if (currentScreen == SCREEN_SYSTEM_INFO) {
+      // Ekran tylko do odczytu - brak menu; nawigacja w rogach obslugiwana nizej.
       return;
     }
 
@@ -5745,17 +5693,19 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     if ((shown & 0x03) == 0) yield();
   }
 
-  // Wlasna stacja (QTH) w centrum + podpis CALL/LOKATOR przy znaczniku.
+  // Wlasna stacja (QTH) w centrum: znak NAD znacznikiem, lokator POD nim.
   sp.fillCircle(ARP_CX, ARP_CY, 3, ARP_COL_TEXT);
   {
     String c = userCallsign.length() > 0 ? userCallsign : String("QTH");
     if (c.length() > 10) c = c.substring(0, 10);
-    String lab = c;
-    if (userLocator.length() > 0) lab += " " + userLocator;
-    sp.setTextDatum(TC_DATUM);
     sp.setTextSize(1);
     sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
-    sp.drawString(lab, ARP_CX, ARP_CY + 8, 1);
+    sp.setTextDatum(BC_DATUM);
+    sp.drawString(c, ARP_CX, ARP_CY - 6, 1);
+    if (userLocator.length() > 0) {
+      sp.setTextDatum(TC_DATUM);
+      sp.drawString(userLocator, ARP_CX, ARP_CY + 6, 1);
+    }
     sp.setTextDatum(TL_DATUM);
   }
 
@@ -9567,613 +9517,190 @@ void updateScreen10() {
   drawMatrixFrame();
 }
 
-// ========== Ekran 11: UnlisHunter ==========
+// ========== Ekran 11: Informacje systemowe ==========
+// Dashboard telemetrii ESP32-S3: sprzet/procesor, pamiec/siec, wykres
+// temperatury CPU oraz log zdarzen. Metryki i wykres odswiezane co 1 s.
 
-bool unlisRunning = false;
-bool unlisGameOver = false;
-bool unlisIntroVisible = true;
-bool unlisIntroNeedsRedraw = true;
-bool unlisGameOverNeedsRedraw = false;
-bool unlisRunningUiNeedsRedraw = false;
-int unlisCaught = 0;
-int unlisMissed = 0;
-unsigned long unlisGameStartMs = 0;
-unsigned long unlisLastFrameMs = 0;
-unsigned long unlisElapsedSecFrozen = 0;
-float unlisScanAngleDeg = 0.0f;
-float unlisPrevScanAngleDeg = 0.0f;
-bool unlisArrowPrevValid = false;
+#define SYSINFO_CHART_POINTS 45
 
-bool unlisTargetActive = false;
-bool unlisTargetOuter = true;
-float unlisTargetAngleDeg = 0.0f;
-unsigned long unlisTargetShownMs = 0;
-unsigned long unlisNextSpawnMs = 0;
+static bool sysInfoNeedsRedraw = true;
+static unsigned long sysInfoLastUpdateMs = 0;
+static float sysInfoTempHistory[SYSINFO_CHART_POINTS];
+static int sysInfoHistoryCount = 0;
+static unsigned long sysInfoBootMs = 0;
+static uint32_t sysInfoBootFreeHeap = 0;
 
-bool unlisSecondTargetActive = false;
-bool unlisSecondTargetOuter = true;
-float unlisSecondTargetAngleDeg = 0.0f;
-unsigned long unlisSecondTargetShownMs = 0;
-unsigned long unlisSecondTargetNextSpawnMs = 0;
+// Paleta (RGB565) - zgodna z kolorystyka pozostalych ekranow.
+static const uint16_t SYS_COL_BG     = 0x0000; // czarne tlo
+static const uint16_t SYS_COL_CARD   = 0x10A2; // ciemny granat
+static const uint16_t SYS_COL_TEXT   = 0xFFFF; // bialy
+static const uint16_t SYS_COL_MUTED  = 0x8C71; // szary
+static const uint16_t SYS_COL_ACCENT = 0x3D7F; // blekit
+static const uint16_t SYS_COL_GREEN  = 0x3666; // zielony
+static const uint16_t SYS_COL_YELLOW = 0xFE80; // zolty
+static const uint16_t SYS_COL_RED    = 0xF800;
+static const uint16_t SYS_COL_GRID   = 0x2124;
 
-bool unlisGreenStationActive = false;
-bool unlisGreenStationOuter = true;
-float unlisGreenStationAngleDeg = 0.0f;
-unsigned long unlisGreenStationShownMs = 0;
-unsigned long unlisGreenStationNextSpawnMs = 0;
-
-bool unlisOuterEdgeNeedsClean = false;
-unsigned long unlisLastPttPressMs = 0;
-bool unlisUiNeedsRefreshOnTargetChange = true;
-unsigned long unlisLastTimerSecDrawn = 0;
-bool unlisTimerDrawnValid = false;
-
-static inline float normalizeDeg360(float a) {
-  while (a >= 360.0f) a -= 360.0f;
-  while (a < 0.0f) a += 360.0f;
-  return a;
+static void sysInfoTempColor(float t, uint16_t &col) {
+  if (t >= 65.0f) col = SYS_COL_RED;
+  else if (t >= 55.0f) col = SYS_COL_YELLOW;
+  else col = SYS_COL_GREEN;
 }
 
-static float unlisCurrentScanDegPerSec() {
-  // Up to 60s: +5% per catch, after 60s: +3% per catch.
-  unsigned long elapsedMs = 0;
-  if (unlisRunning || unlisGameOver) {
-    elapsedMs = millis() - unlisGameStartMs;
-  }
-  float accelPerCatch = (elapsedMs >= 60000UL) ? UNLIS_ACCEL_PER_CATCH_LATE : UNLIS_ACCEL_PER_CATCH_EARLY;
-  return UNLIS_BASE_SCAN_DEG_PER_SEC * (1.0f + ((float)unlisCaught * accelPerCatch));
-}
+// Statyczny szkielet: naglowek + podpisy kart.
+static void drawSystemInfoStatic() {
+  tft.fillScreen(SYS_COL_BG);
 
-static unsigned long unlisCurrentTargetLifeMs() {
-  float degPerSec = unlisCurrentScanDegPerSec();
-  float fullRotationSec = 360.0f / degPerSec;
-  return (unsigned long)(fullRotationSec * UNLIS_TARGET_LIFE_ROTATIONS * 1000.0f + 0.5f);
-}
-
-static unsigned long unlisCurrentPttCooldownMs() {
-  float degPerSec = unlisCurrentScanDegPerSec();
-  float fullRotationSec = 360.0f / degPerSec;
-  return (unsigned long)(fullRotationSec * 0.25f * 1000.0f + 0.5f);
-}
-
-static void unlisResetPttCooldown(unsigned long nowMs) {
-  unlisLastPttPressMs = nowMs - unlisCurrentPttCooldownMs();
-}
-
-static bool unlisPointInButton(int x, int y) {
-  if (x >= UNLIS_START_X && x < (UNLIS_START_X + UNLIS_BTN_SIZE) &&
-      y >= UNLIS_START_Y && y < (UNLIS_START_Y + UNLIS_BTN_SIZE)) {
-    return true;
-  }
-  if (x >= UNLIS_PTT_X && x < (UNLIS_PTT_X + UNLIS_BTN_SIZE) &&
-      y >= UNLIS_PTT_Y && y < (UNLIS_PTT_Y + UNLIS_BTN_SIZE)) {
-    return true;
-  }
-  if (x >= UNLIS_EXIT_X && x < (UNLIS_EXIT_X + UNLIS_BTN_SIZE) &&
-      y >= UNLIS_EXIT_Y && y < (UNLIS_EXIT_Y + UNLIS_BTN_SIZE)) {
-    return true;
-  }
-  return false;
-}
-
-static void unlisGenerateRandomTarget(bool &targetOuter, float &targetAngleDeg) {
-  bool foundVisibleSpot = false;
-  bool outer = true;
-  float angle = 0.0f;
-
-  for (int i = 0; i < 24; i++) {
-    bool candidateOuter = (random(0, 2) == 0);
-    float candidateAngle = (float)random(0, 360);
-    float a = candidateAngle * (float)M_PI / 180.0f;
-    int r = candidateOuter ? UNLIS_OUTER_R : UNLIS_INNER_R;
-    int tx = UNLIS_CENTER_X + (int)(sinf(a) * (float)r);
-    int ty = UNLIS_CENTER_Y - (int)(cosf(a) * (float)r);
-    if (!unlisPointInButton(tx, ty)) {
-      outer = candidateOuter;
-      angle = candidateAngle;
-      foundVisibleSpot = true;
-      break;
-    }
-  }
-
-  if (!foundVisibleSpot) {
-    outer = (random(0, 2) == 0);
-    angle = (float)random(0, 360);
-  }
-
-  targetOuter = outer;
-  targetAngleDeg = angle;
-}
-
-static bool unlisArrowHitsTarget(bool targetOuter, float targetAngleDeg, int hitPx) {
-  float arrowDeg = targetOuter ? unlisScanAngleDeg : normalizeDeg360(unlisScanAngleDeg + 180.0f);
-  int ringR = targetOuter ? UNLIS_OUTER_R : UNLIS_INNER_R;
-  float arrowA = arrowDeg * (float)M_PI / 180.0f;
-  float targetA = targetAngleDeg * (float)M_PI / 180.0f;
-  int arrowX = UNLIS_CENTER_X + (int)(sinf(arrowA) * (float)ringR);
-  int arrowY = UNLIS_CENTER_Y - (int)(cosf(arrowA) * (float)ringR);
-  int targetX = UNLIS_CENTER_X + (int)(sinf(targetA) * (float)ringR);
-  int targetY = UNLIS_CENTER_Y - (int)(cosf(targetA) * (float)ringR);
-  int dx = arrowX - targetX;
-  int dy = arrowY - targetY;
-  return (dx * dx + dy * dy) <= (hitPx * hitPx);
-}
-
-static void drawUnlisButton(int x, int y, const char* label) {
-  const int drawW = UNLIS_DRAW_BTN_SIZE;
-  const int drawH = UNLIS_DRAW_BTN_SIZE;
-  int drawX = x + 10;
-  int drawY = y + 10;
-
-  // Keep visual buttons closer to screen corners (~10 px margin).
-  if (x == UNLIS_PTT_X) {
-    drawX = x + (UNLIS_BTN_SIZE - drawW - 10);
-  }
-  if (y == UNLIS_START_Y) {
-    drawY = y;
-  }
-  if (y == UNLIS_PTT_Y || y == UNLIS_EXIT_Y) {
-    drawY = y + (UNLIS_BTN_SIZE - drawH);
-  }
-  const int r = 10;
-
-  // Czarny przycisk z lekkim efektem wypuklosci.
-  tft.fillRoundRect(drawX, drawY, drawW, drawH, r, TFT_BLACK);
-  tft.drawRoundRect(drawX, drawY, drawW, drawH, r, TFT_LIGHTGREY);
-  tft.drawFastHLine(drawX + 8, drawY + 4, drawW - 16, TFT_WHITE);
-  tft.drawFastVLine(drawX + 4, drawY + 8, drawH - 16, TFT_WHITE);
-  tft.drawFastHLine(drawX + 8, drawY + drawH - 5, drawW - 16, TFT_DARKGREY);
-  tft.drawFastVLine(drawX + drawW - 5, drawY + 8, drawH - 16, TFT_DARKGREY);
-
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  int labelW = (int)strlen(label) * 12;
-  tft.setCursor(drawX + (drawW - labelW) / 2, drawY + 18);
-  tft.print(label);
-}
-
-static void drawUnlisButtons() {
-  const char* startLabel = unlisRunning ? "STOP" : "START";
-  drawUnlisButton(UNLIS_START_X, UNLIS_START_Y, startLabel);
-  drawUnlisButton(UNLIS_PTT_X, UNLIS_PTT_Y, "PTT");
-  drawUnlisButton(UNLIS_EXIT_X, UNLIS_EXIT_Y, "EXIT");
-}
-
-static void drawUnlisScoreAndMissMarkers() {
-  tft.fillRect(2, 52, 84, 96, TFT_BLACK);
-
-  String scoreText = String(unlisCaught);
-  while (scoreText.length() < 3) {
-    scoreText = "0" + scoreText;
-  }
-
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.setCursor(4, 56);
-  tft.print(scoreText);
-
-  const int markerX = 12;
-  const int markerMidY = 120;
-  const int markerStepY = 18;
-  const int markerR = 5;
-  for (int i = 0; i < 3; i++) {
-    int markerY = markerMidY + ((i - 1) * markerStepY);
-    bool missed = (unlisMissed > i);
-    if (missed) {
-      tft.fillCircle(markerX, markerY, markerR, TFT_RED);
-      tft.drawCircle(markerX, markerY, markerR, TFT_RED);
-    } else {
-      tft.fillCircle(markerX, markerY, markerR, TFT_BLACK);
-      tft.drawCircle(markerX, markerY, markerR, TFT_DARKGREY);
-    }
-  }
-}
-
-static void drawUnlisBandLegend() {
+  tft.fillRect(10, 8, 460, 26, SYS_COL_CARD);
   tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setCursor(286, 96);
-  tft.print("BAND:");
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-  tft.setCursor(292, 108);
-  tft.print("2m");
-  tft.setTextColor(TFT_BLUE, TFT_BLACK);
-  tft.setCursor(286, 120);
-  tft.print("70cm");
+  tft.setTextColor(SYS_COL_TEXT, SYS_COL_CARD);
+  tft.setCursor(18, 17);
+  tft.print("ESP32-S3 MONITOR // N16R8 + ILI9488 (480x320)");
+
+  tft.fillRect(10, 38, 225, 132, SYS_COL_CARD);
+  tft.setTextColor(SYS_COL_ACCENT, SYS_COL_CARD);
+  tft.setCursor(18, 48); tft.print("HARDWARE & PROCESSOR");
+  tft.setTextColor(SYS_COL_MUTED, SYS_COL_CARD);
+  tft.setCursor(18, 70);  tft.print("MCU / Board:");
+  tft.setCursor(18, 88);  tft.print("Architecture:");
+  tft.setCursor(18, 106); tft.print("Clock Speed:");
+  tft.setCursor(18, 124); tft.print("CPU Temp:");
+  tft.setCursor(18, 142); tft.print("Flash / PSRAM:");
+
+  tft.fillRect(245, 38, 225, 132, SYS_COL_CARD);
+  tft.setTextColor(SYS_COL_ACCENT, SYS_COL_CARD);
+  tft.setCursor(253, 48); tft.print("MEMORY & NETWORK (2.4G)");
+  tft.setTextColor(SYS_COL_MUTED, SYS_COL_CARD);
+  tft.setCursor(253, 70);  tft.print("Free heap:");
+  tft.setCursor(253, 88);  tft.print("PSRAM free:");
+  tft.setCursor(253, 106); tft.print("Wi-Fi Status:");
+  tft.setCursor(253, 124); tft.print("Signal RSSI:");
+  tft.setCursor(253, 142); tft.print("IP Address:");
+
+  tft.fillRect(10, 174, 235, 136, SYS_COL_CARD);
+  tft.setTextColor(SYS_COL_ACCENT, SYS_COL_CARD);
+  tft.setCursor(18, 184); tft.print("CPU TEMP HISTORY");
+
+  tft.fillRect(255, 174, 215, 136, SYS_COL_CARD);
+  tft.setTextColor(SYS_COL_ACCENT, SYS_COL_CARD);
+  tft.setCursor(263, 184); tft.print("SYSTEM LOGS");
 }
 
-static void drawUnlisTimerValue(unsigned long elapsedSec) {
-  String timerText = String(elapsedSec) + "s";
-  int tw = timerText.length() * 12;
-  tft.fillRect(236, 2, 82, 20, TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setCursor(316 - tw, 6);
-  tft.print(timerText);
-}
+// Wykres temperatury CPU (os 40..60 C).
+static void sysInfoDrawChart() {
+  tft.fillRect(18, 202, 220, 100, SYS_COL_CARD);
+  tft.drawFastHLine(18, 222, 220, SYS_COL_GRID);
+  tft.drawFastHLine(18, 252, 220, SYS_COL_GRID);
+  tft.drawFastHLine(18, 282, 220, SYS_COL_GRID);
 
-static void drawUnlisHud() {
-  drawUnlisButtons();
-  
-  unsigned long elapsedSec = 0;
-  if (unlisRunning) {
-    elapsedSec = (millis() - unlisGameStartMs) / 1000UL;
-  } else if (unlisGameOver) {
-    elapsedSec = unlisElapsedSecFrozen;
+  if (sysInfoHistoryCount < 2) return;
+  const float minT = 40.0f, maxT = 60.0f;
+  const int chartX = 20, chartY = 295, chartW = 210, chartH = 80;
+  for (int i = 0; i < sysInfoHistoryCount - 1; i++) {
+    int x1 = chartX + (i * chartW) / (SYSINFO_CHART_POINTS - 1);
+    int y1 = chartY - (int)(((sysInfoTempHistory[i] - minT) / (maxT - minT)) * chartH);
+    int x2 = chartX + ((i + 1) * chartW) / (SYSINFO_CHART_POINTS - 1);
+    int y2 = chartY - (int)(((sysInfoTempHistory[i + 1] - minT) / (maxT - minT)) * chartH);
+    if (y1 < chartY - chartH) y1 = chartY - chartH;
+    if (y1 > chartY) y1 = chartY;
+    if (y2 < chartY - chartH) y2 = chartY - chartH;
+    if (y2 > chartY) y2 = chartY;
+    tft.drawLine(x1, y1, x2, y2, SYS_COL_YELLOW);
   }
-
-  drawUnlisScoreAndMissMarkers();
-  drawUnlisBandLegend();
-  drawUnlisTimerValue(elapsedSec);
 }
 
-static void drawUnlisStatsOnly() {
+// Dynamiczne metryki (co 1 s).
+static void sysInfoUpdateDynamic(float currentTemp) {
+  char b[40];
 
-  unsigned long elapsedSec = 0;
-  if (unlisRunning) {
-    elapsedSec = (millis() - unlisGameStartMs) / 1000UL;
-  } else if (unlisGameOver) {
-    elapsedSec = unlisElapsedSecFrozen;
-  }
-
-  drawUnlisScoreAndMissMarkers();
-  drawUnlisTimerValue(elapsedSec);
-}
-
-static void drawUnlisIntroText() {
-  tft.fillRect(40, 72, 320, 92, TFT_BLACK);
-  tft.drawRect(40, 72, 320, 92, TFT_DARKGREY);
-
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setCursor(52, 82);
-  tft.print("UNLIS HUNTER GAME");
-
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  // --- Karta 1: Hardware ---
+  tft.fillRect(115, 68, 110, 95, SYS_COL_CARD);
   tft.setTextSize(1);
-  tft.setCursor(52, 114);
-  tft.print("Use a Yagi antenna to catch and");
-  tft.setCursor(52, 130);
-  tft.print("jam its signal by pressing PTT on it.");
-  tft.setCursor(52, 146);
-  tft.print("* Unlis = Unlicensed");
+  tft.setTextColor(SYS_COL_TEXT, SYS_COL_CARD);
+  tft.setCursor(115, 70);  tft.print("ESP32-S3 N16R8");
+  tft.setCursor(115, 88);  tft.print("Xtensa LX7");
+  tft.setCursor(115, 106); tft.print("240 MHz");
+  uint16_t tcol;
+  sysInfoTempColor(currentTemp, tcol);
+  tft.setTextColor(tcol, SYS_COL_CARD);
+  snprintf(b, sizeof(b), "%.1f C", currentTemp);
+  tft.setCursor(115, 124); tft.print(b);
+  tft.setTextColor(SYS_COL_TEXT, SYS_COL_CARD);
+  tft.setCursor(115, 142); tft.print("16MB / 8MB");
+
+  // --- Karta 2: Pamiec & Siec ---
+  tft.fillRect(350, 68, 115, 95, SYS_COL_CARD);
+  tft.setTextColor(SYS_COL_GREEN, SYS_COL_CARD);
+  snprintf(b, sizeof(b), "%lu KB", (unsigned long)(ESP.getFreeHeap() / 1024));
+  tft.setCursor(350, 70);  tft.print(b);
+  tft.setTextColor(SYS_COL_ACCENT, SYS_COL_CARD);
+  snprintf(b, sizeof(b), "%lu MB", (unsigned long)(ESP.getFreePsram() / (1024 * 1024)));
+  tft.setCursor(350, 88);  tft.print(b);
+
+  bool conn = (WiFi.status() == WL_CONNECTED);
+  tft.setTextColor(conn ? SYS_COL_GREEN : SYS_COL_RED, SYS_COL_CARD);
+  tft.setCursor(350, 106); tft.print(conn ? "Connected" : "Connecting");
+  tft.setTextColor(SYS_COL_TEXT, SYS_COL_CARD);
+  tft.setCursor(350, 124);
+  if (conn) { snprintf(b, sizeof(b), "%d dBm", WiFi.RSSI()); tft.print(b); }
+  else tft.print("---");
+  tft.setCursor(350, 142);
+  tft.print(conn ? WiFi.localIP().toString() : String("0.0.0.0"));
+
+  // --- Karta 3: Wykres ---
+  sysInfoDrawChart();
+
+  // --- Karta 4: Logi ---
+  tft.fillRect(263, 202, 199, 100, SYS_COL_CARD);
+  tft.setTextSize(1);
+  tft.setTextColor(SYS_COL_MUTED, SYS_COL_CARD);
+  unsigned long up = millis() / 1000UL;
+  snprintf(b, sizeof(b), "[%02lu:%02lu] Boot nominal.", up / 60, up % 60);
+  tft.setCursor(263, 205); tft.print(b);
+  snprintf(b, sizeof(b), "[%02lu:%02lu] WiFi %s.", up / 60, up % 60, conn ? "OK" : "--");
+  tft.setCursor(263, 222); tft.print(b);
+  snprintf(b, sizeof(b), "[%02lu:%02lu] Chart online.", up / 60, up % 60);
+  tft.setCursor(263, 239); tft.print(b);
+  tft.setCursor(263, 256);
+  tft.setTextColor(SYS_COL_GREEN, SYS_COL_CARD);
+  snprintf(b, sizeof(b), "[OK] Temp %.1f C", currentTemp);
+  tft.print(b);
 }
 
-static void drawUnlisRadarBase() {
-  tft.drawCircle(UNLIS_CENTER_X, UNLIS_CENTER_Y, UNLIS_INNER_R, TFT_BLUE);
-  tft.fillCircle(UNLIS_CENTER_X, UNLIS_CENTER_Y, 3, TFT_GREEN);
+void drawSystemInfo() {
+  sysInfoNeedsRedraw = true;
+  sysInfoLastUpdateMs = 0;
+  if (sysInfoBootMs == 0) {
+    sysInfoBootMs = millis();
+    sysInfoBootFreeHeap = ESP.getFreeHeap();
+    for (int i = 0; i < SYSINFO_CHART_POINTS; i++) sysInfoTempHistory[i] = 48.5f;
+    sysInfoHistoryCount = SYSINFO_CHART_POINTS;
+  }
+  drawSystemInfoStatic();
+  sysInfoNeedsRedraw = false;
+  float t = temperatureRead();
+  if (isnan(t) || t < 0.0f) t = 48.5f;
+  sysInfoUpdateDynamic(t);
 }
 
-static void drawUnlisOuterRing() {
-  tft.drawCircle(UNLIS_CENTER_X, UNLIS_CENTER_Y, UNLIS_OUTER_R, TFT_YELLOW);
-  // Black outer outline masks red artifacts outside the yellow ring.
-  tft.drawCircle(UNLIS_CENTER_X, UNLIS_CENTER_Y, UNLIS_OUTER_R + 1, TFT_BLACK);
-  tft.drawCircle(UNLIS_CENTER_X, UNLIS_CENTER_Y, UNLIS_OUTER_R + 2, TFT_BLACK);
-}
-
-static void drawUnlisTarget() {
-  if (unlisTargetActive) {
-    float a = unlisTargetAngleDeg * (float)M_PI / 180.0f;
-    int r = unlisTargetOuter ? UNLIS_OUTER_R : UNLIS_INNER_R;
-    int tx = UNLIS_CENTER_X + (int)(sinf(a) * (float)r);
-    int ty = UNLIS_CENTER_Y - (int)(cosf(a) * (float)r);
-    int targetRadius = unlisTargetOuter ? 6 : 4;
-    tft.fillCircle(tx, ty, targetRadius, TFT_RED);
+void updateSystemInfo() {
+  unsigned long now = millis();
+  if (sysInfoNeedsRedraw) {
+    drawSystemInfoStatic();
+    sysInfoNeedsRedraw = false;
+    sysInfoLastUpdateMs = 0;
   }
+  if (now - sysInfoLastUpdateMs < 1000UL) return;
+  sysInfoLastUpdateMs = now;
 
-  if (unlisSecondTargetActive) {
-    float a2 = unlisSecondTargetAngleDeg * (float)M_PI / 180.0f;
-    int r2 = unlisSecondTargetOuter ? UNLIS_OUTER_R : UNLIS_INNER_R;
-    int tx2 = UNLIS_CENTER_X + (int)(sinf(a2) * (float)r2);
-    int ty2 = UNLIS_CENTER_Y - (int)(cosf(a2) * (float)r2);
-    int targetRadius2 = unlisSecondTargetOuter ? 6 : 4;
-    tft.fillCircle(tx2, ty2, targetRadius2, TFT_RED);
+  float t = temperatureRead();
+  if (isnan(t) || t < 0.0f) t = sysInfoTempHistory[SYSINFO_CHART_POINTS - 1];
+  for (int i = 0; i < SYSINFO_CHART_POINTS - 1; i++) {
+    sysInfoTempHistory[i] = sysInfoTempHistory[i + 1];
   }
-
-  if (unlisGreenStationActive) {
-    float ag = unlisGreenStationAngleDeg * (float)M_PI / 180.0f;
-    int rg = unlisGreenStationOuter ? UNLIS_OUTER_R : UNLIS_INNER_R;
-    int txg = UNLIS_CENTER_X + (int)(sinf(ag) * (float)rg);
-    int tyg = UNLIS_CENTER_Y - (int)(cosf(ag) * (float)rg);
-    tft.fillCircle(txg, tyg, 4, TFT_GREEN);
-  }
-}
-
-static void drawUnlisArrows(float angleDeg) {
-  float a = angleDeg * (float)M_PI / 180.0f;
-  int yx = UNLIS_CENTER_X + (int)(sinf(a) * (float)UNLIS_OUTER_R);
-  int yy = UNLIS_CENTER_Y - (int)(cosf(a) * (float)UNLIS_OUTER_R);
-  int bx = UNLIS_CENTER_X - (int)(sinf(a) * (float)UNLIS_INNER_R);
-  int by = UNLIS_CENTER_Y + (int)(cosf(a) * (float)UNLIS_INNER_R);
-
-  tft.drawLine(UNLIS_CENTER_X, UNLIS_CENTER_Y, yx, yy, TFT_YELLOW);
-  tft.drawLine(UNLIS_CENTER_X, UNLIS_CENTER_Y, bx, by, TFT_BLUE);
-}
-
-static void drawUnlisGameOver() {
-  tft.fillRect(60, 96, 200, 48, TFT_BLACK);
-  tft.drawRect(60, 96, 200, 48, TFT_RED);
-  tft.setTextColor(TFT_RED);
-  tft.setTextSize(2);
-  const char* txt = "BAJO JAJO";
-  int tw = (int)strlen(txt) * 12;
-  tft.setCursor(60 + (200 - tw) / 2, 112);
-  tft.print(txt);
-}
-
-void unlisStopGame() {
-  unlisRunning = false;
-  unlisGameOver = false;
-  unlisIntroVisible = true;
-  unlisIntroNeedsRedraw = true;
-  unlisGameOverNeedsRedraw = false;
-  unlisRunningUiNeedsRedraw = false;
-  unlisTargetActive = false;
-  unlisSecondTargetActive = false;
-  unlisGreenStationActive = false;
-  unlisArrowPrevValid = false;
-  unlisUiNeedsRefreshOnTargetChange = true;
-  unlisTimerDrawnValid = false;
-}
-
-void unlisStartResetGame() {
-  unlisRunning = true;
-  unlisGameOver = false;
-  unlisIntroVisible = false;
-  unlisIntroNeedsRedraw = false;
-  unlisGameOverNeedsRedraw = false;
-  unlisRunningUiNeedsRedraw = true;
-  unlisCaught = 0;
-  unlisMissed = 0;
-  unlisElapsedSecFrozen = 0;
-  unlisGameStartMs = millis();
-  unlisLastFrameMs = millis();
-  unlisScanAngleDeg = 0.0f;
-  unlisPrevScanAngleDeg = 0.0f;
-  unlisArrowPrevValid = false;
-  unlisTargetActive = false;
-  unlisSecondTargetActive = false;
-  unlisGreenStationActive = false;
-  unlisOuterEdgeNeedsClean = true;
-  unlisResetPttCooldown(millis());
-  unlisUiNeedsRefreshOnTargetChange = true;
-  unlisTimerDrawnValid = false;
-  unlisNextSpawnMs = millis() + random(200UL, 700UL);
-  unlisSecondTargetNextSpawnMs = millis() + UNLIS_SECOND_TARGET_DELAY_MS + random(500UL, 3000UL);
-  unlisGreenStationNextSpawnMs = millis() + random(UNLIS_GREEN_STATION_RESPAWN_MIN_MS, UNLIS_GREEN_STATION_RESPAWN_MAX_MS + 1UL);
-}
-
-static void unlisSpawnTarget(unsigned long nowMs) {
-  bool targetOuter = true;
-  float targetAngle = 0.0f;
-  unlisGenerateRandomTarget(targetOuter, targetAngle);
-
-  unlisTargetActive = true;
-  unlisTargetOuter = targetOuter;
-  unlisTargetAngleDeg = targetAngle;
-  unlisTargetShownMs = nowMs;
-  unlisOuterEdgeNeedsClean = true;
-  unlisResetPttCooldown(nowMs);
-  unlisUiNeedsRefreshOnTargetChange = true;
-}
-
-void unlisHandlePttPress(unsigned long nowMs) {
-  if (!unlisRunning || unlisGameOver) return;
-
-  unsigned long pttCooldownMs = unlisCurrentPttCooldownMs();
-  if ((nowMs - unlisLastPttPressMs) < pttCooldownMs) return;
-  unlisLastPttPressMs = nowMs;
-
-  const int hitPx = 14;
-
-  if (unlisGreenStationActive && unlisArrowHitsTarget(unlisGreenStationOuter, unlisGreenStationAngleDeg, hitPx)) {
-    if (unlisCaught > 0) {
-      unlisCaught--;
-    }
-    unlisGreenStationActive = false;
-    unlisGreenStationNextSpawnMs = nowMs + random(UNLIS_GREEN_STATION_RESPAWN_MIN_MS, UNLIS_GREEN_STATION_RESPAWN_MAX_MS + 1UL);
-    unlisUiNeedsRefreshOnTargetChange = true;
-    return;
-  }
-
-  bool hitAnyUnlis = false;
-  if (unlisTargetActive && unlisArrowHitsTarget(unlisTargetOuter, unlisTargetAngleDeg, hitPx)) {
-    unlisCaught++;
-    unlisTargetActive = false;
-    hitAnyUnlis = true;
-  }
-  if (unlisSecondTargetActive && unlisArrowHitsTarget(unlisSecondTargetOuter, unlisSecondTargetAngleDeg, hitPx)) {
-    unlisCaught++;
-    unlisSecondTargetActive = false;
-      unlisSecondTargetNextSpawnMs = nowMs + random(UNLIS_SECOND_TARGET_RESPAWN_MIN_MS, UNLIS_SECOND_TARGET_RESPAWN_MAX_MS + 1UL);
-    hitAnyUnlis = true;
-  }
-
-  if (hitAnyUnlis) {
-    unlisResetPttCooldown(nowMs);
-    if (!unlisTargetActive && !unlisSecondTargetActive) {
-      unlisNextSpawnMs = nowMs + random(UNLIS_TARGET_RESPAWN_MIN_MS, UNLIS_TARGET_RESPAWN_MAX_MS + 1UL);
-    }
-    unlisUiNeedsRefreshOnTargetChange = true;
-  }
-}
-
-void drawUnlisHunter() {
-  unlisIntroVisible = true;
-  unlisIntroNeedsRedraw = true;
-  unlisGameOverNeedsRedraw = false;
-  unlisRunningUiNeedsRedraw = false;
-
-  unlisRunning = false;
-  unlisGameOver = false;
-  unlisTargetActive = false;
-  unlisSecondTargetActive = false;
-  unlisGreenStationActive = false;
-  unlisOuterEdgeNeedsClean = false;
-  unlisArrowPrevValid = false;
-  unlisElapsedSecFrozen = 0;
-  unlisUiNeedsRefreshOnTargetChange = true;
-  unlisTimerDrawnValid = false;
-}
-
-void updateUnlisHunter() {
-  if (!tftInitialized || currentScreen != SCREEN_UNLIS_HUNTER || inMenu) {
-    return;
-  }
-
-  if (!unlisRunning && !unlisGameOver) {
-    if (unlisIntroVisible && unlisIntroNeedsRedraw) {
-      tft.fillScreen(TFT_BLACK);
-      drawUnlisHud();
-      drawUnlisIntroText();
-      unlisIntroNeedsRedraw = false;
-    }
-    return;
-  }
-
-  if (unlisGameOver) {
-    if (unlisGameOverNeedsRedraw) {
-      tft.fillScreen(TFT_BLACK);
-      drawUnlisHud();
-      drawUnlisOuterRing();
-      drawUnlisRadarBase();
-      drawUnlisArrows(unlisScanAngleDeg);
-      drawUnlisGameOver();
-      unlisGameOverNeedsRedraw = false;
-    }
-    return;
-  }
-
-  if (unlisRunningUiNeedsRedraw) {
-    tft.fillScreen(TFT_BLACK);
-    drawUnlisButtons();
-    drawUnlisOuterRing();
-    drawUnlisBandLegend();
-    unlisUiNeedsRefreshOnTargetChange = true;
-    unlisTimerDrawnValid = false;
-    unlisRunningUiNeedsRedraw = false;
-  }
-
-  unsigned long nowMs = millis();
-  if ((nowMs - unlisLastFrameMs) < UNLIS_FRAME_MS) {
-    return;
-  }
-
-  float dt = (float)(nowMs - unlisLastFrameMs) / 1000.0f;
-  unlisLastFrameMs = nowMs;
-
-  if (unlisRunning && !unlisGameOver) {
-    unlisScanAngleDeg = normalizeDeg360(unlisScanAngleDeg + (unlisCurrentScanDegPerSec() * dt));
-
-    if (!unlisTargetActive && !unlisSecondTargetActive && nowMs >= unlisNextSpawnMs) {
-      unlisSpawnTarget(nowMs);
-    }
-
-    unsigned long gameElapsedMs = nowMs - unlisGameStartMs;
-    if (gameElapsedMs >= UNLIS_SECOND_TARGET_DELAY_MS &&
-        !unlisSecondTargetActive &&
-        nowMs >= unlisSecondTargetNextSpawnMs) {
-      unlisGenerateRandomTarget(unlisSecondTargetOuter, unlisSecondTargetAngleDeg);
-      unlisSecondTargetActive = true;
-      unlisSecondTargetShownMs = nowMs;
-      unlisOuterEdgeNeedsClean = true;
-      unlisResetPttCooldown(nowMs);
-      unlisUiNeedsRefreshOnTargetChange = true;
-    }
-
-    if (!unlisGreenStationActive && nowMs >= unlisGreenStationNextSpawnMs) {
-      unlisGenerateRandomTarget(unlisGreenStationOuter, unlisGreenStationAngleDeg);
-      unlisGreenStationActive = true;
-      unlisGreenStationShownMs = nowMs;
-      unlisGreenStationNextSpawnMs = nowMs + random(UNLIS_GREEN_STATION_RESPAWN_MIN_MS, UNLIS_GREEN_STATION_RESPAWN_MAX_MS + 1UL);
-      unlisUiNeedsRefreshOnTargetChange = true;
-    }
-
-    if (unlisTargetActive && (nowMs - unlisTargetShownMs) >= unlisCurrentTargetLifeMs()) {
-      unlisTargetActive = false;
-      unlisResetPttCooldown(nowMs);
-      unlisMissed++;
-      if (unlisMissed >= 3) {
-        unlisElapsedSecFrozen = (nowMs - unlisGameStartMs) / 1000UL;
-        unlisGameOver = true;
-        unlisRunning = false;
-        unlisTargetActive = false;
-        unlisSecondTargetActive = false;
-        unlisGreenStationActive = false;
-        unlisGameOverNeedsRedraw = true;
-        unlisUiNeedsRefreshOnTargetChange = true;
-      } else {
-        if (!unlisSecondTargetActive) {
-          unlisNextSpawnMs = nowMs + random(UNLIS_TARGET_RESPAWN_MIN_MS, UNLIS_TARGET_RESPAWN_MAX_MS + 1UL);
-        }
-        unlisUiNeedsRefreshOnTargetChange = true;
-      }
-    }
-
-    if (unlisSecondTargetActive && (nowMs - unlisSecondTargetShownMs) >= unlisCurrentTargetLifeMs()) {
-      unlisSecondTargetActive = false;
-      unlisSecondTargetNextSpawnMs = nowMs + random(UNLIS_SECOND_TARGET_RESPAWN_MIN_MS, UNLIS_SECOND_TARGET_RESPAWN_MAX_MS + 1UL);
-      unlisResetPttCooldown(nowMs);
-      unlisMissed++;
-      if (unlisMissed >= 3) {
-        unlisElapsedSecFrozen = (nowMs - unlisGameStartMs) / 1000UL;
-        unlisGameOver = true;
-        unlisRunning = false;
-        unlisTargetActive = false;
-        unlisSecondTargetActive = false;
-        unlisGreenStationActive = false;
-        unlisGameOverNeedsRedraw = true;
-      } else if (!unlisTargetActive) {
-        unlisNextSpawnMs = nowMs + random(UNLIS_TARGET_RESPAWN_MIN_MS, UNLIS_TARGET_RESPAWN_MAX_MS + 1UL);
-      }
-      unlisUiNeedsRefreshOnTargetChange = true;
-    }
-
-    if (unlisGreenStationActive && (nowMs - unlisGreenStationShownMs) >= UNLIS_GREEN_STATION_LIFE_MS) {
-      unlisGreenStationActive = false;
-      unlisUiNeedsRefreshOnTargetChange = true;
-    }
-  }
-
-  // Clear and redraw only radar zone; keep static buttons untouched.
-  tft.fillCircle(UNLIS_CENTER_X, UNLIS_CENTER_Y, UNLIS_OUTER_R - 1, TFT_BLACK);
-
-  bool redrawOuterRingNow = false;
-
-  if (unlisOuterEdgeNeedsClean) {
-    // Before drawing a new target, clean ring edge.
-    for (int r = UNLIS_OUTER_R - 2; r <= UNLIS_OUTER_R + 6; r++) {
-      tft.drawCircle(UNLIS_CENTER_X, UNLIS_CENTER_Y, r, TFT_BLACK);
-    }
-    redrawOuterRingNow = true;
-    unlisOuterEdgeNeedsClean = false;
-  }
-
-  bool scoreMarkersRedrawn = false;
-  if (unlisUiNeedsRefreshOnTargetChange) {
-    drawUnlisScoreAndMissMarkers();
-    unlisUiNeedsRefreshOnTargetChange = false;
-    scoreMarkersRedrawn = true;
-  }
-
-  // Keep ring above left score/marker area and redraw after those elements.
-  if (redrawOuterRingNow || scoreMarkersRedrawn) {
-    drawUnlisOuterRing();
-  }
-
-  unsigned long elapsedSec = (nowMs - unlisGameStartMs) / 1000UL;
-  if (!unlisTimerDrawnValid || elapsedSec != unlisLastTimerSecDrawn) {
-    drawUnlisTimerValue(elapsedSec);
-    unlisLastTimerSecDrawn = elapsedSec;
-    unlisTimerDrawnValid = true;
-  }
-
-  // Keep radar and moving gameplay elements on top of the screen.
-  drawUnlisRadarBase();
-  drawUnlisTarget();
-  drawUnlisArrows(unlisScanAngleDeg);
-  unlisPrevScanAngleDeg = unlisScanAngleDeg;
-  unlisArrowPrevValid = true;
+  sysInfoTempHistory[SYSINFO_CHART_POINTS - 1] = t;
+  sysInfoHistoryCount = SYSINFO_CHART_POINTS;
+  sysInfoUpdateDynamic(t);
 }
 
 // ========== Ekrany pomocnicze ==========
@@ -18627,7 +18154,7 @@ const SCREENS = [
   ['propagacja','Propagacja'],['solarindex','Solar Index'],['hamclock','Ham Clock'],
   ['dxcluster','DX Cluster'],['aprsis','APRS-IS'],['aprsradar','APRS Radar'],
   ['weather','Pogoda'],['weatherforecast','Prognoza'],['pota','POTA'],
-  ['hamalert','HamAlert'],['pskmap','PSK Map'],['unlishunter','Unlis Hunter'],
+  ['hamalert','HamAlert'],['pskmap','PSK Map'],['systeminfo','Informacje systemowe'],
   ['matrix','Matrix'],['iss','ISS'],['off','Wylaczony']
 ];
 const $=id=>document.getElementById(id);
@@ -19166,8 +18693,8 @@ void uiTaskLoop(void *parameter) {
         updateScreen10();
       }
 
-      if (tftInitialized && currentScreen == SCREEN_UNLIS_HUNTER && !inMenu && !aprsAlertScreenActive) {
-        updateUnlisHunter();
+      if (tftInitialized && currentScreen == SCREEN_SYSTEM_INFO && !inMenu && !aprsAlertScreenActive) {
+        updateSystemInfo();
       }
       
       // ObsĹ‚uga MQTT dla PSK Reporter (gdy aktywny ekran PSK i wĹ‚Ä…czony MQTT)
