@@ -20869,7 +20869,7 @@ static void issRenderFrame(double lat, double lng, double alt, double speed,
                   !countryShown.equalsIgnoreCase("OCEAN") &&
                   !countryShown.startsWith("BRAK") &&
                   !countryShown.startsWith("CZEKAJ"));
-  int nameMax = hasFlag ? 7 : 12;   // flaga zajmuje prawa czesc karty
+  int nameMax = hasFlag ? 6 : 12;   // flaga zajmuje prawa czesc karty
   if ((int)countryShown.length() > nameMax) countryShown = countryShown.substring(0, nameMax);
   if (hasData) {
     snprintf(left[0].v, sizeof(left[0].v), "%s", countryShown.c_str());
