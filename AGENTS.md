@@ -343,3 +343,33 @@ Podglad: /workspace/share/_sat-preview.html + _preview.html (mock API).
 - /api/iss_track: kazdy wpis "passes" to teraz
   [aos, los, maxEl, visStart, visEnd, duration_s, mag] (zera gdy brak n2yo).
   WWW (data/satellite.js) pokazuje okno widocznosci w tabeli i w "nastepny przelot".
+
+## WiFi nie laczy sie po wczytaniu konfiguracji z pliku TXT — ROZWIAZANE (13.10.2026)
+Objaw: po uzyciu "Wczytaj ustawienia z pliku TXT" w WWW ESP przestaje laczyc sie
+z WiFi (zostaje w trybie AP) po restarcie.
+
+Przyczyna (dwie warstwy, obie naprawione):
+1. **Import zapisywal surowy podzbior, nie formularz.** `importSettingsFromFile()`
+   robil `applyConfigToUI(importedConfig)` i potem `saveConfig(importedConfig)` —
+   wysylal do `/api/save` dokladnie to, co bylo w pliku. Gdy TXT nie zawieral
+   `wifi_ssid`/`wifi_pass` (np. backup z innej wersji albo czesciowy), payload ich
+   nie mial.
+   **Fix (WWW, `data/index.html` + `indexEN.html`):** import zapisuje pelny
+   formularz: `saveConfig()` (bez argumentu → `collectConfigPayload()`), po tym jak
+   `applyConfigToUI()` juz scalilo importowane wartosci.
+2. **Firmware zerowal WiFi przy braku klucza.** `/api/save` robil bezwarunkowo
+   `wifiSSID = doc["wifi_ssid"].as<String>()`; brak klucza w JSON = pusty String =
+   skasowane SSID. To samo dla `wifi_pass`/`wifi_ssid2`/`wifi_pass2`.
+   **Fix (firmware, `main.cpp`):** `if (doc.containsKey("wifi_ssid"))` przed
+   przypisaniem — kazde z 4 pol nadpisywane tylko gdy klucz JEST w payloadzie.
+   Dodatkowo `applyConfigToUI()` w WWW nadpisuje pola WiFi tylko dla kluczy
+   obecnych w danych (`hasOwnProperty`), zeby czesciowy import nie czyscil
+   formularza przed zapisem.
+
+Bonus: warunek startu WiFi w `setup()` zmieniony z `wifiSSID.length() > 0` na
+`wifiSSID.length() > 0 || wifiSSID2.length() > 0` — konfiguracja z samym SSID2
+tez sie teraz laczy (wczesniej ignorowana).
+
+Test regresji (jsdom, symulacja UI): `importSettingsFromFile()` z plikiem bez
+kluczy WiFi → `/api/save` i tak zawiera zapisane wczesniej `wifi_ssid`/`wifi_pass`.
+

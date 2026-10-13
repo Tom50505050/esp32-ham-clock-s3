@@ -16845,12 +16845,19 @@ void setupWebServer() {
       
       String prevSsid = wifiSSID;
       String prevSsid2 = wifiSSID2;
-      wifiSSID = doc["wifi_ssid"].as<String>();
-      wifiPassword = doc["wifi_pass"].as<String>();
-      if (doc["wifi_ssid2"].is<String>()) {
+      // WiFi: nadpisuj TYLKO gdy klucz jest obecny w payloadzie. Import czesciowego
+      // backupu (albo starsze/okrojone UI) nie moze wyzerowac SSID/hasla - inaczej
+      // po restarcie ESP nie ma sie z czym polaczyc i zostaje w trybie AP.
+      if (doc.containsKey("wifi_ssid")) {
+        wifiSSID = doc["wifi_ssid"].as<String>();
+      }
+      if (doc.containsKey("wifi_pass")) {
+        wifiPassword = doc["wifi_pass"].as<String>();
+      }
+      if (doc.containsKey("wifi_ssid2")) {
         wifiSSID2 = doc["wifi_ssid2"].as<String>();
       }
-      if (doc["wifi_pass2"].is<String>()) {
+      if (doc.containsKey("wifi_pass2")) {
         wifiPassword2 = doc["wifi_pass2"].as<String>();
       }
       clusterHost = doc["cluster_host"].as<String>();
@@ -21557,8 +21564,8 @@ void setup() {
 #endif
   
   bootLogLine("WIFI starting...");
-  if (wifiSSID.length() > 0) {
-    bootLogLine("Connecting WiFi: " + wifiSSID);
+  if (wifiSSID.length() > 0 || wifiSSID2.length() > 0) {
+    bootLogLine("Connecting WiFi: " + (wifiSSID.length() > 0 ? wifiSSID : wifiSSID2));
     if (connectToWiFi()) {
       bootLogLine("WiFi connected!");
       yield();

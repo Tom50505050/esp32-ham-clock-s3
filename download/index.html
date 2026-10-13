@@ -1410,10 +1410,14 @@
         };
 
         const applyConfigToUI = (data) => {
-            document.getElementById('wifi_ssid').value = data.wifi_ssid || "";
-            document.getElementById('wifi_pass').value = data.wifi_pass || "";
-            document.getElementById('wifi_ssid2').value = data.wifi_ssid2 || "";
-            document.getElementById('wifi_pass2').value = data.wifi_pass2 || "";
+            // WiFi: nadpisuj pola tylko gdy klucz JEST w danych. Import czesciowego
+            // backupu nie moze wyczyscic SSID/hasla juz wpisanych w formularzu.
+            const wifiKeys = ['wifi_ssid', 'wifi_pass', 'wifi_ssid2', 'wifi_pass2'];
+            for (const k of wifiKeys) {
+                if (Object.prototype.hasOwnProperty.call(data, k)) {
+                    document.getElementById(k).value = data[k] || "";
+                }
+            }
             document.getElementById('uart2_baud').value = (data.uart2_baud !== undefined && data.uart2_baud !== null) ? data.uart2_baud : 9600;
             document.getElementById('uart2_data_bits').value = (data.uart2_data_bits !== undefined && data.uart2_data_bits !== null) ? String(data.uart2_data_bits) : "8";
             document.getElementById('uart2_parity').value = data.uart2_parity || "none";
@@ -1615,7 +1619,10 @@
                     const importedConfig = normalizeImportedSettings(parsed);
                     applyConfigToUI(importedConfig);
                     if (confirm('Ustawienia zostały wczytane do formularza. Czy zapisać je teraz do urządzenia?')) {
-                        saveConfig(importedConfig);
+                        // Zapisujemy pelny formularz (collectConfigPayload), a nie sam
+                        // importowany podzbior - inaczej payload moglby nie zawierac
+                        // wifi_ssid i firmware wyczyscilby konfiguracje WiFi.
+                        saveConfig();
                     } else {
                         alert('Ustawienia zostały wczytane do formularza. Kliknij "Zapisz Konfigurację", aby zapisać je do urządzenia.');
                     }
