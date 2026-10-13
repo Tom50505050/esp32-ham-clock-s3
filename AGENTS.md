@@ -531,3 +531,19 @@ Zastapil ekran "Unlis Hunter" (gra usunieta). Dashboard telemetrii w stylu
   ekranach; stary kod "unlishunter" nadal mapowany na ten ekran (kompatybilnosc).
 - Wykres i metryki rysowane bezposrednio na tft (bez sprite) - aktualizacje
   co 1 s, wiec nie ma ciaglego ruchu po SPI jak przy radarze.
+
+## WWW: lista "Ekrany TFT (kolejnosc)" - 14 pozycji
+Pelne UI jest serwowane z LittleFS (`data/index.html` / `data/indexEN.html`),
+NIE z wbudowanego stringa w main.cpp. Lista kolejnosci ekranow ma 14 pozycji
+(`screen_slot_1..14`, `screenOptionsDefault` dlugosci 14, petle JS `i < 14`).
+Opcje: 14 ekranow + OFF (w tym `pskmap`, `systeminfo`, `iss`). Kody musza byc
+zgodne z `screenCodeToType()` w firmware (`bandinfo`, `sunspots`, `systeminfo`).
+UWAGA: stary kod w main.cpp (`SCREENS`, `screenOrderRow`) jest martwy - nie
+edytuj go, bo nie jest serwowany. Po zmianie `data/*.html` trzeba przebudowac
+LittleFS (`pio run -t buildfs`) i wgrac image FS, nie tylko firmware.
+
+## Nawigacja ekranow: NIE dodawaj wczesnego `return` per-ekran
+`handleTouchNavigation()` obsluguje menu, popupy, potem nawigacje w rogach
+(lewo/prawo). Wczesny `return` dla danego ekranu (jak bylo dla SYSTEM_INFO)
+zjada dotkniecia ZANIM dojdzie do nawigacji - ekran staje sie "uwieziony".
+Ekran tylko-do-odczytu nie potrzebuje zadnego bloku w handleTouchNavigation.
