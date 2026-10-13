@@ -451,3 +451,24 @@ band-steeringu. TEST ROZSTRZYGAJACY: polaczyc sie z `Multiplay_C984` telefonem
 z haslem `ZTEEQFWL7H01091` (z logu). Telefon tez nie laczy => haslo/polityka AP.
 Telefon laczy => interop ESP-router: wylaczyc Smart Connect, osobne SSID 2,4 GHz,
 WPA2-PSK(AES) bez WPA3/PMF, sprawdzic antene (RX dziala = skan, TX moze nie).
+
+
+### ROZSTRZYGNIECIE (potwierdzone przez uzytkownika): hotspot telefonu DZIALA
+ESP laczy sie bez problemu z siecia komorkowa (hotspot telefonu). To definitywnie
+zamyka watek: **firmware i sprzet sa sprawne**, problem jest tylko z AP
+`Multiplay_C984`. Potwierdza to wczesniejsza diagnoze: AUTH_EXPIRE -> AUTH_FAIL
+przy widocznej silnej sieci = router odrzuca stacje (band steering / Smart Connect,
+WPA2/WPA3-mixed + PMF, filtr MAC, izolacja klienta) albo nieaktualne haslo.
+
+Wniosek: NIE ma juz czego naprawiac w kodzie. Naprawa jest w routerze:
+1. Wylaczyc "Smart Connect" / band steering (kluczowe).
+2. Ustawic WPA2-PSK (AES) - nie "WPA2/WPA3 mixed"; PMF off.
+3. Sprawdzic filtr MAC / izolacje klienta; dopisac MAC ESP.
+4. Kanal 1-11 recznie; najlepiej osobne SSID dla 2,4 GHz.
+5. Upewnic sie, ze haslo w routerze = to w panelu ESP.
+
+Kod diagnostyczny (handler zdarzen, findNetwork, przypinanie BSSID,
+setMinSecurity(OPEN)) zostaje jako wartosciowa diagnostyka/odpornosc.
+Drabinka mocy TX okazala sie nieskuteczna dla tego przypadku (AUTH_EXPIRE przy
+kazdej mocy) - kandydat do uproszczenia/usuniecia, bo dodaje ~27 s opoznienia,
+gdy AP jest nieosiagalny.
