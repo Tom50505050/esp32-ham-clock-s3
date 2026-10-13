@@ -568,3 +568,30 @@ Ekran tylko-do-odczytu nie potrzebuje zadnego bloku w handleTouchNavigation.
   Noc = ikona OWM "n" albo brak ikony i godzina lokalna poza 6-18; loop
   przelicza PWM przy zmianie pory dnia. Max jasnosc = 100% (0xFFFF duty);
   slider WWW ogranicza do min 10%.
+
+## KOLOR ZNAKU: WWW + przytrzymanie palca na znaku (13.10.2026)
+Kolor znaku wywolawczego (`callsignColor`, pref `callsign_color`, RGB565,
+domyslnie 0xFFFF bialy) mozna teraz ustawic na dwa sposoby:
+
+1. WWW (pelne UI z LittleFS): `data/index.html` / `data/indexEN.html`, sekcja
+   "Twoja Stacja" - `<input type="color" id="callsign_color_picker">` +
+   podglad HEX i przycisk "Domyslny (bialy)". JS: `rgb565ToHex`/`hexToRgb565`
+   (konwersja 5-6-5 <-> #RRGGBB), `resetCallsignColor()`. Pole trafia do
+   payloadu `/api/save` jako `callsign_color` (int 0..65535).
+   UWAGA: serwowane jest `data/index.html` z LittleFS; wbudowany string
+   `getMainHTML()` w main.cpp ma tylko pole `callsign_color` (int) - to
+   fallback, gdy brak pliku w FS.
+2. TFT: przytrzymanie palca NA ZNAKU na ekranie HAM CLOCK (>=1200 ms) otwiera
+   menu koloru (`openCallsignColorMenu`). Trzy suwaki HSV: hue (0..255),
+   nasycenie (0..100%), jasnosc (0..100%) + podglad znaku i przyciski
+   ZAPISZ/DOMYSLNE/ZAMKNIJ. `hsv565()` (HSV->RGB565), `rgb565ToHSV()` (start
+   suwakow od aktualnego koloru). Suwaki rysowane bez `fillScreen`
+   (`redrawCallsignColorControls`), zeby nie migalo przy przeciaganiu.
+- Obszar znaku: `callsignHitX/Y/W/H` zapisywane w `drawHamClock()`.
+- Wykrywanie: w `handleTouchNavigation()` PRZED galezia `brightnessMenuActive`,
+  po 1200 ms trzymania (dluzsze 3000 ms nadal otwiera menu jasnosci).
+  `longPressHandled` blokuje ponowne otwarcie. Auto-przelaczanie ekranow
+  wstrzymane, gdy `callsignColorMenuActive`.
+- Klawisze tlumaczen: `TR_CALLSIGN_COLOR`, `TR_SATURATION`, `TR_VALUE`
+  (dodane na koncu enum i tablic TR_PL/TR_EN - kolejnosc musi sie zgadzac).
+

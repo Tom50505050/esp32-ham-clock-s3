@@ -894,6 +894,15 @@
                         <small>Twój znak wywoławczy używany do logowania do DX Cluster</small>
                     </div>
                     <div class="form-group">
+                        <label>Kolor znaku na ekranie (HAM CLOCK):</label>
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <input type="color" id="callsign_color_picker" value="#ffffff" style="width:60px; height:36px; padding:0; border:1px solid #444; background:#1a1a1a; cursor:pointer;" oninput="document.getElementById('callsign_color_hex').textContent=this.value;">
+                            <span id="callsign_color_hex" style="font-family:monospace; color:#b0b0b0;">#ffffff</span>
+                            <button type="button" class="btn" onclick="resetCallsignColor()" style="padding:6px 12px;">Domyślny (biały)</button>
+                        </div>
+                        <small>Kolor znaku wywoławczego na głównym ekranie. Możesz też przytrzymać palec na znaku na ekranie TFT, aby zmienić kolor.</small>
+                    </div>
+                    <div class="form-group">
                         <label>Twój Locator (Maidenhead):</label>
                         <input type="text" id="user_locator" name="user_locator" placeholder="np. JO82LK">
                         <small>Lokator Maidenhead (4-6 znaków) używany do obliczania odległości do spotów</small>
@@ -1353,6 +1362,27 @@
             openWebRxBase = normalizeOpenWebRx(input ? input.value : "");
         };
 
+        const rgb565ToHex = (v) => {
+            v = (parseInt(v, 10) || 0) & 0xFFFF;
+            const r = ((v >> 11) & 0x1F) * 255 / 31;
+            const g = ((v >> 5) & 0x3F) * 255 / 63;
+            const b = (v & 0x1F) * 255 / 31;
+            const h = (n) => Math.round(n).toString(16).padStart(2, '0');
+            return '#' + h(r) + h(g) + h(b);
+        };
+        const hexToRgb565 = (hex) => {
+            const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
+            if (!m) return 65535;
+            const num = parseInt(m[1], 16);
+            const r = (num >> 16) & 0xFF, g = (num >> 8) & 0xFF, b = num & 0xFF;
+            return (((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)) & 0xFFFF;
+        };
+        const resetCallsignColor = () => {
+            const picker = document.getElementById('callsign_color_picker');
+            if (picker) picker.value = '#ffffff';
+            const lbl = document.getElementById('callsign_color_hex');
+            if (lbl) lbl.textContent = '#ffffff';
+        };
         const getQrzLink = (callsign) => {
             const call = (callsign || "").trim();
             return call ? "https://www.qrz.com/db/" + encodeURIComponent(call) : "#";
@@ -1555,6 +1585,15 @@
             document.getElementById('hamalert_login').value = data.hamalert_login || "";
             document.getElementById('hamalert_password').value = data.hamalert_password || "";
             document.getElementById('user_callsign').value = data.user_callsign || "";
+            (() => {
+                const picker = document.getElementById('callsign_color_picker');
+                if (picker) {
+                    const hex = rgb565ToHex(data.callsign_color);
+                    picker.value = hex;
+                    const lbl = document.getElementById('callsign_color_hex');
+                    if (lbl) lbl.textContent = hex;
+                }
+            })();
             document.getElementById('user_locator').value = data.user_locator || "";
             const timezoneValue = (data.timezone !== undefined && data.timezone !== null) ? data.timezone : 0;
             document.getElementById('timezone').value = timezoneValue;
@@ -2625,6 +2664,10 @@
             hamalert_login: hamalertCfg.login,
             hamalert_password: hamalertCfg.password,
             user_callsign: document.getElementById('user_callsign').value,
+            callsign_color: (() => {
+                const picker = document.getElementById('callsign_color_picker');
+                return picker ? hexToRgb565(picker.value) : 65535;
+            })(),
             user_locator: document.getElementById('user_locator').value,
             timezone: parseFloat(document.getElementById('timezone').value) || 0,
             user_lat: parseFloat(document.getElementById('user_lat').value) || 0,

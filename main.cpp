@@ -104,6 +104,10 @@ static bool isAprsAlertCloseButtonHit(uint16_t x, uint16_t y);
 static void dismissAprsAlertScreen();
 void drawBrightnessMenu();
 void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap);
+void drawCallsignColorMenu();
+void handleCallsignColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap);
+void openCallsignColorMenu();
+bool isPointInRect(uint16_t x, uint16_t y, int rx, int ry, int rw, int rh);
 void handleScreen1MenuTouch(uint16_t x, uint16_t y);
 void handleScreen2MenuTouch(uint16_t x, uint16_t y);
 void handleScreen6MenuTouch(uint16_t x, uint16_t y);
@@ -790,6 +794,9 @@ enum TrKey : uint8_t {
   TR_DEFAULT,
   TR_CLOSE,
   TR_LANGUAGE,
+  TR_CALLSIGN_COLOR,
+  TR_SATURATION,
+  TR_VALUE,
   TR_KEY_COUNT
 };
 
@@ -819,7 +826,10 @@ static const char* TR_PL[TR_KEY_COUNT] = {
   "ZAPISZ",
   "DOMYĹšLNE",
   "ZAMKNIJ",
-  "JÄZYK"
+  "JÄZYK",
+  "KOLOR ZNAKU",
+  "NASYCENIE",
+  "JASNOĹšÄ†"
 };
 
 static const char* TR_EN[TR_KEY_COUNT] = {
@@ -848,7 +858,10 @@ static const char* TR_EN[TR_KEY_COUNT] = {
   "SAVE",
   "DEFAULT",
   "CLOSE",
-  "LANGUAGE"
+  "LANGUAGE",
+  "CALLSIGN COLOR",
+  "SATURATION",
+  "VALUE"
 };
 
 static const char* tr(TrKey key) {
@@ -1601,6 +1614,17 @@ String weatherApiKey = "";
 String n2yoApiKey = "";
 String openWebRxUrl = DEFAULT_OPENWEBRX_URL;
 uint16_t callsignColor = 65535; // Default white (0xFFFF)
+// Menu koloru znaku (przytrzymanie palca na znaku na ekranie HAM CLOCK).
+bool callsignColorMenuActive = false;
+int callsignColorMenuHue = 0;    // 0..255
+int callsignColorMenuSat = 0;    // 0..100 (%)
+int callsignColorMenuVal = 100;  // 0..100 (%)
+uint16_t callsignColorMenuPrev = 65535;
+ScreenType callsignColorMenuPrevScreen = SCREEN_HAM_CLOCK;
+bool callsignColorMenuPrevInMenu = false;
+unsigned long callsignColorMenuOpenedMs = 0;
+// Obszar znaku na ekranie HAM CLOCK (do wykrycia przytrzymania palca).
+int callsignHitX = 40, callsignHitY = 45, callsignHitW = 400, callsignHitH = 55;
 
 // ========== ISS TRACKING VARIABLES ==========
 #define ISS_TRAJECTORY_POINTS 45
@@ -3350,6 +3374,11 @@ void drawHamClock() {
   int callY = 55;
   tft.setCursor(max(10, callX), callY);
   tft.print(callsign);
+  // Zapamietaj obszar znaku - sluzy do wykrycia przytrzymania palca na znaku.
+  callsignHitX = max(10, callX) - 10;
+  callsignHitY = callY - 5;
+  callsignHitW = callWidth + 20;
+  callsignHitH = 50;
 
   // Napis "OPERATOR STATION" - pod callsign (wyĹ›rodkowany)
   tft.setTextSize(1);
@@ -5082,8 +5111,22 @@ void handleTouchNavigation() {
       }
     }
 
+    // Przytrzymanie palca NA ZNAKU (ekran HAM CLOCK) otwiera menu koloru znaku.
+    if (!brightnessMenuActive && !callsignColorMenuActive && !longPressHandled &&
+        currentScreen == SCREEN_HAM_CLOCK && !inMenu && (now - touchStartMs) >= 1200 &&
+        isPointInRect(x, y, callsignHitX, callsignHitY, callsignHitW, callsignHitH)) {
+      longPressHandled = true;
+      openCallsignColorMenu();
+      return;
+    }
+
     if (brightnessMenuActive) {
       handleBrightnessMenuTouch(x, y, isNewTap);
+      return;
+    }
+
+    if (callsignColorMenuActive) {
+      handleCallsignColorMenuTouch(x, y, isNewTap);
       return;
     }
 
@@ -6901,6 +6944,188 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     brightnessMenuActive = false;  // Zamknij menu jasnoĹ›ci
     screenSleepMenuActive = true;
     drawScreenSleepMenu();
+    return;
+  }
+}
+
+// ===== Menu koloru znaku (przytrzymanie palca na znaku, ekran HAM CLOCK) =====
+
+// HSV (hue 0..255, sat/val 0..100) -> RGB565.
+uint16_t hsv565(int hue, int sat, int val) {
+  hue = ((hue % 256) + 256) % 256;
+  sat = constrain(sat, 0, 100);
+  val = constrain(val, 0, 100);
+  uint8_t region = hue / 43;                 // 6 obszarow koloru
+  uint8_t rem = (uint8_t)((hue - region * 43) * 6);  // 0..255
+  uint8_t p = (uint8_t)((val * (100 - sat)) / 100);
+  uint8_t q = (uint8_t)((val * (100 - (sat * rem) / 255)) / 100);
+  uint8_t t = (uint8_t)((val * (100 - (sat * (255 - rem)) / 255)) / 100);
+  uint8_t v = (uint8_t)val;
+  uint8_t r, g, b;
+  switch (region) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    default: r = v; g = p; b = q; break;
+  }
+  return rgb565(r, g, b);
+}
+
+// RGB565 -> HSV, zeby suwaki startowaly od aktualnego koloru znaku.
+static void rgb565ToHsv(uint16_t c, int &h, int &sat, int &val) {
+  float r = ((c >> 11) & 0x1F) / 31.0f;
+  float g = ((c >> 5) & 0x3F) / 63.0f;
+  float b = (c & 0x1F) / 31.0f;
+  float mx = max(r, max(g, b));
+  float mn = min(r, min(g, b));
+  float d = mx - mn;
+  val = (int)(mx * 100.0f + 0.5f);
+  sat = (mx <= 0.0f) ? 0 : (int)(d / mx * 100.0f + 0.5f);
+  float hd = 0.0f;
+  if (d > 0.0f) {
+    if (mx == r) { hd = (g - b) / d; if (hd < 0.0f) hd += 6.0f; }
+    else if (mx == g) hd = (b - r) / d + 2.0f;
+    else hd = (r - g) / d + 4.0f;
+  }
+  h = (int)(hd * 255.0f / 6.0f + 0.5f);
+  if (h > 255) h = 255;
+}
+
+static void drawCallsignColorSlider(int y, int mode) {
+  const int sx = 40, sw = 400, sh = 14, knobW = 6;
+  tft.fillRect(sx - knobW, y - 6, sw + knobW * 2, sh + 12, TFT_BLACK);
+  for (int i = 0; i < sw; i++) {
+    uint16_t c;
+    if (mode == 0) {
+      c = hsv565((i * 255) / (sw - 1), callsignColorMenuSat, callsignColorMenuVal);
+    } else if (mode == 1) {
+      c = hsv565(callsignColorMenuHue, (i * 100) / (sw - 1), callsignColorMenuVal);
+    } else {
+      c = hsv565(callsignColorMenuHue, callsignColorMenuSat, (i * 100) / (sw - 1));
+    }
+    tft.drawFastVLine(sx + i, y + 1, sh - 2, c);
+  }
+  tft.drawRect(sx, y, sw, sh, TFT_WHITE);
+  int value = (mode == 0) ? callsignColorMenuHue : (mode == 1 ? callsignColorMenuSat : callsignColorMenuVal);
+  int maxv = (mode == 0) ? 255 : 100;
+  int knobX = sx + (value * (sw - knobW)) / maxv;
+  tft.fillRect(knobX, y - 4, knobW, sh + 8, TFT_WHITE);
+}
+
+static void drawCallsignColorPreview() {
+  tft.fillRect(0, 36, 480, 40, TFT_BLACK);
+  uint16_t preview = hsv565(callsignColorMenuHue, callsignColorMenuSat, callsignColorMenuVal);
+  String cs = (userCallsign.length() > 0) ? userCallsign : DEFAULT_CALLSIGN;
+  cs.toUpperCase();
+  tft.setTextSize(3);
+  tft.setTextColor(preview, TFT_BLACK);
+  int w = tft.textWidth(cs);
+  tft.setCursor((480 - w) / 2, 44);
+  tft.print(cs);
+}
+
+// Odswiezenie bez fillScreen - uzywane podczas przeciagania suwakow (bez migotania).
+static void redrawCallsignColorControls() {
+  drawCallsignColorPreview();
+  drawCallsignColorSlider(120, 0);
+  drawCallsignColorSlider(160, 1);
+  drawCallsignColorSlider(200, 2);
+}
+
+void drawCallsignColorMenu() {
+  tft.fillScreen(TFT_BLACK);
+  tft.fillRect(0, 0, 480, 28, menuThemeColor);
+  tft.setTextColor(TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(10, 6);
+  tft.print(sanitizePolishToAscii(String(tr(TR_CALLSIGN_COLOR))));
+
+  drawCallsignColorPreview();
+
+  const int hueY = 120, satY = 160, valY = 200;
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setCursor(10, hueY - 14);
+  tft.print(sanitizePolishToAscii(String(tr(TR_THEME_COLOR))));
+  tft.setCursor(10, satY - 14);
+  tft.print(sanitizePolishToAscii(String(tr(TR_SATURATION))));
+  tft.setCursor(10, valY - 14);
+  tft.print(sanitizePolishToAscii(String(tr(TR_VALUE))));
+  drawCallsignColorSlider(hueY, 0);
+  drawCallsignColorSlider(satY, 1);
+  drawCallsignColorSlider(valY, 2);
+
+  const int btnW = 110, btnH = 28, btnY = 250, gap = 15;
+  const int saveX = 15, defX = saveX + btnW + gap, closeX = defX + btnW + gap;
+  drawFilterTile(saveX, btnY, btnW, btnH, tr(TR_SAVE), false);
+  drawFilterTile(defX, btnY, btnW, btnH, tr(TR_DEFAULT), false);
+  drawFilterTile(closeX, btnY, btnW, btnH, tr(TR_CLOSE), false);
+}
+
+void openCallsignColorMenu() {
+  rgb565ToHsv(callsignColor, callsignColorMenuHue, callsignColorMenuSat, callsignColorMenuVal);
+  callsignColorMenuPrev = callsignColor;
+  callsignColorMenuPrevScreen = currentScreen;
+  callsignColorMenuPrevInMenu = inMenu;
+  callsignColorMenuOpenedMs = millis();
+  callsignColorMenuActive = true;
+  drawCallsignColorMenu();
+}
+
+void handleCallsignColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
+  unsigned long now = millis();
+  if (now - callsignColorMenuOpenedMs < 400) {
+    return;
+  }
+
+  const int sx = 40, sw = 400, sh = 14;
+  const int hueY = 120, satY = 160, valY = 200;
+
+  if (y >= hueY - 6 && y <= hueY + sh + 6) {
+    callsignColorMenuHue = constrain((int)((long)(x - sx) * 255 / (sw - 1)), 0, 255);
+    redrawCallsignColorControls();
+  }
+  if (y >= satY - 6 && y <= satY + sh + 6) {
+    callsignColorMenuSat = constrain((int)((long)(x - sx) * 100 / (sw - 1)), 0, 100);
+    redrawCallsignColorControls();
+  }
+  if (y >= valY - 6 && y <= valY + sh + 6) {
+    callsignColorMenuVal = constrain((int)((long)(x - sx) * 100 / (sw - 1)), 0, 100);
+    redrawCallsignColorControls();
+  }
+
+  if (!isNewTap) {
+    return;
+  }
+
+  const int btnW = 110, btnH = 28, btnY = 250, gap = 15;
+  const int saveX = 15, defX = saveX + btnW + gap, closeX = defX + btnW + gap;
+
+  if (isPointInRect(x, y, saveX, btnY, btnW, btnH)) {
+    callsignColor = hsv565(callsignColorMenuHue, callsignColorMenuSat, callsignColorMenuVal);
+    savePreferences();
+    callsignColorMenuActive = false;
+    currentScreen = callsignColorMenuPrevScreen;
+    inMenu = callsignColorMenuPrevInMenu;
+    drawScreen(currentScreen);
+    return;
+  }
+  if (isPointInRect(x, y, defX, btnY, btnW, btnH)) {
+    callsignColor = 65535;
+    callsignColorMenuHue = 0;
+    callsignColorMenuSat = 0;
+    callsignColorMenuVal = 100;
+    redrawCallsignColorControls();
+    return;
+  }
+  if (isPointInRect(x, y, closeX, btnY, btnW, btnH)) {
+    callsignColor = callsignColorMenuPrev;
+    callsignColorMenuActive = false;
+    currentScreen = callsignColorMenuPrevScreen;
+    inMenu = callsignColorMenuPrevInMenu;
+    drawScreen(currentScreen);
     return;
   }
 }
@@ -18632,7 +18857,7 @@ void uiTaskLoop(void *parameter) {
       lastScreenSaverCheckMs = now;
     }
 
-    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !touchCalActive && !brightnessMenuActive && !qrzPopupActive) {
+    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !touchCalActive && !brightnessMenuActive && !callsignColorMenuActive && !qrzPopupActive) {
       unsigned long nowSwitch = millis();
       if (tftAutoSwitchLastMs == 0 || tftAutoSwitchLastScreen != currentScreen) {
         tftAutoSwitchLastMs = nowSwitch;
