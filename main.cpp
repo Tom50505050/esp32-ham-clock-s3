@@ -5541,11 +5541,10 @@ static const int ARP_PANEL_W = 218;
 TFT_eSprite aprsRadarSprite = TFT_eSprite(&tft);
 static bool aprsRadarSpriteReady = false;
 static bool aprsRadarSpriteInitTried = false;
-
-// Kat smugi radaru (stopnie) - aktualizowany raz na klatke.
-static float aprsRadarSweepAngle = 0.0f;
-// Stacje "zapalone" po przejsciu smugi (0..1). Smuga je zapala, potem gasna.
-static uint8_t aprsRadarBlip[MAX_APRS_STATIONS];
+// Sprite jest wspoldzielony przez UI_Task (rysowanie ekranu) i petle loop()
+// (animacja smugi). Bez blokady oba zadania wypychalyby go po SPI naraz,
+// co zawieszalo magistrale i powodowalo reset. Mutex serializuje pushSprite.
+static SemaphoreHandle_t aprsRadarSpriteMux = nullptr;
 
 static bool ensureAprsRadarSprite() {
   if (aprsRadarSpriteReady) return true;
@@ -5558,6 +5557,11 @@ static bool ensureAprsRadarSprite() {
   }
   return aprsRadarSpriteReady;
 }
+
+// Kat smugi radaru (stopnie) - aktualizowany raz na klatke.
+static float aprsRadarSweepAngle = 0.0f;
+// Stacje "zapalone" po przejsciu smugi. Smuga je zapala, potem gasna.
+static uint8_t aprsRadarBlip[MAX_APRS_STATIONS];
 
 // Kolor taktyczny wg typu symbolu APRS.
 static uint16_t aprsRadarStationColor(const APRSStation &station) {
@@ -5617,6 +5621,16 @@ static void aprsRadarRangeTiles(int y) {
 // aktualizowac stan "zapalenia" stacji (false przy pelnym odswiezeniu).
 static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   if (!ensureAprsRadarSprite()) return;
+  if (aprsRadarSpriteMux == nullptr) {
+    aprsRadarSpriteMux = xSemaphoreCreateMutex();
+  }
+  bool locked = false;
+  if (aprsRadarSpriteMux != nullptr) {
+    if (xSemaphoreTake(aprsRadarSpriteMux, pdMS_TO_TICKS(500)) != pdTRUE) {
+      return;  // inne zadanie wlasnie rysuje - pomijamy klatke
+    }
+    locked = true;
+  }
 
   TFT_eSprite &sp = aprsRadarSprite;
   sp.fillScreen(ARP_COL_BG);
@@ -5792,6 +5806,10 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   }
 
   sp.pushSprite(0, 0);
+
+  if (locked) {
+    xSemaphoreGive(aprsRadarSpriteMux);
+  }
 }
 
 static void drawAprsRadarBody() {
@@ -19088,6 +19106,18 @@ void uiTaskLoop(void *parameter) {
       }
     }
 
+    // Animacja smugi radaru APRS. Robimy to w UI_Task (a NIE w loopTask),
+    // bo tylko to zadanie rysuje po TFT - dzieki temu pushSprite nigdy nie
+    // jest wywolywany rownolegle z innego rdzenia (to powodowalo reset).
+    if (currentScreen == SCREEN_APRS_RADAR && tftInitialized && !inMenu &&
+        !screenSleepActive && !bootSequenceActive) {
+      static unsigned long lastAprsRadarTickMs = 0;
+      if (now - lastAprsRadarTickMs >= 100) {
+        lastAprsRadarTickMs = now;
+        aprsRadarTick();
+      }
+    }
+
     // Diagnostyka: co 15 s potwierdz, ze zadanie UI zyje i na jakim ekranie.
     // "Ekran zgasl" = UI_Task zawieszony/nie rysuje; brak tego logu = task nie zyje.
     {
@@ -22271,15 +22301,6 @@ void loop() {
     loopPskMqtt();
   }
   
-  // Animacja smugi radaru APRS (~100 ms/klatke, sprite = brak migotania)
-  static unsigned long lastAprsRadarTick = 0;
-  if (currentScreen == SCREEN_APRS_RADAR && tftInitialized && !inMenu && !aprsAlertScreenActive) {
-    if (millis() - lastAprsRadarTick >= 100) {
-      lastAprsRadarTick = millis();
-      aprsRadarTick();
-    }
-  }
-
   // Dynamiczne odĹ›wieĹĽanie ekranu ISS co 1 sekundÄ™
 #ifdef ENABLE_TFT_DISPLAY
   static unsigned long lastIssTftRefresh = 0;
