@@ -1685,6 +1685,14 @@ time_t issPassAos[ISS_MAX_PASSES] = {0};
 time_t issPassLos[ISS_MAX_PASSES] = {0};
 double issPassMaxEl[ISS_MAX_PASSES] = {0.0};
 
+// Widocznosc przelotu (oswietlenie + obserwator w ciemnosci) z n2yo
+// visualpasses. Dla kazdego przelotu: start/koniec widocznosci (epoch UTC),
+// czas trwania [s] i maks. jasnosc. 0 = brak danych (np. brak klucza n2yo).
+time_t issPassVisStart[ISS_MAX_PASSES] = {0};
+time_t issPassVisEnd[ISS_MAX_PASSES] = {0};
+int    issPassDuration[ISS_MAX_PASSES] = {0};
+double issPassMag[ISS_MAX_PASSES] = {0.0};
+
 // FreeRTOS task for ISS updates on Core 0
 TaskHandle_t issTaskHandle = NULL;
 SemaphoreHandle_t issDataMutex = NULL;
@@ -16771,7 +16779,7 @@ void setupWebServer() {
       xSemaphoreGive(issDataMutex);
     }
 
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(6144);
     doc["lat"] = snapLat;
     doc["lng"] = snapLng;
     doc["altitude"] = snapAlt;
@@ -16803,6 +16811,12 @@ void setupWebServer() {
       p.add((long)issPassAos[i]);
       p.add((long)issPassLos[i]);
       p.add(issPassMaxEl[i]);
+      // Okno widocznosci (n2yo visualpasses): [startVis, endVis, duration_s, mag]
+      // - WWW pokazuje "widoczny" i czas trwania. Zera gdy brak danych.
+      p.add((long)issPassVisStart[i]);
+      p.add((long)issPassVisEnd[i]);
+      p.add(issPassDuration[i]);
+      p.add(issPassMag[i]);
     }
 
     JsonArray track = doc.createNestedArray("track");
@@ -20076,11 +20090,80 @@ void calculateIssTrajectorySGP4() {
   xSemaphoreGive(issTleMutex);
 }
 
-// Pobiera czas nastÄ™pnego przelotu ISS z n2yo.com (jeĹ›li skonfigurowano
-// klucz API w ustawieniach WWW). To DUĹ»O prostsze i bardziej niezawodne
-// niĹĽ liczenie tego samemu przez SGP4 na ESP32 - przewidywanie przelotĂłw
-// robi ich serwer, my tylko odczytujemy gotowy wynik. Zwraca true przy
-// sukcesie (i ustawia issNextPassEstimateEpoch/Valid).
+// Pobiera z n2yo.com przeloty WIDOCZNE (visualpasses: ISS oswietlony sloncem,
+// a obserwator w ciemnosci) i dopasowuje je do listy przelotow radiowych po
+// czasie AOS. Uzupelnia issPassVisStart/VisEnd/Duration/Mag. Gdy sie nie uda,
+// zostaja zera - UI pokaze "widoczny: --". Wywolywane po udanym radiopasses.
+static void fetchIssVisualPassesFromN2yo() {
+  if (n2yoApiKey.length() == 0 || WiFi.status() != WL_CONNECTED) return;
+
+  double userLatLocal = userLatLonValid ? userLat : 52.40;
+  double userLonLocal = userLatLonValid ? userLon : 16.92;
+
+  static WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  String url = "https://api.n2yo.com/rest/v1/satellite/visualpasses/25544/" +
+               String(userLatLocal, 4) + "/" + String(userLonLocal, 4) + "/0/2/0/" +
+               "&apiKey=" + n2yoApiKey;
+  http.begin(client, url);
+  http.setTimeout(4000);
+  int httpCode = http.GET();
+  if (httpCode != 200) {
+    Serial.printf("[ISS PASS n2yo] visualpasses HTTP kod: %d\n", httpCode);
+    http.end();
+    return;
+  }
+
+  DynamicJsonDocument filter(512);
+  filter["passes"][0]["startUTC"] = true;
+  filter["passes"][0]["startVisibilityUTC"] = true;
+  filter["passes"][0]["endUTC"] = true;
+  filter["passes"][0]["duration"] = true;
+  filter["passes"][0]["mag"] = true;
+
+  DynamicJsonDocument doc(3072);
+  WiFiClient *vstream = http.getStreamPtr();
+  DeserializationError err = deserializeJson(doc, *vstream, DeserializationOption::Filter(filter));
+  http.end();
+  if (err) {
+    Serial.printf("[ISS PASS n2yo] visualpasses blad JSON: %s\n", err.c_str());
+    return;
+  }
+
+  for (int i = 0; i < ISS_MAX_PASSES; i++) {
+    issPassVisStart[i] = 0; issPassVisEnd[i] = 0; issPassDuration[i] = 0; issPassMag[i] = 0.0;
+  }
+  JsonArray vp = doc["passes"].as<JsonArray>();
+  int matched = 0;
+  for (int i = 0; i < issPassCount; i++) {
+    time_t aos = issPassAos[i];
+    if (aos <= 0) continue;
+    for (JsonObject p : vp) {
+      long vs = p["startVisibilityUTC"] | 0L;
+      if (vs <= 0) continue;
+      // Ten sam przelot: n2yo liczy visual/radio z tego samego TLE, ale
+      // progi elewacji moga dac kilka minut roznicy - tolerancja 3 min.
+      long diff = (long)vs - (long)aos;
+      if (diff < 0) diff = -diff;
+      if (diff <= 180) {
+        issPassVisStart[i] = (time_t)vs;
+        long ve = p["endUTC"] | 0L;
+        issPassVisEnd[i] = (ve > 0) ? (time_t)ve : 0;
+        issPassDuration[i] = p["duration"] | 0;
+        issPassMag[i] = (double)(p["mag"] | 0.0f);
+        matched++;
+        break;
+      }
+    }
+  }
+  Serial.printf("[ISS PASS n2yo] Widocznosc dopasowana do %d przelot(ow)\n", matched);
+}
+
+// Pobiera czas nastepnego przelotu ISS z n2yo.com (radiopasses) i uzupelnia
+// liste przelotow. To DUZO prostsze i bardziej niezawodne niz liczenie tego
+// samemu przez SGP4 na ESP32 - przewidywanie robi ich serwer. Po sukcesie
+// dociaga tez widocznosc (visualpasses). Zwraca true przy sukcesie.
 bool fetchIssNextPassFromN2yo() {
   if (n2yoApiKey.length() == 0 || WiFi.status() != WL_CONNECTED) {
     return false;
@@ -20133,7 +20216,10 @@ bool fetchIssNextPassFromN2yo() {
         issPassCount = n;
         for (int i = n; i < ISS_MAX_PASSES; i++) {
           issPassAos[i] = 0; issPassLos[i] = 0; issPassMaxEl[i] = 0.0;
+          issPassVisStart[i] = 0; issPassVisEnd[i] = 0; issPassDuration[i] = 0; issPassMag[i] = 0.0;
         }
+        // Widocznosc przelotow (visualpasses) - dopasowana do AOS powyzej.
+        fetchIssVisualPassesFromN2yo();
 
         long startUTC = passes[0]["startUTC"] | 0L;
         long endUTC = passes[0]["endUTC"] | 0L;
@@ -20154,6 +20240,9 @@ bool fetchIssNextPassFromN2yo() {
         }
       } else {
         issPassCount = 0;
+        for (int i = 0; i < ISS_MAX_PASSES; i++) {
+          issPassVisStart[i] = 0; issPassVisEnd[i] = 0; issPassDuration[i] = 0; issPassMag[i] = 0.0;
+        }
         Serial.println("[ISS PASS n2yo] Brak przelotow w zwroconym oknie (2 dni)");
       }
     } else {
@@ -20276,6 +20365,9 @@ void updateIssNextPassEstimate() {
     issPassAos[i] = (i < passCount) ? aosList[i] : 0;
     issPassLos[i] = (i < passCount) ? losList[i] : 0;
     issPassMaxEl[i] = (i < passCount) ? maxElList[i] : 0.0;
+    // SGP4 nie liczy widocznosci (potrzeba oswietlenia Slonca i zmierzchu
+    // obserwatora) - zerujemy, UI pokaze "widoczny: --" gdy brak n2yo.
+    issPassVisStart[i] = 0; issPassVisEnd[i] = 0; issPassDuration[i] = 0; issPassMag[i] = 0.0;
   }
 
   // Pojedynczy "nastepny przelot" zgodny z istniejacym UI/JSON.
@@ -20609,6 +20701,45 @@ static void issMapProject(double lon, double lat, int mx, int my, int mw, int mh
   py = my + (int)((90.0 - lat) / 180.0 * mh);
 }
 
+// Rysuje flage kraju (32x21 BMP 24-bit z LittleFS /tft_flags/<CC>.bmp) wprost
+// do sprite'a ekranu ISS. Wlasna implementacja zamiast drawBmpFromFS(), bo ta
+// ostatnia pisze do globalnego tft (a nie do sprite'a) i zaklada pelnoekranowe
+// wspolrzedne. Ten sam uklad bajtow co drawBmpFromFS: wiersze BMP sa od dolu,
+// piksele BGR. Zwraca false gdy brak flagi/pliku (UI pokaze sam kod kraju).
+static bool issDrawFlagToSprite(const String &cc, int x, int y) {
+  if (!littleFsReady || cc.length() != 2) return false;
+  String path = "/tft_flags/" + cc + ".bmp";
+  if (!LittleFS.exists(path)) return false;
+  fs::File f = LittleFS.open(path, "r");
+  if (!f) return false;
+
+  if (readBmp16(f) != 0x4D42) { f.close(); return false; }
+  readBmp32(f); readBmp32(f);
+  uint32_t seekOffset = readBmp32(f);
+  readBmp32(f);
+  uint16_t w = readBmp32(f);
+  uint16_t h = readBmp32(f);
+  if (w == 0 || h == 0 || w > 64 || h > 64) { f.close(); return false; }
+  if (readBmp16(f) != 1 || readBmp16(f) != 24 || readBmp32(f) != 0) { f.close(); return false; }
+
+  uint16_t padding = (4 - ((w * 3) & 3)) & 3;
+  uint16_t lineBuf[64];
+  f.seek(seekOffset);
+  int drawY = y + h - 1;
+  for (uint16_t row = 0; row < h; row++) {
+    uint8_t raw[64 * 3 + 3];
+    f.read(raw, w * 3 + padding);
+    uint8_t *bptr = raw;
+    for (uint16_t col = 0; col < w; col++) {
+      uint8_t b = *bptr++, g = *bptr++, r = *bptr++;
+      lineBuf[col] = tft.color565(r, g, b);
+    }
+    issSprite.pushImage(x, drawY--, w, 1, lineBuf);
+  }
+  f.close();
+  return true;
+}
+
 // Mapa swiata: kontynenty rysowane z wbudowanej bitmapy 1-bit (ISS_WORLDMASK),
 // wygenerowanej z data/Mapa swiata.bmp. To odpowiednik mapy z WWW
 // (data/satellite.js rysuje ja z /mapa_swiat.bmp), ale bez zaleznosci od
@@ -20695,8 +20826,10 @@ static void issRenderFrame(double lat, double lng, double alt, double speed,
                            double dist, double az, double el, const String &country,
                            const String &countryCode, bool hasData,
                            const double *trajLat, const double *trajLng, int trajN,
-                           int passCount, const time_t *passAos,
-                           const double *passMaxEl, bool passValid, bool wasVisible,
+                           int passCount, const time_t *passAos, const time_t *passLos,
+                           const double *passMaxEl, const time_t *passVisStart,
+                           const time_t *passVisEnd, const int *passDur,
+                           const double *passMag, bool passValid, bool wasVisible,
                            time_t curLos, int tzOffsetHours) {
   issSprite.fillScreen(ISS_COL_BG);
 
@@ -20727,7 +20860,14 @@ static void issRenderFrame(double lat, double lng, double alt, double speed,
     { "W ZASIEGU",   "", ISS_COL_ACCENT },
   };
   String countryShown = country;
-  if (countryShown.length() > 12) countryShown = countryShown.substring(0, 12);
+  // Flaga tylko dla realnego kraju (nie ocean/brak danych).
+  String ccUp = countryCode; ccUp.toUpperCase();
+  bool hasFlag = (ccUp.length() == 2 &&
+                  !countryShown.equalsIgnoreCase("OCEAN") &&
+                  !countryShown.startsWith("BRAK") &&
+                  !countryShown.startsWith("CZEKAJ"));
+  int nameMax = hasFlag ? 7 : 12;   // flaga zajmuje prawa czesc karty
+  if ((int)countryShown.length() > nameMax) countryShown = countryShown.substring(0, nameMax);
   if (hasData) {
     snprintf(left[0].v, sizeof(left[0].v), "%s", countryShown.c_str());
     snprintf(left[1].v, sizeof(left[1].v), "%.4f", lat);
@@ -20745,12 +20885,16 @@ static void issRenderFrame(double lat, double lng, double alt, double speed,
     issLabel(LX + 8, y + 5, left[i].k, ISS_COL_FAINT);
     issValue(LX + 8, y + 17, left[i].v, left[i].col);
   }
+  // Flaga kraju pod ISS - na karcie "KRAJ POD ISS" (prawa strona).
+  if (hasFlag) {
+    issDrawFlagToSprite(ccUp, LX + LW - 36, 34 + 8);
+  }
 
   // ---- Prawa kolumna ----
   const int RX = 358, RW = 118;
 
-  // Najblizszy przelot
-  issCard(RX, 34, RW, 56, ISS_COL_ACCENT);
+  // Najblizszy przelot (AOS/LOS + okno widocznosci, wszystko w czasie lokalnym)
+  issCard(RX, 34, RW, 72, ISS_COL_ACCENT);
   issLabel(RX + 8, 39, "NAJBLIZSZY PRZELOT", ISS_COL_FAINT);
   if (passValid) {
     time_t showEpoch = (wasVisible && curLos > 0) ? curLos : passAos[0];
@@ -20759,35 +20903,56 @@ static void issRenderFrame(double lat, double lng, double alt, double speed,
     localtime_r(&e, &ptm);
     snprintf(b, sizeof(b), "%02d:%02d", ptm.tm_hour, ptm.tm_min);
     issValue(RX + 8, 50, b, ISS_COL_TEXT);
+
+    // Linia 2: odliczanie + maks. elewacja (albo dlugosc przelotu)
     if (wasVisible) {
-      issLabel(RX + 8, 72, "widoczny teraz", ISS_COL_ACCENT);
+      snprintf(b, sizeof(b), "teraz, do %02d:%02d",
+               ptm.tm_hour, ptm.tm_min);
     } else {
       time_t nowE = time(nullptr);
       long secs = (long)(passAos[0] - nowE);
-      if (secs >= 3600)      snprintf(b, sizeof(b), "za %ldh%02ldm  maks %.0f", secs / 3600, (secs % 3600) / 60, passMaxEl[0]);
-      else if (secs >= 0)    snprintf(b, sizeof(b), "za %ldm  maks %.0f", secs / 60, passMaxEl[0]);
-      else                   snprintf(b, sizeof(b), "w toku  maks %.0f", passMaxEl[0]);
-      issLabel(RX + 8, 72, b, ISS_COL_DIM);
+      if (secs >= 3600)   snprintf(b, sizeof(b), "za %ldh%02ldm", secs / 3600, (secs % 3600) / 60);
+      else if (secs >= 0) snprintf(b, sizeof(b), "za %ldm", secs / 60);
+      else                snprintf(b, sizeof(b), "w toku");
+    }
+    issLabel(RX + 8, 70, b, ISS_COL_DIM);
+
+    // Linia 3: okno widocznosci (start-koniec), "widoczny: --" gdy brak danych
+    if (passVisStart[0] > 0 && passVisEnd[0] > 0) {
+      struct tm vs, ve;
+      time_t tvs = passVisStart[0] + tzOffsetHours * 3600;
+      time_t tve = passVisEnd[0] + tzOffsetHours * 3600;
+      localtime_r(&tvs, &vs);
+      localtime_r(&tve, &ve);
+      snprintf(b, sizeof(b), "wid. %02d:%02d-%02d:%02d",
+               vs.tm_hour, vs.tm_min, ve.tm_hour, ve.tm_min);
+      issLabel(RX + 8, 82, b, ISS_COL_WARN);
+    } else {
+      issLabel(RX + 8, 82, "widoczny: --", ISS_COL_FAINT);
     }
   } else {
     issValue(RX + 8, 50, "--:--", ISS_COL_FAINT);
-    issLabel(RX + 8, 72, "brak danych", ISS_COL_FAINT);
+    issLabel(RX + 8, 70, "brak danych", ISS_COL_FAINT);
+    issLabel(RX + 8, 82, "widoczny: --", ISS_COL_FAINT);
   }
 
-  // Nastepne przeloty
-  issCard(RX, 94, RW, 96, ISS_COL_ACCENT2);
-  issLabel(RX + 8, 99, "NASTEPNE PRZELOTY", ISS_COL_FAINT);
+  // Nastepne przeloty - z kropka widocznosci (akcent = widoczny)
+  issCard(RX, 110, RW, 84, ISS_COL_ACCENT2);
+  issLabel(RX + 8, 115, "NASTEPNE PRZELOTY", ISS_COL_FAINT);
   if (passCount > 0) {
     for (int i = 0; i < passCount && i < 4; i++) {
-      int y = 114 + i * 17;
+      int y = 130 + i * 17;
       struct tm ptm;
       time_t e = passAos[i] + tzOffsetHours * 3600;
       localtime_r(&e, &ptm);
+      bool vis = (passVisStart[i] > 0);
+      // Kropka: przelot widoczny optycznie czy tylko radiowy.
+      issSprite.fillCircle(RX + 10, y + 4, 3, vis ? ISS_COL_WARN : ISS_COL_FAINT);
       snprintf(b, sizeof(b), "%02d.%02d %02d:%02d", ptm.tm_mday, ptm.tm_mon + 1, ptm.tm_hour, ptm.tm_min);
       issSprite.setTextDatum(TL_DATUM);
       issSprite.setTextSize(1);
       issSprite.setTextColor(i == 0 ? ISS_COL_WARN : ISS_COL_DIM, ISS_COL_CARD);
-      issSprite.drawString(b, RX + 8, y, 1);
+      issSprite.drawString(b, RX + 18, y, 1);
       snprintf(b, sizeof(b), "%.0f", passMaxEl[i]);
       issSprite.setTextColor(ISS_COL_ACCENT, ISS_COL_CARD);
       issSprite.setTextDatum(TR_DATUM);
@@ -20795,7 +20960,7 @@ static void issRenderFrame(double lat, double lng, double alt, double speed,
       issSprite.setTextDatum(TL_DATUM);
     }
   } else {
-    issLabel(RX + 8, 114, passValid ? "brak w planie" : "oczekiwanie na TLE", ISS_COL_FAINT);
+    issLabel(RX + 8, 130, passValid ? "brak w planie" : "oczekiwanie na TLE", ISS_COL_FAINT);
   }
 
   // Azymut / elewacja / dystans
@@ -20873,7 +21038,12 @@ static void issDrawFrameFromState() {
   static double trajLng[ISS_TRAJECTORY_POINTS];
   int passCount = 0;
   time_t passAos[ISS_MAX_PASSES];
+  time_t passLos[ISS_MAX_PASSES];
   double passMaxEl[ISS_MAX_PASSES];
+  time_t passVisStart[ISS_MAX_PASSES];
+  time_t passVisEnd[ISS_MAX_PASSES];
+  int    passDur[ISS_MAX_PASSES];
+  double passMag[ISS_MAX_PASSES];
   bool passValid = false, wasVisible = false;
   time_t curLos = 0;
 
@@ -20889,7 +21059,12 @@ static void issDrawFrameFromState() {
     passCount = issPassCount;
     for (int i = 0; i < ISS_MAX_PASSES; i++) {
       passAos[i] = issPassAos[i];
+      passLos[i] = issPassLos[i];
       passMaxEl[i] = issPassMaxEl[i];
+      passVisStart[i] = issPassVisStart[i];
+      passVisEnd[i] = issPassVisEnd[i];
+      passDur[i] = issPassDuration[i];
+      passMag[i] = issPassMag[i];
     }
     passValid = issNextPassEstimateValid;
     wasVisible = issNextPassWasVisible;
@@ -20901,7 +21076,9 @@ static void issDrawFrameFromState() {
 
   issRenderFrame(lat, lng, alt, speed, dist, az, el, country, cc, hasData,
                  trajLat, trajLng, ISS_TRAJECTORY_POINTS,
-                 passCount, passAos, passMaxEl, passValid, wasVisible, curLos,
+                 passCount, passAos, passLos, passMaxEl,
+                 passVisStart, passVisEnd, passDur, passMag,
+                 passValid, wasVisible, curLos,
                  getCachedTimezoneOffset());
 }
 

@@ -491,9 +491,18 @@
                 var showEpoch = (visible && d.next_pass_los > 0) ? d.next_pass_los : d.next_pass_epoch;
                 var dt = new Date(showEpoch * 1000);
                 var mins = Math.round((dt.getTime() - Date.now()) / 60000);
+                // Okno widocznosci najbliszego przelotu (jesli n2yo je podal).
+                var p0 = (d.passes && d.passes.length) ? d.passes[0] : null;
+                var visStart = p0 ? (p0[3] || 0) : 0, visEnd = p0 ? (p0[4] || 0) : 0;
+                var visStr = '';
+                if (visStart > 0 && visEnd > 0) {
+                    var v1 = new Date(visStart * 1000), v2 = new Date(visEnd * 1000);
+                    visStr = ' · widoczny ' + v1.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) +
+                             '-' + v2.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                }
                 if (visible) {
                     passEl.textContent = 'do ' + dt.toLocaleTimeString();
-                    setText('sat-next-pass-sub', mins > 0 ? ('widoczny, koniec za ~' + mins + ' min') : 'w toku');
+                    setText('sat-next-pass-sub', (mins > 0 ? ('widoczny, koniec za ~' + mins + ' min') : 'w toku') + visStr);
                 } else {
                     passEl.textContent = dt.toLocaleString();
                     var sub = mins > 0 ? ('za ~' + mins + ' min') : 'w toku';
@@ -501,7 +510,7 @@
                     if (d.next_pass_los > d.next_pass_aos && d.next_pass_aos > 0) {
                         sub += ' · ' + Math.round((d.next_pass_los - d.next_pass_aos) / 60) + ' min';
                     }
-                    setText('sat-next-pass-sub', sub);
+                    setText('sat-next-pass-sub', sub + visStr);
                 }
             } else {
                 passEl.textContent = 'brak danych';
@@ -511,7 +520,8 @@
             }
         }
 
-        // Tabela najbliszych przelotow (z d.passes: [aos, los, maxEl]).
+        // Tabela najbliszych przelotow. Nowy format: [aos, los, maxEl,
+        // visStart, visEnd, durS, mag] - pokazujemy tez okno widocznosci.
         var listEl = document.getElementById('sat-pass-list');
         if (listEl) {
             var passes = (d.passes && d.passes.length) ? d.passes : [];
@@ -523,11 +533,20 @@
                     var p = passes[i];
                     var aos = p[0], los = p[1], el = p[2];
                     if (!aos) continue;
+                    var visStart = p[3] || 0, visEnd = p[4] || 0;
                     var a = new Date(aos * 1000);
                     var timeStr = a.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     var dayStr = a.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
                     var dur = (los > aos) ? Math.round((los - aos) / 60) + ' min' : '';
+                    var visTxt = '';
+                    if (visStart > 0 && visEnd > 0) {
+                        var vs = new Date(visStart * 1000), ve = new Date(visEnd * 1000);
+                        visTxt = '<span class="vis" title="okno widocznosci">' +
+                                 vs.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '-' +
+                                 ve.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</span>';
+                    }
                     html += '<li><span>' + dayStr + ' ' + timeStr + '</span>'
+                          + visTxt
                           + '<span class="dur">' + dur + '</span>'
                           + '<span class="el">' + (el > 0 ? Math.round(el) + '°' : '') + '</span></li>';
                 }

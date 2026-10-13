@@ -652,6 +652,7 @@ h3 { color: var(--text); margin-top: 22px; margin-bottom: 10px; border-top: 1px 
 .sat-pass-list li:last-child { border-bottom: none; }
 .sat-pass-list li .el { color: var(--accent); font-weight: 700; }
 .sat-pass-list li .dur { color: var(--text-faint); font-size: 12px; }
+.sat-pass-list li .vis { color: var(--warn, #ffb648); font-size: 12px; }
 .sat-pass-list li.now { color: var(--accent); }
 .sat-pass-empty { justify-content: flex-start !important; color: var(--text-faint); font-family: inherit !important; }
 

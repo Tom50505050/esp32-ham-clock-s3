@@ -315,3 +315,31 @@ Podglad: /workspace/share/_sat-preview.html + _preview.html (mock API).
 - drawIssStaticInterface()/updateIssDynamicDisplay() sa teraz aliasami
   issDrawFrameFromState() (pelny redraw). drawIssRadarBackground() usuniete.
 - Podglad ukladu (mock w HTML): /workspace/share/tftmock2.html (nie w repo).
+
+## ISS: n2yo visualpasses (widocznosc), czas lokalny, flagi kraju (13.10.2026)
+- WIDOCZNOSC: oprocz radiopasses (elewacja) pobieramy z n2yo takze visualpasses
+  (ISS oswietlony Sloncem + obserwator w ciemnosci). Nowa funkcja
+  fetchIssVisualPassesFromN2yo() dopasowuje visual do radio po AOS (tolerancja
+  3 min - rozne progi elewacji) i wypelnia issPassVisStart/VisEnd/Duration/Mag.
+  Wywolywana po udanym radiopasses w fetchIssNextPassFromN2yo().
+- LIMITY n2yo: visualpasses i radiopasses po 100 zapytan/godz. na klucz. Oba sa
+  wolane razem co 5 min (lastIssPassEstimate) = 12+12/h - bezpiecznie w limicie.
+  NIE zmniejszac interwalu ponizej ~3 min (24+24/h) - zapas musi zostac na retry.
+- SGP4 (bez klucza n2yo) NIE liczy widocznosci - issPassVis* zostaja zerowe,
+  UI pokazuje "widoczny: --".
+- CZAS LOKALNY: AOS/LOS i okno widocznosci sa konwertowane przez
+  getCachedTimezoneOffset() (timezoneHours + DST europejski) w issRenderFrame.
+- TFT: karta NAJBLIZSZY PRZELOT zwiekszona do y=34..106 (3 linie: HH:MM,
+  odliczanie, "wid. HH:MM-HH:MM" na WARN). Karta NASTEPNE PRZELOTY y=110..194;
+  kazdy wiersz ma kropke widocznosci (WARN = widoczny optycznie, FAINT = radio).
+  Karty AZYMUT/ELEWACJA/DYSTANS przesuniete na y=202.
+- FLAGI: karta "KRAJ POD ISS" (lewa kolumna) rysuje flage z LittleFS
+  /tft_flags/<CC>.bmp (32x21, 24-bit) przez issDrawFlagToSprite() - wlasny
+  odpowiednik drawBmpFromFS(), bo tamten pisze do globalnego tft, a nie do
+  sprite'a. Uklad jak w drawBmpFromFS: wiersze BMP od dolu, piksele BGR,
+  kolor przez tft.color565() (konwersja kanalow jak przy flagach WWW).
+  Nazwa kraju skracana do 7 znakow gdy flaga jest rysowana (inaczej 12).
+  Brak pliku flagi = sam tekst (bez bledu).
+- /api/iss_track: kazdy wpis "passes" to teraz
+  [aos, los, maxEl, visStart, visEnd, duration_s, mag] (zera gdy brak n2yo).
+  WWW (data/satellite.js) pokazuje okno widocznosci w tabeli i w "nastepny przelot".
