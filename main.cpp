@@ -14566,7 +14566,65 @@ bool connectToWiFi() {
 
   WiFiCred candidates[2] = {{wifiSSID, wifiPassword}, {wifiSSID2, wifiPassword2}};
 
-  auto attemptConnect = [](const WiFiCred &cred) -> bool {
+  // Jednorazowa rejestracja handlera zdarzen - loguje powod rozlaczenia
+  // (np. NO_AP_FOUND, 4WAY_HANDSHAKE_TIMEOUT, AUTH_EXPIRE) i powody skanu.
+  static bool wifiEventsRegistered = false;
+  if (!wifiEventsRegistered) {
+    wifiEventsRegistered = true;
+    WiFi.onEvent([](arduino_event_id_t event, arduino_event_info_t info) {
+      switch (event) {
+        case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+          wifi_err_reason_t r = (wifi_err_reason_t)info.wifi_sta_disconnected.reason;
+          Serial.printf("[WIFI EVT] DISCONNECTED reason=%u (%s)\n", (unsigned)r,
+                        WiFi.disconnectReasonName(r));
+          break;
+        }
+        case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+          Serial.println("[WIFI EVT] CONNECTED (auth OK)");
+          break;
+        case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+          Serial.println("[WIFI EVT] GOT_IP");
+          break;
+        default:
+          break;
+      }
+    });
+  }
+
+  // Wykryj, czy siec z danym SSID jest widoczna i z jaka autoryzacja.
+  // Gdy znamy kanal, laczymy sie bezposrednio (bez wewnetrznego skanu begin),
+  // co omija problemy z uzgadnianiem trybu/kanalu przy begin() w 2.0.x.
+  auto findNetwork = [](const String &ssid, int &channel, int &authMode) -> bool {
+    channel = 0;
+    authMode = -1;
+    int16_t n = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/true);
+    if (n == WIFI_SCAN_RUNNING) {
+      delay(200);
+      n = WiFi.scanComplete();
+    }
+    if (n < 0) {
+      Serial.printf("[WIFI SCAN] Nieudany skan (kod %d) - polacze sie bezposrednio.\n", (int)n);
+      return false;
+    }
+    bool found = false;
+    for (int i = 0; i < n; i++) {
+      if (WiFi.SSID(i) == ssid) {
+        found = true;
+        channel = WiFi.channel(i);
+        authMode = (int)WiFi.encryptionType(i);
+        Serial.printf("[WIFI SCAN] %s widoczna: RSSI=%d ch=%d enc=%d\n",
+                      ssid.c_str(), (int)WiFi.RSSI(i), channel, authMode);
+        break;
+      }
+    }
+    if (!found) {
+      Serial.printf("[WIFI SCAN] %s NIEWIDOCZNA (znaleziono %d sieci)\n", ssid.c_str(), (int)n);
+    }
+    WiFi.scanDelete();
+    return found;
+  };
+
+  auto attemptConnect = [](const WiFiCred &cred, int channel) -> bool {
     Serial.println("=== WiFi connect ===");
     Serial.print("SSID: '");
     Serial.print(cred.ssid);
@@ -14579,13 +14637,25 @@ bool connectToWiFi() {
     WiFi.persistent(false);
     WiFi.setAutoReconnect(true);
     WiFi.setSleep(false);
+    // Akceptuj WPA/WPA2/WPA3-mixed i otwarte - domyslne WIFI_AUTH_WPA2_PSK
+    // w 2.0.x potrafi odrzucic sieci z mieszana autoryzacja.
+    WiFi.setMinSecurity(WIFI_AUTH_OPEN);
+    // Pelny skan wszystkich kanalow + sortowanie po sygnale = najpewniejsze
+    // polaczenie, gdy nie znamy kanalu.
+    WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+    WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
+
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
     delay(250);
 
     WiFi.mode(WIFI_STA);
     delay(50);
-    WiFi.begin(cred.ssid.c_str(), cred.pass.c_str());
+    if (channel > 0) {
+      WiFi.begin(cred.ssid.c_str(), cred.pass.c_str(), channel);
+    } else {
+      WiFi.begin(cred.ssid.c_str(), cred.pass.c_str());
+    }
 
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 40) {
@@ -14643,7 +14713,11 @@ bool connectToWiFi() {
       continue; // avoid duplicate attempt
     }
 
-    bool ok = attemptConnect(cred);
+    int knownChannel = 0;
+    int knownAuth = -1;
+    findNetwork(cred.ssid, knownChannel, knownAuth);
+
+    bool ok = attemptConnect(cred, knownChannel);
     if (ok) {
       wifiConnected = true;
       Serial.print("PoĂ„Ä…Ă˘â‚¬ĹˇÄ‚â€žĂ˘â‚¬Â¦czono z SSID: ");

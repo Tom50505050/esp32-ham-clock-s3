@@ -373,3 +373,31 @@ tez sie teraz laczy (wczesniej ignorowana).
 Test regresji (jsdom, symulacja UI): `importSettingsFromFile()` z plikiem bez
 kluczy WiFi → `/api/save` i tak zawiera zapisane wczesniej `wifi_ssid`/`wifi_pass`.
 
+
+## WiFi: brak polaczenia ze stacja (status 6, skan -2) — DIAGNOZA + POPRAWKI (13.10.2026)
+Objaw z logu (firmware z poprawka importu, index.html=162654):
+`WiFi.status(): 6` (WL_DISCONNECTED) po 20 s, `Znaleziono sieci: -2`
+(= WIFI_SCAN_FAILED), potem AP. Radio dziala (AP mode OK), wiec to nie sprzet.
+
+Zmiany w `connectToWiFi()` (main.cpp):
+1. **Handler zdarzen WiFi** (`WiFi.onEvent`, rejestrowany raz) loguje
+   `[WIFI EVT] DISCONNECTED reason=<n> (<nazwa>)` — np. `NO_AP_FOUND` (201),
+   `AUTH_EXPIRE`, `4WAY_HANDSHAKE_TIMEOUT`, `HANDSHAKE_TIMEOUT`. To rozstrzyga,
+   czy problem to zasieg (201), zle haslo (15/204), czy autoryzacja.
+2. **`WiFi.setMinSecurity(WIFI_AUTH_OPEN)`** — domyslne `WIFI_AUTH_WPA2_PSK`
+   w arduino-esp32 2.0.x odrzuca sieci z autoryzacja mieszana (WPA/WPA2),
+   WPA/WPA3 albo otwarte. `WiFi.printDiag` tego nie pokazuje.
+3. **`WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN)` + `setSortMethod(...BY_SIGNAL)`**
+   — pewniejsze wykrycie sieci niz domyslny fast-scan.
+4. **Skan przed polaczeniem** (`findNetwork`): loguje RSSI/kanał/typ szyfrowania
+   znalezionej sieci; jesli znany kanal → `WiFi.begin(ssid, pass, channel)`
+   (pomija wewnetrzny skan begin()). Skan zwracajacy -2 nie przerywa proby.
+5. Log `[WIFI SCAN] <ssid> NIEWIDOCZNA` / `widoczna: RSSI=.. ch=.. enc=..`.
+
+Interpretacja kolejnego logu: jesli teraz pojawi sie
+`[WIFI EVT] DISCONNECTED reason=201 (NO_AP_FOUND)` → siec poza zasiegiem/5 GHz
+albo zly SSID. `reason=15` → zle haslo. `reason=205` (CONNECTION_FAIL) → router.
+
+UWAGA: blok "TYMCZASOWA NAPRAWA KONFIGURACJI" w `setup()` (main.cpp ~21519)
+ma na sztywno `Multiplay_C984` jako "poprawna" siec — do usuniecia docelowo.
+
