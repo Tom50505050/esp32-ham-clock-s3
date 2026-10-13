@@ -5794,7 +5794,7 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     sp.drawString("brak stacji w zasiegu", ARP_PANEL_X + 6, 216, 1);
   }
 
-  // --- Zegar UTC w lewym gornym rogu ---
+  // --- Zegar UTC w lewym gornym rogu (obok przycisku menu) ---
   struct tm timeinfo;
   if (getTimeWithTimezone(&timeinfo)) {
     char tb[8];
@@ -5802,7 +5802,7 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     sp.setTextDatum(TL_DATUM);
     sp.setTextSize(1);
     sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
-    sp.drawString(tb, 6, 6, 1);
+    sp.drawString(tb, 48, 8, 1);
   }
 
   // --- Panel zakresow na dole ---
@@ -5820,6 +5820,10 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
 
   sp.pushSprite(0, 0);
 
+  // Przycisk menu rysujemy na TFT po pushSprite - sprite i tak nadpisuje ekran,
+  // wiec musi byc odtwarzany w kazdej klatce animacji.
+  drawHamburgerMenuButton3D(5, 7);
+
   if (locked) {
     xSemaphoreGive(aprsRadarSpriteMux);
   }
@@ -5830,7 +5834,7 @@ static void drawAprsRadarBody() {
   aprsRadarRenderFrame(aprsRadarSweepAngle, false);
 }
 
-// Animacja smugi - wolane cyklicznie z loop() gdy ekran radaru jest aktywny.
+// Animacja smugi - wolane cyklicznie z UI_Task gdy ekran radaru jest aktywny.
 static void aprsRadarTick() {
   if (currentScreen != SCREEN_APRS_RADAR || inMenu || !tftInitialized) return;
   if (!aprsRadarSpriteReady && !ensureAprsRadarSprite()) return;
@@ -19126,8 +19130,12 @@ void uiTaskLoop(void *parameter) {
     // Animacja smugi radaru APRS. Robimy to w UI_Task (a NIE w loopTask),
     // bo tylko to zadanie rysuje po TFT - dzieki temu pushSprite nigdy nie
     // jest wywolywany rownolegle z innego rdzenia (to powodowalo reset).
+    // Wstrzymujemy animacje tuz po dotknieciu: XPT2046 dzieli magistrale SPI
+    // z TFT, wiec ciagly pushSprite zaklocalby odczyt dotyku i "zjadal" tapniecia
+    // (przejscia na inny ekran / menu).
     if (currentScreen == SCREEN_APRS_RADAR && tftInitialized && !inMenu &&
-        !screenSleepActive && !bootSequenceActive) {
+        !screenSleepActive && !bootSequenceActive &&
+        (millis() - screenSleepLastActivityMs) > 500) {
       static unsigned long lastAprsRadarTickMs = 0;
       if (now - lastAprsRadarTickMs >= 100) {
         lastAprsRadarTickMs = now;
