@@ -5665,8 +5665,10 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   // --- Stacje APRS ---
   // Srodek radaru = pozycja uzytkownika z tym samym fallbackiem co reszta UI,
   // zeby azymut/odleglosc byly liczone od tego samego punktu co station.distance.
-  const double centerLat = userLatLonValid ? userLat : 52.40;
-  const double centerLon = userLatLonValid ? userLon : 16.92;
+  // (0,0) traktujemy jak brak pozycji - inaczej srodek radaru wypada na oceanie.
+  const bool centerOk = userLatLonValid && !(userLat == 0.0 && userLon == 0.0);
+  const double centerLat = centerOk ? userLat : 52.40;
+  const double centerLon = centerOk ? userLon : 16.92;
   const float filterKm = (aprsFilterRadius > 0) ? (float)aprsFilterRadius : 50.0f;
   const float maxRange = filterKm * APRS_RADAR_RANGE_MULT[aprsRadarRangeIndex];
   int order[MAX_APRS_DISPLAY_LCD];
@@ -5731,38 +5733,45 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   sp.fillRect(ARP_PANEL_X - 1, 0, ARP_PANEL_W + 1, 320, ARP_COL_PANEL);
   sp.drawFastVLine(ARP_PANEL_X - 1, 0, 320, ARP_COL_GRID);
 
-  // QTH
+  // QTH (Moja Stacja): CALL + LOKATOR + wspolrzedne.
   aprsRadarSection(6, "QTH");
   char buf[40];
-  if (userLatLonValid) {
-    snprintf(buf, sizeof(buf), "%.4f", userLat);
-    aprsRadarRow(26, "SZER:", buf, ARP_COL_TEXT);
-    snprintf(buf, sizeof(buf), "%.4f", userLon);
-    aprsRadarRow(38, "DLUG:", buf, ARP_COL_TEXT);
-  } else {
-    aprsRadarRow(26, "SZER:", "--", ARP_COL_DIM);
-    aprsRadarRow(38, "DLUG:", "--", ARP_COL_DIM);
+  {
+    String call = userCallsign.length() > 0 ? userCallsign : String("(brak)");
+    if (call.length() > 12) call = call.substring(0, 12);
+    aprsRadarRow(20, "CALL:", call.c_str(), ARP_COL_TEXT);
+    aprsRadarRow(32, "LOK:", userLocator.length() > 0 ? userLocator.c_str() : "--",
+                 ARP_COL_TEXT);
+    if (userLatLonValid) {
+      snprintf(buf, sizeof(buf), "%.4f", userLat);
+      aprsRadarRow(44, "SZER:", buf, ARP_COL_TEXT);
+      snprintf(buf, sizeof(buf), "%.4f", userLon);
+      aprsRadarRow(56, "DLUG:", buf, ARP_COL_TEXT);
+    } else {
+      aprsRadarRow(44, "SZER:", "--", ARP_COL_DIM);
+      aprsRadarRow(56, "DLUG:", "--", ARP_COL_DIM);
+    }
   }
 
   // STATUS
-  aprsRadarSection(56, "STATUS");
+  aprsRadarSection(74, "STATUS");
   bool wifiOk = (WiFi.status() == WL_CONNECTED);
-  aprsRadarRow(76, "WIFI:", wifiOk ? "OK" : "BLAD", wifiOk ? ARP_COL_GREEN : ARP_COL_RED);
-  aprsRadarRow(88, "APRS-IS:", aprsConnected ? "OK" : "BLAD", aprsConnected ? ARP_COL_GREEN : ARP_COL_RED);
+  aprsRadarRow(92, "WIFI:", wifiOk ? "OK" : "BLAD", wifiOk ? ARP_COL_GREEN : ARP_COL_RED);
+  aprsRadarRow(104, "APRS-IS:", aprsConnected ? "OK" : "BLAD", aprsConnected ? ARP_COL_GREEN : ARP_COL_RED);
 
   // VFO
-  aprsRadarSection(106, "VFO");
-  aprsRadarRow(126, "CZEST:", "144.800 MHz", ARP_COL_FIXED);
+  aprsRadarSection(122, "VFO");
+  aprsRadarRow(140, "CZEST:", "144.800 MHz", ARP_COL_FIXED);
 
   // CEL / ZAKRES
-  aprsRadarSection(144, "ZAKRES RADARU");
+  aprsRadarSection(158, "ZAKRES RADARU");
   snprintf(buf, sizeof(buf), "%.0f km", maxRange);
-  aprsRadarRow(164, "PROMIEN:", buf, ARP_COL_TEXT);
+  aprsRadarRow(176, "PROMIEN:", buf, ARP_COL_TEXT);
   snprintf(buf, sizeof(buf), "%d", shown);
-  aprsRadarRow(176, "STACJE:", buf, ARP_COL_TEXT);
+  aprsRadarRow(188, "STACJE:", buf, ARP_COL_TEXT);
 
   // STACJE (lista, kolor taktyczny)
-  aprsRadarSection(194, "STACJE APRS");
+  aprsRadarSection(206, "STACJE APRS");
   int row = 0;
   for (int i = 0; i < displayCount && row < 6; i++) {
     int idx = order[i];
@@ -5775,7 +5784,7 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     }
     if (dist > maxRange) continue;
 
-    int y = 214 + row * 15;
+    int y = 224 + row * 14;
     String call = st.callsign;
     if (call.length() > 9) call = call.substring(0, 9);
     sp.setTextDatum(TL_DATUM);
@@ -5791,7 +5800,7 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   if (row == 0) {
     sp.setTextDatum(TL_DATUM);
     sp.setTextColor(ARP_COL_DIM, ARP_COL_PANEL);
-    sp.drawString("brak stacji w zasiegu", ARP_PANEL_X + 6, 216, 1);
+    sp.drawString("brak stacji w zasiegu", ARP_PANEL_X + 6, 226, 1);
   }
 
   // --- Zegar UTC w lewym gornym rogu (obok przycisku menu) ---
@@ -16249,9 +16258,14 @@ void loadPreferences() {
   yield();
   
   // JeĹ›li nie mamy waĹĽnych wspĂłĹ‚rzÄ™dnych ale mamy locator, przelicz z locatora
-  if (!userLatLonValid && userLocator.length() >= 4) {
+  // (0,0) traktujemy jak brak pozycji, nawet jesli flaga jest ustawiona
+  // (starsze zapisy z pustego formularza WWW).
+  if ((!userLatLonValid || (userLat == 0.0 && userLon == 0.0)) &&
+      userLocator.length() >= 4) {
     updateUserLatLonFromLocator();
     // Nie zapisujemy do preferencji tutaj - to tylko odczyt
+  } else if (userLatLonValid && userLat == 0.0 && userLon == 0.0) {
+    userLatLonValid = false;
   }
   qrzUsername = preferences->getString("qrz_user", "");
   yield();
@@ -17143,9 +17157,12 @@ void setupWebServer() {
       }
       // JeĂ„Ä…Ă˘â‚¬Ĺźli podano obie wspĂ„â€šĹ‚Ă„Ä…Ă˘â‚¬ĹˇrzÄ‚â€žĂ˘â€žËdne, ustaw flagÄ‚â€žĂ˘â€žË jako waĂ„Ä…Ă„Ëťne
       // Uwaga: sprawdzamy czy wartoĂ„Ä…Ă˘â‚¬Ĺźci sÄ‚â€žĂ˘â‚¬Â¦ w prawidĂ„Ä…Ă˘â‚¬Ĺˇowym zakresie (nie tylko != 0)
+      // (0,0) z pustego formularza WWW = brak pozycji: nie ustawiaj flagi,
+      // zeby nie zasiewac srodka radaru na oceanie i nie ignorowac locatora.
       if (latProvided && lonProvided && 
           userLat >= -90.0 && userLat <= 90.0 && 
-          userLon >= -180.0 && userLon <= 180.0) {
+          userLon >= -180.0 && userLon <= 180.0 &&
+          !(userLat == 0.0 && userLon == 0.0)) {
         userLatLonValid = true;
       } else if (latProvided || lonProvided) {
         // JeĂ„Ä…Ă˘â‚¬Ĺźli podano tylko jednÄ‚â€žĂ˘â‚¬Â¦ wspĂ„â€šĹ‚Ă„Ä…Ă˘â‚¬ĹˇrzÄ‚â€žĂ˘â€žËdnÄ‚â€žĂ˘â‚¬Â¦, uznaj za nieprawidĂ„Ä…Ă˘â‚¬Ĺˇowe
