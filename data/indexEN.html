@@ -278,7 +278,7 @@
 
             <div class="config-section">
                 <h3>🖥️ TFT Screens (order)</h3>
-                <small>Page 1 shows first after power-up. You can set pages 1-11 or disable them (OFF).</small>
+                <small>Page 1 shows first after power-up. You can set pages 1-14 or disable them (OFF).</small>
                 <div class="form-group">
                     <label style="display: flex; align-items: center; gap: 10px;">
                         <input type="checkbox" id="tft_auto_switch" name="tft_auto_switch" style="width: auto;">
@@ -291,220 +291,284 @@
                     <input type="number" id="tft_switch_time_sec" name="tft_switch_time_sec" min="1" max="3600" step="1" value="30">
                     <small>Interval between automatic screen switches (1-3600 s).</small>
                 </div>
-                <div class="form-group">
+                                <div class="form-group">
                     <label>Page 1:</label>
                     <select id="screen_slot_1">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 2:</label>
                     <select id="screen_slot_2">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 3:</label>
                     <select id="screen_slot_3">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 4:</label>
                     <select id="screen_slot_4">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 5:</label>
                     <select id="screen_slot_5">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 6:</label>
                     <select id="screen_slot_6">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 7:</label>
                     <select id="screen_slot_7">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 8:</label>
                     <select id="screen_slot_8">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 9:</label>
                     <select id="screen_slot_9">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 10:</label>
                     <select id="screen_slot_10">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 11:</label>
                     <select id="screen_slot_11">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Page 12:</label>
                     <select id="screen_slot_12">
-                        <option value="hamclock">HAM CLOCK</option>
-                        <option value="dxcluster">DX CLUSTER</option>
-                        <option value="aprsis">APRS-IS</option>
-                        <option value="aprsradar">APRS RADAR</option>
-                        <option value="bandinfo">BAND INFO</option>
-                        <option value="sunspots">SUN SPOTS</option>
-                        <option value="weather">WEATHER</option>
-                        <option value="weatherforecast">WEATHER FORECAST</option>
-                        <option value="lokalizacja">LOCATION</option>
-                        <option value="pota">POTA</option>
-                        <option value="hamalert">HAMALERT</option>
-                        <option value="matrix">MATRIX</option>
-                        <option value="off">OFF</option>
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Page 13:</label>
+                    <select id="screen_slot_13">
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Page 14:</label>
+                    <select id="screen_slot_14">
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
                     </select>
                 </div>
             </div>
@@ -1497,11 +1561,11 @@
             document.getElementById('status').textContent = "Showing " + filtered.length + " spots";
         }
         
-        const screenOptionsDefault = ["hamclock","dxcluster","aprsis","aprsradar","bandinfo","sunspots","weather","weatherforecast","pota","hamalert","matrix","lokalizacja"];
+        const screenOptionsDefault = ["hamclock", "dxcluster", "aprsis", "aprsradar", "bandinfo", "sunspots", "weather", "weatherforecast", "pota", "hamalert", "pskmap", "matrix", "systeminfo", "iss"];
 
         const applyScreenOrderToUI = (order) => {
             const arr = Array.isArray(order) && order.length ? order : screenOptionsDefault;
-            for (let i = 0; i < 12; i++) {
+            for (let i = 0; i < 14; i++) {
                 const sel = document.getElementById(`screen_slot_${i+1}`);
                 if (!sel) continue;
                 sel.value = arr[i] || screenOptionsDefault[i] || "off";
@@ -1510,7 +1574,7 @@
 
         const readScreenOrderFromUI = () => {
             const arr = [];
-            for (let i = 0; i < 12; i++) {
+            for (let i = 0; i < 14; i++) {
                 const sel = document.getElementById(`screen_slot_${i+1}`);
                 arr.push(sel ? sel.value : "off");
             }

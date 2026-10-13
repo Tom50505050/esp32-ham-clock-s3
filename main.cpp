@@ -5041,10 +5041,6 @@ void handleTouchNavigation() {
       return;
     }
 
-    if (currentScreen == SCREEN_SYSTEM_INFO) {
-      // Ekran tylko do odczytu - brak menu; nawigacja w rogach obslugiwana nizej.
-      return;
-    }
 
     if (inMenu) {
       if (screenSaverMenuActive) {
