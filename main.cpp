@@ -236,7 +236,6 @@ bool fetchIssTLE();
 void calculateIssTrajectorySGP4();
 void updateIssNextPassEstimate();
 bool fetchIssNextPassFromN2yo();
-void drawIssRadarBackground();
 
 
 // ========== TYPY EKRANĂ“W (uĹĽywane w prototypach) ==========
@@ -268,6 +267,11 @@ enum ScreenType : uint8_t {
 // WspĂłlna konfiguracja dla szkicu i kompilowanej osobno biblioteki TFT_eSPI.
 // DziÄ™ki temu biblioteka nie wraca do wĹ‚asnego User_Setup.h z innym driverem/pinami.
 #include "tft_setup.h"
+
+// 1-bit landmask (bit=1 land) dla mapy swiata na ekranie ISS. Generowany
+// offline z data/Mapa swiata.bmp przez tools/gen_worldmask.py - patrz komentarz
+// przy issDrawWorldMap(). Wbudowany w firmware, wiec nie zalezy od LittleFS.
+#include "iss_worldmask.h"
 
 #define TFT_UI_WIDTH 480
 #define TFT_UI_HEIGHT 320
@@ -20533,413 +20537,383 @@ void getIssCountryFromCoords(double lat, double lng) {
   }
 }
 
-void drawIssStaticInterface() {
-  // Global UI reset - clean black background
-  tft.fillScreen(TFT_BLACK);
+// ============================================================================
+// EKRAN ISS - uklad wzorowany na stronie WWW "Satelity" (data/satellite.js):
+//   - mapa swiata z trajektoria naziemna (zamiast pustego tla),
+//   - karty metryk z akcentem (odpowiednik .sat-metric),
+//   - karta "najblizszy przelot" + lista "nastepne przeloty" (.sat-pass*),
+//   - radar azymut/elewacja (.sat-radar-card).
+// Rysowanie odbywa sie do bufora w PSRAM (TFT_eSprite) i jest w calosci
+// wypychane na panel jednym pushSprite() - brak migotania, brak resztek
+// poprzedniej klatki, brak ręcznego wymazywania linii/ikony.
+// ============================================================================
 
-  // Header (centered)
-  tft.setTextSize(2);
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(TFT_GOLD, TFT_BLACK);
-  tft.drawString("ISS Pass Tracker", 240, 20, 2);
-  tft.setTextDatum(TL_DATUM);
+// Paleta zgodna z motywem WWW (CSS var --accent itd.).
+static const uint16_t ISS_COL_BG      = 0x0000; // #000000 czarne tlo
+static const uint16_t ISS_COL_CARD    = 0x0884; // #0b1220 (wypelnienie karty)
+static const uint16_t ISS_COL_BORDER  = 0x298A; // #2a3357 (obramowanie)
+static const uint16_t ISS_COL_ACCENT  = 0x3697; // #35d0ba (akcent - teal)
+static const uint16_t ISS_COL_ACCENT2 = 0x4D5F; // #4ea8ff (akcent - blue)
+static const uint16_t ISS_COL_WARN    = 0xFE4A; // #ffc857 (zloty)
+static const uint16_t ISS_COL_TEXT    = 0xEF7E; // #e8eef7
+static const uint16_t ISS_COL_DIM     = 0x9D98; // #9fb0c6
+static const uint16_t ISS_COL_FAINT   = 0x6BF2; // #6c7d94
+static const uint16_t ISS_COL_LAND    = 0x2A47; // #2a4a3c (kontynenty)
+static const uint16_t ISS_COL_GRID    = 0x198A; // #1c3350 (siatka mapy)
 
-  // LEFT COLUMN boxes (keep same positions, colors and radii)
-  tft.drawRoundRect(10, 60, 160, 35, 4, TFT_GREEN);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.setTextSize(1);
-  tft.drawString("KRAJ POD ISS:", 15, 65, 1);
+static const uint16_t ISS_MAP_WATER = 0x00C6; // #021836 wody
+static const uint16_t ISS_MAP_RING  = 0x18C3; // pierscienie radaru
 
-  tft.drawRoundRect(10, 105, 140, 35, 4, TFT_GREEN);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.drawString("LATITUDE:", 15, 110, 1);
+// TFT_eSprite dla ekranu ISS - alokowany w PSRAM (16bpp = 307 200 B).
+TFT_eSprite issSprite = TFT_eSprite(&tft);
+static bool issSpriteReady = false;
+static bool issSpriteInitTried = false;
 
-  tft.drawRoundRect(10, 150, 140, 35, 4, TFT_GREEN);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.drawString("LONGITUDE:", 15, 155, 1);
-
-  tft.drawRoundRect(10, 195, 140, 35, 4, TFT_GREEN);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.drawString("ALTITUDE:", 15, 200, 1);
-
-  // Bottom row boxes
-  tft.drawRoundRect(10, 265, 110, 35, 4, TFT_CYAN);
-  tft.setTextColor(TFT_CYAN, TFT_BLACK);
-  tft.drawString("SPEED:", 15, 270, 1);
-
-  tft.drawRoundRect(125, 265, 110, 35, 4, 0x4D3F);
-  tft.setTextColor(0x4D3F, TFT_BLACK);
-  tft.drawString("AZIMUTH:", 130, 270, 1);
-
-  tft.drawRoundRect(240, 265, 110, 35, 4, TFT_ORANGE);
-  tft.setTextColor(TFT_ORANGE, TFT_BLACK);
-  tft.drawString("DISTANCE:", 245, 270, 1);
-
-  tft.drawRoundRect(355, 265, 115, 35, 4, 0x901F);
-  tft.setTextColor(0x901F, TFT_BLACK);
-  tft.drawString("ELEVATION:", 360, 270, 1);
-
-  tft.drawRoundRect(355, 220, 115, 35, 4, TFT_GREEN);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.drawString("AOS IN:", 360, 225, 1);
-
-  // Panel "NASTEPNE PRZELOTY" - u gory po prawej, w wolnej przestrzeni nad
-  // radarem (okrag siega x>=348 dopiero od y~108 w dol, wiec gornej czesci
-  // nic nie zaslania). Miesci liste kilku najbliszych przelotow: godzina AOS
-  // + maksymalna elewacja. Wartosci wypelnia updateIssNextPassPanel().
-  tft.drawRoundRect(348, 38, 128, 70, 4, TFT_YELLOW);
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-  tft.setTextSize(1);
-  tft.setTextDatum(TL_DATUM);
-  tft.drawString("NASTEPNE PRZELOTY:", 351, 42, 1);
-
-  // Central polar radar (concentric circles + cross + compass labels + QTH dot).
-  // Drawn via a shared helper so the exact same pixels are (re)painted here
-  // AND on every dynamic refresh - see drawIssRadarBackground() below.
-  drawIssRadarBackground();
-
-  // ensure previous sat pos invalidated so first dynamic draw paints fresh
-  lastIssSatX = -1;
-  lastIssSatY = -1;
+static bool ensureIssSprite() {
+  if (issSpriteReady) return true;
+  if (issSpriteInitTried) return false;
+  issSpriteInitTried = true;
+  issSprite.setColorDepth(16);
+  issSpriteReady = (issSprite.createSprite(480, 320) != nullptr);
+  if (!issSpriteReady) {
+    Serial.println("[ISS] Nie udalo sie zaalokowac sprite 480x320 (PSRAM?) - brak ekranu ISS");
+  }
+  return issSpriteReady;
 }
 
-// Draws the static radar rings/cross/compass-labels/QTH-dot for the ISS
-// polar radar. Used both for the initial screen draw and to fully repaint
-// the radar area on every dynamic refresh (see updateIssDynamicDisplay()),
-// which is what lets us cleanly erase the previous frame's ground-track
-// line instead of leaving it on screen.
-//
-// IMPORTANT: this function always leaves text datum/size/color reset to a
-// known state (TL_DATUM) before returning, so nothing drawn afterwards
-// (e.g. the data boxes) inherits a stale MC_DATUM setting.
-void drawIssRadarBackground() {
-  tft.drawCircle(issCx, issCy, issRMax, TFT_WHITE);
-  tft.drawCircle(issCx, issCy, issRMax * 3 / 4, 0x7BEF);
-  tft.drawCircle(issCx, issCy, issRMax / 2, 0x39C7);
-  tft.drawCircle(issCx, issCy, issRMax / 4, 0x39C7);
-
-  tft.drawLine(issCx, issCy - issRMax, issCx, issCy + issRMax, 0x39C7);
-  tft.drawLine(issCx - issRMax, issCy, issCx + issRMax, issCy, 0x39C7);
-
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(1);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString("N", issCx, issCy - issRMax - 12, 2);
-  tft.drawString("S", issCx, issCy + issRMax + 12, 2);
-  tft.drawString("W", issCx - issRMax - 15, issCy, 2);
-  tft.drawString("E", issCx + issRMax + 15, issCy, 2);
-  // Restore the datum immediately - previously this was left as MC_DATUM,
-  // which corrupted the position of every value drawn afterwards (country,
-  // lat/lon, speed, etc. all assume top-left anchored coordinates).
-  tft.setTextDatum(TL_DATUM);
-
-  // QTH star
-  tft.fillCircle(issCx, issCy, 4, TFT_RED);
+// Karta: ciemne wypelnienie + obramowanie + akcentowy pasek po lewej.
+static void issCard(int x, int y, int w, int h, uint16_t accent) {
+  issSprite.fillRect(x, y, w, h, ISS_COL_CARD);
+  issSprite.drawRect(x, y, w, h, ISS_COL_BORDER);
+  issSprite.fillRect(x, y, 3, h, accent);
 }
 
-void updateIssDynamicDisplay() {
-  if (!tftInitialized || currentScreen != SCREEN_ISS_PASS_TRACKING || inMenu) return;
+static void issLabel(int x, int y, const char *txt, uint16_t col) {
+  issSprite.setTextDatum(TL_DATUM);
+  issSprite.setTextSize(1);
+  issSprite.setTextColor(col, ISS_COL_CARD);
+  issSprite.drawString(txt, x, y, 1);
+}
 
-  double localIssLat = 0.0, localIssLng = 0.0, localIssAltitude = 0.0, localIssSpeed = 0.0;
-  double localIssDistance = 0.0, localIssAzimuth = 0.0, localIssElevation = 0.0;
-  String localIssCountry = "CZEKAJ...";
-  String localIssCountryCode = "";
-  static int localTrajX[ISS_TRAJECTORY_POINTS];
-  static int localTrajY[ISS_TRAJECTORY_POINTS];
+static void issValue(int x, int y, const char *txt, uint16_t col) {
+  issSprite.setTextDatum(TL_DATUM);
+  issSprite.setTextSize(1);
+  issSprite.setTextColor(col, ISS_COL_CARD);
+  issSprite.drawString(txt, x, y, 2);
+}
+
+// Projekcja rownoodleglosciowa (lon/lat -> piksel) w prostokacie mapy.
+static void issMapProject(double lon, double lat, int mx, int my, int mw, int mh,
+                          int &px, int &py) {
+  px = mx + (int)((lon + 180.0) / 360.0 * mw);
+  py = my + (int)((90.0 - lat) / 180.0 * mh);
+}
+
+// Mapa swiata: kontynenty rysowane z wbudowanej bitmapy 1-bit (ISS_WORLDMASK),
+// wygenerowanej z data/Mapa swiata.bmp. To odpowiednik mapy z WWW
+// (data/satellite.js rysuje ja z /mapa_swiat.bmp), ale bez zaleznosci od
+// LittleFS i bez dekodowania obrazu na urzadzeniu.
+static void issDrawWorldMap(int mx, int my, int mw, int mh) {
+  const int bw = ISS_WORLDMASK_W, bh = ISS_WORLDMASK_H;
+  for (int y = 0; y < mh; y++) {
+    uint16_t sy = (uint16_t)((uint32_t)y * bh / mh);
+    for (int x = 0; x < mw; x++) {
+      uint16_t sx = (uint16_t)((uint32_t)x * bw / mw);
+      uint32_t idx = (uint32_t)sy * bw + sx;
+      bool land = (ISS_WORLDMASK[idx >> 3] >> (7 - (idx & 7))) & 1;
+      issSprite.drawPixel(mx + x, my + y, land ? ISS_COL_LAND : ISS_MAP_WATER);
+    }
+  }
+  issSprite.drawRect(mx, my, mw, mh, ISS_COL_BORDER);
+}
+
+// Trajektoria naziemna (lat/lng z SGP4) rysowana na mapie. Rysujemy tylko
+// odcinki, ktore nie przeskakuja przez antypoludnik (|dlon| > 180) - inaczej
+// linia "przeskakuje" przez cala mape przy kazdym okrazeniu Ziemi.
+static void issDrawGroundTrackOnMap(int mx, int my, int mw, int mh,
+                                    const double *lats, const double *lngs, int n) {
+  int px0, py0, px1, py1;
+  for (int i = 0; i < n - 1; i++) {
+    if (lats[i] == 0 && lngs[i] == 0) continue;
+    if (lats[i + 1] == 0 && lngs[i + 1] == 0) continue;
+    if (fabs(lngs[i] - lngs[i + 1]) > 180.0) continue; // przeskok przez antypoludnik
+    issMapProject(lngs[i], lats[i], mx, my, mw, mh, px0, py0);
+    issMapProject(lngs[i + 1], lats[i + 1], mx, my, mw, mh, px1, py1);
+    issSprite.drawLine(px0, py0, px1, py1, ISS_COL_ACCENT2);
+  }
+}
+
+// Znacznik ISS (aktualna pozycja) na mapie - punkt + pierscien + etykieta.
+static void issDrawSatOnMap(int mx, int my, int mw, int mh, double lat, double lng) {
+  if (lat == 0 && lng == 0) return;
+  int px, py;
+  issMapProject(lng, lat, mx, my, mw, mh, px, py);
+  issSprite.fillCircle(px, py, 3, ISS_COL_ACCENT);
+  issSprite.drawCircle(px, py, 6, ISS_COL_ACCENT2);
+  issSprite.setTextDatum(TL_DATUM);
+  issSprite.setTextSize(1);
+  issSprite.setTextColor(ISS_COL_TEXT, ISS_MAP_WATER);
+  issSprite.drawString("ISS", px + 8, py - 10, 1);
+}
+
+// Znacznik QTH (pozycja obserwatora) - zloty celownik.
+static void issDrawQthOnMap(int mx, int my, int mw, int mh, double lat, double lng) {
+  int px, py;
+  issMapProject(lng, lat, mx, my, mw, mh, px, py);
+  issSprite.drawCircle(px, py, 4, ISS_COL_WARN);
+  issSprite.drawFastHLine(px - 7, py, 3, ISS_COL_WARN);
+  issSprite.drawFastHLine(px + 5, py, 3, ISS_COL_WARN);
+  issSprite.drawFastVLine(px, py - 7, 3, ISS_COL_WARN);
+  issSprite.drawFastVLine(px, py + 5, 3, ISS_COL_WARN);
+  issSprite.setTextDatum(TL_DATUM);
+  issSprite.setTextSize(1);
+  issSprite.setTextColor(ISS_COL_WARN, ISS_MAP_WATER);
+  issSprite.drawString("QTH", px + 8, py + 2, 1);
+}
+
+// Radar azymut/elewacja: 90=zenit w srodku, 0=horyzont na brzegu (jak WWW).
+static void issDrawRadar(int cx, int cy, int R) {
+  issSprite.fillCircle(cx, cy, R + 6, ISS_MAP_WATER);
+  issSprite.drawCircle(cx, cy, R, ISS_COL_BORDER);
+  issSprite.drawCircle(cx, cy, (int)(R * 0.66), ISS_MAP_RING);
+  issSprite.drawCircle(cx, cy, (int)(R * 0.33), ISS_MAP_RING);
+  issSprite.drawLine(cx, cy - R, cx, cy + R, ISS_MAP_RING);
+  issSprite.drawLine(cx - R, cy, cx + R, cy, ISS_MAP_RING);
+  issSprite.setTextDatum(TL_DATUM);
+  issSprite.setTextSize(1);
+  issSprite.setTextColor(ISS_COL_TEXT, ISS_MAP_WATER);
+  issSprite.drawString("N", cx - 3, cy - R - 12, 1);
+  issSprite.drawString("S", cx - 3, cy + R + 3, 1);
+  issSprite.drawString("E", cx + R + 3, cy - 4, 1);
+  issSprite.drawString("W", cx - R - 10, cy - 4, 1);
+}
+
+// Pelne odrysowanie ekranu ISS (statyczne tlo + wszystkie wartosci).
+// Wolane przy wejsciu na ekran oraz cyklicznie - sprite niweluje migotanie,
+// wiec nie trzeba rozdzielac czesci statycznej i dynamicznej.
+static void issRenderFrame(double lat, double lng, double alt, double speed,
+                           double dist, double az, double el, const String &country,
+                           const String &countryCode, bool hasData,
+                           const double *trajLat, const double *trajLng, int trajN,
+                           int passCount, const time_t *passAos,
+                           const double *passMaxEl, bool passValid, bool wasVisible,
+                           time_t curLos, int tzOffsetHours) {
+  issSprite.fillScreen(ISS_COL_BG);
+
+  // ---- Naglowek ----
+  issSprite.fillRect(0, 0, 480, 30, ISS_COL_CARD);
+  issSprite.drawFastHLine(0, 29, 480, ISS_COL_ACCENT);
+  issSprite.setTextDatum(TL_DATUM);
+  issSprite.setTextSize(1);
+  issSprite.setTextColor(ISS_COL_FAINT, ISS_COL_CARD);
+  issSprite.drawString("ESP32-HAM-CLOCK", 10, 4, 1);
+  issSprite.setTextColor(ISS_COL_TEXT, ISS_COL_CARD);
+  issSprite.drawString("ISS TRACKER", 10, 14, 2);
+  bool live = hasData;
+  issSprite.fillCircle(410, 15, 4, live ? ISS_COL_ACCENT : ISS_COL_FAINT);
+  issSprite.setTextColor(live ? ISS_COL_ACCENT : ISS_COL_FAINT, ISS_COL_CARD);
+  issSprite.drawString(live ? "NA ZYWO" : "CZEKAJ", 420, 10, 1);
+
+  char b[40];
+
+  // ---- Lewa kolumna: metryki ----
+  const int LX = 4, LW = 118;
+  struct { const char *k; char v[24]; uint16_t col; } left[] = {
+    { "KRAJ POD ISS", "", ISS_COL_TEXT },
+    { "SZEROKOSC",   "", ISS_COL_ACCENT },
+    { "DLUGOSC",     "", ISS_COL_ACCENT },
+    { "WYSOKOSC",    "", ISS_COL_TEXT },
+    { "PREDKOSC",    "", ISS_COL_TEXT },
+    { "W ZASIEGU",   "", ISS_COL_ACCENT },
+  };
+  String countryShown = country;
+  if (countryShown.length() > 12) countryShown = countryShown.substring(0, 12);
+  if (hasData) {
+    snprintf(left[0].v, sizeof(left[0].v), "%s", countryShown.c_str());
+    snprintf(left[1].v, sizeof(left[1].v), "%.4f", lat);
+    snprintf(left[2].v, sizeof(left[2].v), "%.4f", lng);
+    snprintf(left[3].v, sizeof(left[3].v), "%.1f km", alt);
+    snprintf(left[4].v, sizeof(left[4].v), "%.0f km/h", speed);
+    snprintf(left[5].v, sizeof(left[5].v), "%s", (dist > 0 && dist <= 5000.0) ? "TAK" : "nie");
+  } else {
+    snprintf(left[0].v, sizeof(left[0].v), "CZEKAJ...");
+    for (int i = 1; i < 6; i++) snprintf(left[i].v, sizeof(left[i].v), "--");
+  }
+  for (int i = 0; i < 6; i++) {
+    int y = 34 + i * 42;
+    issCard(LX, y, LW, 38, ISS_COL_ACCENT);
+    issLabel(LX + 8, y + 5, left[i].k, ISS_COL_FAINT);
+    issValue(LX + 8, y + 17, left[i].v, left[i].col);
+  }
+
+  // ---- Prawa kolumna ----
+  const int RX = 358, RW = 118;
+
+  // Najblizszy przelot
+  issCard(RX, 34, RW, 56, ISS_COL_ACCENT);
+  issLabel(RX + 8, 39, "NAJBLIZSZY PRZELOT", ISS_COL_FAINT);
+  if (passValid) {
+    time_t showEpoch = (wasVisible && curLos > 0) ? curLos : passAos[0];
+    struct tm ptm;
+    time_t e = showEpoch + tzOffsetHours * 3600;
+    localtime_r(&e, &ptm);
+    snprintf(b, sizeof(b), "%02d:%02d", ptm.tm_hour, ptm.tm_min);
+    issValue(RX + 8, 50, b, ISS_COL_TEXT);
+    if (wasVisible) {
+      issLabel(RX + 8, 72, "widoczny teraz", ISS_COL_ACCENT);
+    } else {
+      time_t nowE = time(nullptr);
+      long secs = (long)(passAos[0] - nowE);
+      if (secs >= 3600)      snprintf(b, sizeof(b), "za %ldh%02ldm  maks %.0f", secs / 3600, (secs % 3600) / 60, passMaxEl[0]);
+      else if (secs >= 0)    snprintf(b, sizeof(b), "za %ldm  maks %.0f", secs / 60, passMaxEl[0]);
+      else                   snprintf(b, sizeof(b), "w toku  maks %.0f", passMaxEl[0]);
+      issLabel(RX + 8, 72, b, ISS_COL_DIM);
+    }
+  } else {
+    issValue(RX + 8, 50, "--:--", ISS_COL_FAINT);
+    issLabel(RX + 8, 72, "brak danych", ISS_COL_FAINT);
+  }
+
+  // Nastepne przeloty
+  issCard(RX, 94, RW, 96, ISS_COL_ACCENT2);
+  issLabel(RX + 8, 99, "NASTEPNE PRZELOTY", ISS_COL_FAINT);
+  if (passCount > 0) {
+    for (int i = 0; i < passCount && i < 4; i++) {
+      int y = 114 + i * 17;
+      struct tm ptm;
+      time_t e = passAos[i] + tzOffsetHours * 3600;
+      localtime_r(&e, &ptm);
+      snprintf(b, sizeof(b), "%02d.%02d %02d:%02d", ptm.tm_mday, ptm.tm_mon + 1, ptm.tm_hour, ptm.tm_min);
+      issSprite.setTextDatum(TL_DATUM);
+      issSprite.setTextSize(1);
+      issSprite.setTextColor(i == 0 ? ISS_COL_WARN : ISS_COL_DIM, ISS_COL_CARD);
+      issSprite.drawString(b, RX + 8, y, 1);
+      snprintf(b, sizeof(b), "%.0f", passMaxEl[i]);
+      issSprite.setTextColor(ISS_COL_ACCENT, ISS_COL_CARD);
+      issSprite.setTextDatum(TR_DATUM);
+      issSprite.drawString(b, RX + RW - 8, y, 1);
+      issSprite.setTextDatum(TL_DATUM);
+    }
+  } else {
+    issLabel(RX + 8, 114, passValid ? "brak w planie" : "oczekiwanie na TLE", ISS_COL_FAINT);
+  }
+
+  // Azymut / elewacja / dystans
+  struct { const char *k; char v[24]; } m2[3] = { { "AZYMUT", "" }, { "ELEWACJA", "" }, { "DYSTANS", "" } };
+  snprintf(m2[0].v, sizeof(m2[0].v), "%.1f", az);
+  snprintf(m2[1].v, sizeof(m2[1].v), "%.1f", el);
+  snprintf(m2[2].v, sizeof(m2[2].v), "%.0f km", dist);
+  for (int i = 0; i < 3; i++) {
+    int y = 194 + i * 42;
+    issCard(RX, y, RW, 38, ISS_COL_ACCENT2);
+    issLabel(RX + 8, y + 5, m2[i].k, ISS_COL_FAINT);
+    issValue(RX + 8, y + 17, m2[i].v, ISS_COL_TEXT);
+  }
+
+  // ---- Srodek: mapa swiata + trajektoria ----
+  const int MX = 126, MW = 228, MY = 34, MH = 114;
+  issDrawWorldMap(MX, MY, MW, MH);
+  // siatka 30 stopni
+  for (int gl = -150; gl <= 150; gl += 30) {
+    int px, py;
+    issMapProject(gl, 0, MX, MY, MW, MH, px, py);
+    issSprite.drawFastVLine(px, MY, MH, ISS_MAP_RING);
+  }
+  for (int gl = -60; gl <= 60; gl += 30) {
+    int px, py;
+    issMapProject(0, gl, MX, MY, MW, MH, px, py);
+    issSprite.drawFastHLine(MX, py, MW, ISS_MAP_RING);
+  }
+  issDrawGroundTrackOnMap(MX, MY, MW, MH, trajLat, trajLng, trajN);
+  issDrawQthOnMap(MX, MY, MW, MH, userLatLonValid ? userLat : 52.40, userLatLonValid ? userLon : 16.92);
+  issDrawSatOnMap(MX, MY, MW, MH, lat, lng);
+  issSprite.setTextDatum(TL_DATUM);
+  issSprite.setTextSize(1);
+  issSprite.setTextColor(ISS_COL_DIM, ISS_MAP_WATER);
+  issSprite.drawString("MAPA SWIATA - TRAJEKTORIA NAZIEMNA", MX + 4, MY + MH - 12, 1);
+
+  // ---- Srodek dol: radar ----
+  const int RCX = 240, RCY = 232, RRAD = 68;
+  issDrawRadar(RCX, RCY, RRAD);
+  if (el >= 0.0 && az >= 0.0) {
+    double rr = RRAD * (1.0 - (el > 90 ? 90 : el) / 90.0);
+    double ang = (az - 90.0) * DEG_TO_RAD;
+    int sx = RCX + (int)(cos(ang) * rr);
+    int sy = RCY + (int)(sin(ang) * rr);
+    issSprite.fillCircle(sx, sy, 5, el > 0 ? ISS_COL_ACCENT : ISS_COL_FAINT);
+    snprintf(b, sizeof(b), "ISS %.0f", el);
+    issSprite.setTextDatum(TL_DATUM);
+    issSprite.setTextSize(1);
+    issSprite.setTextColor(ISS_COL_TEXT, ISS_MAP_WATER);
+    issSprite.drawString(b, sx + 8, sy - 12, 1);
+  } else {
+    issSprite.setTextDatum(TL_DATUM);
+    issSprite.setTextSize(1);
+    issSprite.setTextColor(ISS_COL_FAINT, ISS_MAP_WATER);
+    issSprite.drawString("brak danych", RCX - 30, RCY - 4, 1);
+  }
+  issSprite.setTextDatum(TC_DATUM);
+  issSprite.setTextSize(1);
+  issSprite.setTextColor(ISS_COL_FAINT, ISS_COL_BG);
+  issSprite.drawString("RADAR AZYMUT / ELEWACJA", RCX, 308, 1);
+  issSprite.setTextDatum(TL_DATUM);
+
+  // Wypchnij cala klatke jednym transferem (bez migotania).
+  issSprite.pushSprite(0, 0);
+}
+
+// Odczyt danych ISS pod mutexem, zbudowanie klatki i wypchniecie na panel.
+static void issDrawFrameFromState() {
+  if (!ensureIssSprite()) return;
+
+  double lat = 0, lng = 0, alt = 0, speed = 0, dist = 0, az = 0, el = 0;
+  String country = "CZEKAJ...", cc = "";
+  bool hasData = false;
+  static double trajLat[ISS_TRAJECTORY_POINTS];
+  static double trajLng[ISS_TRAJECTORY_POINTS];
+  int passCount = 0;
+  time_t passAos[ISS_MAX_PASSES];
+  double passMaxEl[ISS_MAX_PASSES];
+  bool passValid = false, wasVisible = false;
+  time_t curLos = 0;
 
   if (issDataMutex != NULL && xSemaphoreTake(issDataMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-    localIssLat = issLat;
-    localIssLng = issLng;
-    localIssAltitude = issAltitude;
-    localIssSpeed = issSpeed;
-    localIssDistance = issDistance;
-    localIssAzimuth = issAzimuth;
-    localIssElevation = issElevation;
-    localIssCountry = issCountry;
-    localIssCountryCode = issCountryCode;
-    // issTrajectoryX/Y are written by calculateIssTrajectory() on the
-    // background ISS task (Core 0) - copy them out under the same mutex
-    // instead of reading the globals directly from this (UI) context.
-    memcpy(localTrajX, issTrajectoryX, sizeof(localTrajX));
-    memcpy(localTrajY, issTrajectoryY, sizeof(localTrajY));
+    lat = issLat; lng = issLng; alt = issAltitude; speed = issSpeed;
+    dist = issDistance; az = issAzimuth; el = issElevation;
+    country = issCountry; cc = issCountryCode;
+    hasData = (lat != 0.0 || lng != 0.0);
+    for (int i = 0; i < ISS_TRAJECTORY_POINTS; i++) {
+      trajLat[i] = issTrajectoryLat[i];
+      trajLng[i] = issTrajectoryLng[i];
+    }
+    passCount = issPassCount;
+    for (int i = 0; i < ISS_MAX_PASSES; i++) {
+      passAos[i] = issPassAos[i];
+      passMaxEl[i] = issPassMaxEl[i];
+    }
+    passValid = issNextPassEstimateValid;
+    wasVisible = issNextPassWasVisible;
+    curLos = issNextPassLosEpoch;
     xSemaphoreGive(issDataMutex);
   } else {
-    return; // couldn't take mutex
+    return;
   }
 
-  char buf[64];
-
-  // All value fields below use font 2 (native ~16px tall) at text SIZE 1.
-  // They previously also called setTextSize(2), which doubles an already
-  // ~16px-tall font to ~32px - taller than the erase rects and the boxes
-  // themselves, so each refresh left un-erased fragments of the previous
-  // (larger) text behind and bled into neighbouring boxes. That's the
-  // "data drifts / overlaps after a while" bug.
-  //
-  // They also all used the default TL_DATUM (top-left) with x set to the
-  // box's horizontal center - so text always grew to the RIGHT from that
-  // point instead of actually being centered, letting longer strings (like
-  // a long country name) spill past the box's right edge. Using MC_DATUM
-  // (middle-center) at that same point centers the text symmetrically
-  // instead, regardless of its length.
-  tft.setTextDatum(MC_DATUM);
-
-  // Country
-  tft.fillRect(12, 78, 156, 23, TFT_BLACK);
-  // Flaga obok nazwy kraju. drawBmpFromFS() przyjmuje TYLKO 24-bit BMP,
-  // dlatego uzywamy osobnego katalogu /tft_flags/ (obok /flags/ z PNG dla
-  // WWW). Wczesniej firmware szukal /flags/<CC>.bmp, a BMP-ow tam po prostu
-  // NIE BYLO (generator zapisywal je do data/tft_flags/) - dlatego flaga
-  // nigdy sie nie rysowala. Nazwa pliku: /tft_flags/<CC>.bmp (CC uppercase).
-  bool flagDrawn = false;
-  if (localIssCountryCode.length() > 0) {
-    String flagPath = "/tft_flags/" + localIssCountryCode + ".bmp";
-    // drawBmpFromFS() rysuje od LEWEGO-GORNEGO rogu (mimo dawnego komentarza).
-    // Wiersz nazwy kraju to y=78..101 (patrz fillRect ponizej), flaga ma 21 px,
-    // wiec gorny rog musi byc na ~80 - wczesniejsze y=100 rysowalo flage
-    // 20 px za nisko, w okolicy etykiety LATITUDE.
-    flagDrawn = drawBmpFromFS(flagPath, 14, 80);
-    if (!flagDrawn) {
-      Serial.printf("[ISS FLAG] Nie udalo sie narysowac flagi %s (brak pliku w LittleFS?)\n",
-                    flagPath.c_str());
-    }
-  }
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-  tft.setTextSize(1);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString(localIssCountry, flagDrawn ? 108 : 90, 90, 2);
-  // Uwaga: datum MUSI pozostac MC_DATUM dla wszystkich odczytow ponizej -
-  // ich wspolrzedne (x = srodek ramki, y = srodek prostokata czyszczacego) sa
-  // zaprojektowane pod MC_DATUM. Wczesniejszy powrot do TL_DATUM powodowal,
-  // ze tekst startowal od x i rosnie w prawo (odczyty "uciekaly" w prawo).
-
-  // Latitude
-  tft.fillRect(12, 123, 136, 23, TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(1);
-  snprintf(buf, sizeof(buf), "%0.4fÂ°", localIssLat);
-  tft.drawString(String(buf), 80, 135, 2);
-
-  // Longitude
-  tft.fillRect(12, 168, 136, 23, TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(1);
-  snprintf(buf, sizeof(buf), "%0.4fÂ°", localIssLng);
-  tft.drawString(String(buf), 80, 180, 2);
-
-  // Altitude
-  tft.fillRect(12, 213, 136, 23, TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(1);
-  snprintf(buf, sizeof(buf), "%0.1f km", localIssAltitude);
-  tft.drawString(String(buf), 80, 225, 2);
-
-  // Speed
-  tft.fillRect(12, 283, 106, 23, TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(1);
-  snprintf(buf, sizeof(buf), "%0.0f km/h", localIssSpeed);
-  tft.drawString(String(buf), 65, 295, 2);
-
-  // Azimuth
-  tft.fillRect(127, 283, 106, 23, TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(1);
-  snprintf(buf, sizeof(buf), "%0.1fÂ°", localIssAzimuth);
-  tft.drawString(String(buf), 180, 295, 2);
-
-  // Distance
-  tft.fillRect(242, 283, 106, 23, TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(1);
-  snprintf(buf, sizeof(buf), "%0.0f km", localIssDistance);
-  tft.drawString(String(buf), 295, 295, 2);
-
-  // Elevation
-  tft.fillRect(357, 283, 111, 23, TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(1);
-  snprintf(buf, sizeof(buf), "%0.1fÂ°", localIssElevation);
-  tft.drawString(String(buf), 412, 295, 2);
-
-  // AOS IN - odliczanie do nastepnego AOS (albo "WIDOCZNY", gdy ISS jest
-  // teraz nad horyzontem). Wczesniej pokazywalo tylko WIDOCZNY/NIE WIDOCZNY,
-  // co nie nioslo zadnej informacji o czasie - teraz to realne odliczanie
-  // z issNextPassAosEpoch (SGP4/n2yo).
-  tft.fillRect(357, 238, 111, 23, TFT_BLACK);
-  tft.setTextSize(1);
-  if (localIssElevation > 0) {
-    tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    tft.drawString("WIDOCZNY", 412, 250, 2);
-  } else if (issNextPassEstimateValid && !issNextPassWasVisible && issNextPassAosEpoch > 0) {
-    time_t nowE = time(nullptr);
-    long secs = (long)(issNextPassAosEpoch - nowE);
-    char aosBuf[16];
-    if (secs >= 3600)      snprintf(aosBuf, sizeof(aosBuf), "za %ldh%02ldm", secs / 3600, (secs % 3600) / 60);
-    else if (secs >= 0)    snprintf(aosBuf, sizeof(aosBuf), "za %ldm", secs / 60);
-    else                   snprintf(aosBuf, sizeof(aosBuf), "w toku");
-    tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    tft.drawString(String(aosBuf), 412, 250, 2);
-  } else {
-    tft.setTextColor(TFT_RED, TFT_BLACK);
-    tft.drawString("NIE WIDOCZNY", 412, 250, 2);
-  }
-
-  // NASTEPNE PRZELOTY - lista kilku najbliszych przelotow z SGP4
-  // (updateIssNextPassEstimate()) lub n2yo. Gdy ISS jest AKTUALNIE widoczny,
-  // pierwszy wiersz pokazuje koniec biezacego przelotu ("do HH:MM").
-  {
-    // Snapshot pod wspolnym dostepem - dane sa prostymi skalarami; kopiujemy
-    // je lokalnie, zeby odczyt w trakcie zapisu przez zadanie ISS nie dal
-    // poszatkowanego wiersza.
-    int    localPassCount = issPassCount;
-    time_t localAos[ISS_MAX_PASSES];
-    double localMaxEl[ISS_MAX_PASSES];
-    for (int i = 0; i < ISS_MAX_PASSES; i++) {
-      localAos[i] = issPassAos[i];
-      localMaxEl[i] = issPassMaxEl[i];
-    }
-    bool localValid = issNextPassEstimateValid;
-    bool localWasVisible = issNextPassWasVisible;
-    time_t localCurLos = issNextPassLosEpoch;
-
-    tft.fillRect(350, 54, 124, 52, TFT_BLACK); // obszar wartosci (tytul zostaje)
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextSize(1);
-
-    int rowY = 56;
-    int shown = 0;
-
-    if (localWasVisible) {
-      // Biezacy przelot - pokaz do kiedy widoczny.
-      if (localCurLos > 0) {
-        struct tm ctm;
-        time_t e = localCurLos + getCachedTimezoneOffset() * 3600;
-        localtime_r(&e, &ctm);
-        char b[20];
-        snprintf(b, sizeof(b), "do %02d:%02d", ctm.tm_hour, ctm.tm_min);
-        tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        tft.drawString(String(b), 352, rowY, 2);
-        rowY += 16; shown++;
-      }
-    }
-    // Kolejne przyszle przeloty (max 3 wiersze lacznie w ramce).
-    for (int i = 0; i < localPassCount && shown < 3; i++) {
-      struct tm ptm;
-      time_t e = localAos[i] + getCachedTimezoneOffset() * 3600;
-      localtime_r(&e, &ptm);
-      char b[24];
-      snprintf(b, sizeof(b), "%02d:%02d  %2.0f", ptm.tm_hour, ptm.tm_min, localMaxEl[i]);
-      tft.setTextColor(i == 0 ? TFT_YELLOW : 0xC618, TFT_BLACK); // pierwszy jasny, kolejne szare
-      tft.drawString(String(b), 352, rowY, 2);
-      rowY += 16; shown++;
-    }
-    if (shown == 0) {
-      tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-      tft.drawString(localValid ? "brak w planie" : "--:--", 352, 56, 2);
-    }
-  }
-  tft.setTextDatum(TL_DATUM);
-
-  // Restore TL_DATUM before the radar section below (drawIssRadarBackground
-  // also manages its own datum internally, but keep this explicit so
-  // nothing downstream can inherit MC_DATUM by accident).
-  tft.setTextDatum(TL_DATUM);
-
-  // Erase the previous cycle's ground-track line by precisely redrawing it
-  // in black (exact same coordinates it was drawn with), instead of never
-  // clearing it at all. This is what let the yellow ground-track lines
-  // accumulate into a growing tangle every refresh cycle before.
-  static bool issPrevTrajValid = false;
-  static int issPrevTrajX[ISS_TRAJECTORY_POINTS];
-  static int issPrevTrajY[ISS_TRAJECTORY_POINTS];
-
-  if (issPrevTrajValid) {
-    for (int i = 0; i < ISS_TRAJECTORY_POINTS - 1; i++) {
-      int x0 = issPrevTrajX[i];
-      int y0 = issPrevTrajY[i];
-      int x1 = issPrevTrajX[i + 1];
-      int y1 = issPrevTrajY[i + 1];
-      if (x0 < 0 || y0 < 0 || x1 < 0 || y1 < 0) break;
-      tft.drawLine(x0, y0, x1, y1, TFT_BLACK);
-    }
-    issPrevTrajValid = false;
-  }
-
-  // Clear previous sat icon
-  if (lastIssSatX != -1 && lastIssSatY != -1) {
-    tft.fillRect(lastIssSatX - 16, lastIssSatY - 16, 32, 32, TFT_BLACK);
-  }
-
-  // The two erases above can nick through the thin radar rings/cross where
-  // the old line/icon happened to cross them. Repainting the radar
-  // background is cheap and non-destructive (outlines + text only, no
-  // solid fill), so it safely repairs any such nicks without touching the
-  // surrounding data boxes.
-  drawIssRadarBackground();
-
-  // Draw trajectory using radar-relative (polar) coordinates computed in
-  // calculateIssTrajectory(). We stop at the FIRST point outside the
-  // radar's 5000km range (marked -1) rather than skipping past it - the
-  // simplified ground-track model isn't real orbital propagation, so
-  // distance-from-observer isn't strictly monotonic along the points and
-  // can dip back into range later in the list. Continuing past a gap
-  // reconnected those later, unrelated in-range points into extra
-  // disconnected line segments ("kreski"), instead of one continuous arc
-  // showing the upcoming near-future ground track.
-  if (localIssDistance > 0 && localIssDistance <= 5000.0) {
-    for (int i = 0; i < ISS_TRAJECTORY_POINTS - 1; i++) {
-      int x0 = localTrajX[i];
-      int y0 = localTrajY[i];
-      int x1 = localTrajX[i + 1];
-      int y1 = localTrajY[i + 1];
-      if (x0 < 0 || y0 < 0 || x1 < 0 || y1 < 0) break;
-      tft.drawLine(x0, y0, x1, y1, TFT_YELLOW);
-    }
-    memcpy(issPrevTrajX, localTrajX, sizeof(issPrevTrajX));
-    memcpy(issPrevTrajY, localTrajY, sizeof(issPrevTrajY));
-    issPrevTrajValid = true;
-
-    double pixelDist = localIssDistance * (issRMax / 5000.0);
-    double angleRad = (localIssAzimuth - 90.0) * DEG_TO_RAD;
-    int satX = issCx + (int)(cos(angleRad) * pixelDist);
-    int satY = issCy + (int)(sin(angleRad) * pixelDist);
-
-    // Procedural ISS icon (panels + body)
-    tft.fillRect(satX - 12, satY - 8, 4, 16, TFT_CYAN);
-    tft.fillRect(satX + 8, satY - 8, 4, 16, TFT_CYAN);
-    tft.drawFastHLine(satX - 8, satY, 16, TFT_SILVER);
-    tft.fillRect(satX - 4, satY - 3, 8, 6, TFT_YELLOW);
-    tft.drawPixel(satX, satY, TFT_RED);
-
-    lastIssSatX = satX;
-    lastIssSatY = satY;
-  } else {
-    lastIssSatX = -1;
-    lastIssSatY = -1;
-  }
-
-  // redraw header to keep it above other elements
-  tft.setTextColor(TFT_GOLD, TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString("ISS Pass Tracker", 240, 20, 2);
-  tft.setTextDatum(TL_DATUM);
+  issRenderFrame(lat, lng, alt, speed, dist, az, el, country, cc, hasData,
+                 trajLat, trajLng, ISS_TRAJECTORY_POINTS,
+                 passCount, passAos, passMaxEl, passValid, wasVisible, curLos,
+                 getCachedTimezoneOffset());
 }
 
 void drawIssPassTracking() {
   if (!tftInitialized) return;
-
-  // Reset font scaling and text parameters
-  tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(0, 0);
-
-  drawIssStaticInterface();
-
-  // ISS data fetching is handled by separate task; just update display
-  updateIssDynamicDisplay();
+  issSpriteInitTried = false; // pozwol ponowic alokacje po wejsciu na ekran
+  issSpriteReady = false;
+  issDrawFrameFromState();
 }
+
+void drawIssStaticInterface() { issDrawFrameFromState(); }
+void updateIssDynamicDisplay() { issDrawFrameFromState(); }
 
 // ========== MQTT PSK REPORTER IMPLEMENTATION ==========
 

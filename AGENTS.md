@@ -286,3 +286,32 @@ Podglad: /workspace/share/_sat-preview.html + _preview.html (mock API).
   tak jak reszta uzyc issSat.
 - Artefakty: pio run -e esp32-s3-n16r8 (+ -notouch), -t buildfs, merge_bin -> dist/,
   python3 tools/make_zip.py. esptool.py jest w ~/.platformio/packages/tool-esptoolpy/.
+
+## ISS: ekran TFT w stylu strony WWW "Satelity" (13.10.2026)
+- CEL: ekran ISS na TFT ma wygladac jak zakladka "Satelity" z WWW (data/index.html
+  + data/satellite.js + data/style.modern.css). Zamiast rozrzuconych prostokatow z
+  recznym wymazywaniem (migotanie, resztki po trajektorii/ikonie) caly ekran jest
+  teraz renderowany do bufora TFT_eSprite 480x320 (16bpp, PSRAM) i wypychany JEDNYM
+  pushSprite(0,0). Brak migotania i brak recznego kasowania - kazda klatka jest pelna.
+- Uklad (480x320, wspolrzedne w main.cpp, issRenderFrame):
+  * naglowek 0..30: "ISS TRACKER" + kropka statusu NA ZYWO/CZEKAJ,
+  * lewa kolumna x=4 w=118: 6 kart metryk (KRAJ POD ISS, SZEROKOSC, DLUGOSC,
+    WYSOKOSC, PREDKOSC, W ZASIEGU) - odpowiednik .sat-metric (akcentowy pasek 3 px),
+  * prawa kolumna x=358 w=118: karta NAJBLIZSZY PRZELOT (y=34..90), karta
+    NASTEPNE PRZELOTY (y=94..190, do 4 wierszy "dd.mm HH:MM" + maxEl) oraz 3 karty
+    AZYMUT/ELEWACJA/DYSTANS (y=194..320) - odpowiednik .sat-pass/.sat-pass-list,
+  * srodek gora: mapa swiata 228x114 @ (126,34) z trajektoria naziemna, siatka 30 st.,
+    znacznikiem QTH (zloty) i ISS (teal) - odpowiednik #sat-map,
+  * srodek dol: radar azymut/elewacja (240,232) r=68 - odpowiednik #sat-radar.
+- MAPA: kontynenty rysowane z WBUDOWANEJ bitmapy 1-bit iss_worldmask.h (228x114),
+  wygenerowanej offline z data/Mapa swiata.bmp przez tools/gen_worldmask.py
+  (rozklad kolorow: woda = niebieski dominujacy, reszta = lad; downsample wiekszoscia).
+  Bez zaleznosci od LittleFS i bez dekodowania obrazu na urzadzeniu. Po zmianie mapy
+  uruchom ponownie tools/gen_worldmask.py.
+- Paleta ISS_COL_* w main.cpp = dokladne odpowiedniki zmiennych CSS (--accent #35d0ba
+  itd.) w RGB565. Zmiana motywu WWW -> przelicz RGB565.
+- Alokacja sprite w PSRAM: TFT_eSprite domyslnie uzywa ps_calloc gdy psramFound()
+  (TFT_eSPI 2.5.43, Extensions/Sprite.cpp). 480x320x2 = 307 200 B.
+- drawIssStaticInterface()/updateIssDynamicDisplay() sa teraz aliasami
+  issDrawFrameFromState() (pelny redraw). drawIssRadarBackground() usuniete.
+- Podglad ukladu (mock w HTML): /workspace/share/tftmock2.html (nie w repo).
