@@ -492,7 +492,10 @@ w PSRAM (wzorzec jak ekran ISS):
 - Zakresy: `APRS_RADAR_RANGE_MULT[] = {0.2,0.5,1,2,4}` - mnozniki promienia
   filtra APRS-IS (`aprsFilterRadius`, max 50 km; serwer wysyla tylko stacje w
   tym promieniu). Srodek radaru = `userLat/userLon` z fallbackiem 52.40/16.92
-  (ten sam co `station.distance`). Dotkniecie gornej/dolnej polowy przelacza zakres.
+  (ten sam co `station.distance`).
+- Kafelki zakresu (x0.2..x4) wysrodkowane na dole (`ARP_TILE_*`,
+  `aprsRadarTileStartX()`, `isScreen6RadarRangeTileHit()`); dotkniecie
+  konkretnego kafelka ustawia zakres.
 - Panel boczny: QTH, STATUS (WiFi/APRS-IS), VFO 144.800, ZAKRES + lista stacji
   z odlegloscia, zegar UTC.
 
@@ -500,8 +503,9 @@ UWAGA (nawigacja/dotyk): XPT2046 dzieli magistrale SPI z TFT, wiec ciagly
 `pushSprite` zaklocal odczyt dotyku i "zajadal" tapniecia (nie dalo sie przejsc
 na inny ekran / otworzyc menu). Dlatego animacja jest wstrzymywana na ~500 ms od
 ostatniej aktywnosci dotyku (`screenSleepLastActivityMs`). Przycisk menu
-(hamburger) rysowany jest na `tft` PO `pushSprite`, w kazdej klatce - sprite
-nadpisuje caly ekran, wiec musi byc odtwarzany przy kazdym odswiezeniu.
+(hamburger) rysowany jest do sprite'a PRZED `pushSprite`
+(`drawHamburgerMenuButton3DSprite`) - rysowanie go na `tft` po pushSprite
+powodowalo miganie, bo "niebrudzacy" pushSprite zmazywal go co klatke.
 
 UWAGA (pozycja/QTH): `userLatLonValid` + `userLat/userLon` steruja srodkiem
 radaru, filtrem APRS-IS i odleglosciami. Formularz WWW wysyla puste pola jako
