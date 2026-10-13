@@ -20140,14 +20140,17 @@ static void fetchIssVisualPassesFromN2yo() {
     time_t aos = issPassAos[i];
     if (aos <= 0) continue;
     for (JsonObject p : vp) {
-      long vs = p["startVisibilityUTC"] | 0L;
-      if (vs <= 0) continue;
+      long ps = p["startUTC"] | 0L;   // AOS przelotu (do dopasowania)
+      if (ps <= 0) continue;
       // Ten sam przelot: n2yo liczy visual/radio z tego samego TLE, ale
       // progi elewacji moga dac kilka minut roznicy - tolerancja 3 min.
-      long diff = (long)vs - (long)aos;
+      long diff = (long)ps - (long)aos;
       if (diff < 0) diff = -diff;
       if (diff <= 180) {
-        issPassVisStart[i] = (time_t)vs;
+        // startVisibilityUTC = moment, gdy ISS staje sie widoczny optycznie
+        // (moze byc pozniej niz AOS, gdy satelita jest jeszcze w cieniu).
+        long vs = p["startVisibilityUTC"] | 0L;
+        issPassVisStart[i] = (vs > 0) ? (time_t)vs : (time_t)ps;
         long ve = p["endUTC"] | 0L;
         issPassVisEnd[i] = (ve > 0) ? (time_t)ve : 0;
         issPassDuration[i] = p["duration"] | 0;
