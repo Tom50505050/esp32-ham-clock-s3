@@ -511,6 +511,30 @@
             }
         }
 
+        // Tabela najbliszych przelotow (z d.passes: [aos, los, maxEl]).
+        var listEl = document.getElementById('sat-pass-list');
+        if (listEl) {
+            var passes = (d.passes && d.passes.length) ? d.passes : [];
+            if (!passes.length) {
+                listEl.innerHTML = '<li class="sat-pass-empty">brak danych</li>';
+            } else {
+                var html = '';
+                for (var i = 0; i < passes.length; i++) {
+                    var p = passes[i];
+                    var aos = p[0], los = p[1], el = p[2];
+                    if (!aos) continue;
+                    var a = new Date(aos * 1000);
+                    var timeStr = a.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    var dayStr = a.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
+                    var dur = (los > aos) ? Math.round((los - aos) / 60) + ' min' : '';
+                    html += '<li><span>' + dayStr + ' ' + timeStr + '</span>'
+                          + '<span class="dur">' + dur + '</span>'
+                          + '<span class="el">' + (el > 0 ? Math.round(el) + '°' : '') + '</span></li>';
+                }
+                listEl.innerHTML = html || '<li class="sat-pass-empty">brak danych</li>';
+            }
+        }
+
         var inRange = document.getElementById('sat-inrange');
         if (inRange) {
             inRange.textContent = d.in_range ? 'TAK' : 'nie';

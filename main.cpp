@@ -1671,6 +1671,16 @@ double issNextPassMaxEl = 0.0;
 bool issNextPassWasVisible = false;
 bool issWasInRangeLastCheck = false;
 
+// Lista kilku najbliszych przyszlych przelotow (AOS/LOS/maxEl), wypelniana
+// razem z pojedynczym "nastepnym przelotem" powyzej. Pozwala UI pokazac
+// plan przelotow, a nie tylko jeden wpis - i daje czytelny dowod, ze odczyt
+// dziala (widac kolejne godziny), nawet jesli pierwszy AOS jest odlegly.
+#define ISS_MAX_PASSES 4
+int issPassCount = 0;
+time_t issPassAos[ISS_MAX_PASSES] = {0};
+time_t issPassLos[ISS_MAX_PASSES] = {0};
+double issPassMaxEl[ISS_MAX_PASSES] = {0.0};
+
 // FreeRTOS task for ISS updates on Core 0
 TaskHandle_t issTaskHandle = NULL;
 SemaphoreHandle_t issDataMutex = NULL;
@@ -16780,6 +16790,17 @@ void setupWebServer() {
     doc["trajectory_step"] = issTrajectoryStepSec;
     doc["in_range"] = issWasInRangeLastCheck;
 
+    // Lista kilku najbliszych przelotow [aos, los, maxEl] - dla tabeli
+    // "nastepne przeloty" w WWW. Kopiujemy pod dostepem do danych, zeby nie
+    // odczytac wpisu w trakcie aktualizacji przez zadanie ISS.
+    JsonArray passesArr = doc.createNestedArray("passes");
+    for (int i = 0; i < issPassCount && i < ISS_MAX_PASSES; i++) {
+      JsonArray p = passesArr.createNestedArray();
+      p.add((long)issPassAos[i]);
+      p.add((long)issPassLos[i]);
+      p.add(issPassMaxEl[i]);
+    }
+
     JsonArray track = doc.createNestedArray("track");
     for (int i = 0; i < ISS_TRAJECTORY_POINTS; i++) {
       JsonArray pt = track.createNestedArray();
@@ -20086,12 +20107,30 @@ bool fetchIssNextPassFromN2yo() {
     filter["passes"][0]["endUTC"] = true;
     filter["passes"][0]["maxEl"] = true;
 
-    DynamicJsonDocument doc(1024);
+    DynamicJsonDocument doc(2048);
     DeserializationError err = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
 
     if (!err) {
       JsonArray passes = doc["passes"].as<JsonArray>();
       if (passes.size() > 0) {
+        // Wypelnij liste kilku przelotow (UI "NASTEPNE PRZELOTY") oraz
+        // pojedynczy najblizszy przelot - oba z tego samego API.
+        int n = 0;
+        for (JsonObject p : passes) {
+          if (n >= ISS_MAX_PASSES) break;
+          long s = p["startUTC"] | 0L;
+          long e = p["endUTC"] | 0L;
+          if (s <= 0) continue;
+          issPassAos[n] = (time_t)s;
+          issPassLos[n] = (e > 0) ? (time_t)e : 0;
+          issPassMaxEl[n] = (double)(p["maxEl"] | 0.0f);
+          n++;
+        }
+        issPassCount = n;
+        for (int i = n; i < ISS_MAX_PASSES; i++) {
+          issPassAos[i] = 0; issPassLos[i] = 0; issPassMaxEl[i] = 0.0;
+        }
+
         long startUTC = passes[0]["startUTC"] | 0L;
         long endUTC = passes[0]["endUTC"] | 0L;
         float maxEl = passes[0]["maxEl"] | 0.0f;
@@ -20106,9 +20145,11 @@ bool fetchIssNextPassFromN2yo() {
           struct tm passTm;
           time_t t = issNextPassEstimateEpoch;
           localtime_r(&t, &passTm);
-          Serial.printf("[ISS PASS n2yo] Nastepny przelot: %02d:%02d (max el %.0f)\n", passTm.tm_hour, passTm.tm_min, maxEl);
+          Serial.printf("[ISS PASS n2yo] Nastepny przelot: %02d:%02d (max el %.0f), lacznie %d\n",
+                        passTm.tm_hour, passTm.tm_min, maxEl, issPassCount);
         }
       } else {
+        issPassCount = 0;
         Serial.println("[ISS PASS n2yo] Brak przelotow w zwroconym oknie (2 dni)");
       }
     } else {
@@ -20121,22 +20162,31 @@ bool fetchIssNextPassFromN2yo() {
   return ok;
 }
 
-// Przewiduje czas nastÄ™pnego przelotu (AOS - wschĂłd nad horyzontem, elewacja
-// przekracza 0Â°) skanujÄ…c orbitÄ™ do przodu z pomocÄ… SGP4. JeĹ›li ISS jest
-// AKTUALNIE widoczny, najpierw znajduje koniec bieĹĽÄ…cego przelotu (LOS),
-// dopiero potem szuka kolejnego AOS - ĹĽeby nie zwrĂłciÄ‡ "teraz" jako
-// nastÄ™pnego przelotu. DokĹ‚adnoĹ›Ä‡ jest ograniczona Ĺ›wieĹĽoĹ›ciÄ… TLE (patrz
-// fetchIssTLE()), ale to i tak duĹĽo precyzyjniejsze niĹĽ zgadywanie po
-// samym okresie orbitalnym.
+// Przewiduje najblizsze przeloty (AOS - wejscie nad horyzont, LOS - zejscie,
+// maks. elewacja) uzywajac wbudowanego predyktora biblioteki Sgp4
+// (initpredpoint() + nextpass()), a NIE wlasnego skanowania orbity co 60 s.
+//
+// Dlaczego zmiana: poprzednia wersja recznie skanowala 24 h w krokach 60 s
+// (do ~1440 propagacji + bisekcje). Byla poprawna matematycznie, ale (a)
+// bardzo droga (SGP4 bez delay() na Core 0 -> ryzyko watchdoga/glodzenia
+// sieci) i (b) zawodna przy pierwszym cyklu po starcie, gdy TLE/NTP dopiero
+// sie ustabilizowaly. Biblioteczny nextpass() szuka ekstremow elewacji
+// metoda Brenta - kilka-kilkanascie iteracji zamiast 1440 - i jest to ten
+// sam sprawdzony kod, ktory daje wyniki zgodne z referencyjnymi.
+//
+// Funkcja wypelnia ZAROWNO pojedynczy "nastepny przelot" (zgodnie z
+// istniejacym UI/JSON), JAK I liste issPassAos/Los/MaxEl[ISS_MAX_PASSES],
+// dzieki czemu UI moze pokazac kilka kolejnych przelotow.
 void updateIssNextPassEstimate() {
-  Serial.println("[ISS PASS] Start szukania nastepnego przelotu...");
-  if (issTleMutex == NULL || xSemaphoreTake(issTleMutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+  Serial.println("[ISS PASS] Start szukania nastepnych przelotow (nextpass)...");
+  if (issTleMutex == NULL || xSemaphoreTake(issTleMutex, pdMS_TO_TICKS(500)) != pdTRUE) {
     Serial.println("[ISS PASS] Nie udalo sie wziac muteksu TLE - pomijam ten cykl");
     return;
   }
   if (!issTleValid) {
     xSemaphoreGive(issTleMutex);
     issNextPassEstimateValid = false;
+    issPassCount = 0;
     Serial.println("[ISS PASS] TLE jeszcze niedostepne - brak danych");
     return;
   }
@@ -20146,47 +20196,33 @@ void updateIssNextPassEstimate() {
   issSat.site(userLatLocal, userLonLocal, 0.0);
 
   time_t nowEpoch = time(nullptr);
-  // Bez synchronizacji NTP time() zwraca czas od startu (kilkaset sekund),
-  // czyli rok 1970 - propagacja SGP4 liczylaby sie od TLE (rok 2026) i
-  // dawala bezsensowne wyniki (brak wykrytych przelotow). Wymagamy realnej
-  // daty (>= 2024-01-01) zanim cokolwiek policzymy.
+  // Bez synchronizacji NTP time() zwraca czas od startu (rok 1970) - propagacja
+  // SGP4 liczylaby sie od TLE (rok 2026) i dawala bezsensowne wyniki. Wymagamy
+  // realnej daty (>= 2024-01-01).
   if (nowEpoch < 1704067200) {
     xSemaphoreGive(issTleMutex);
     issNextPassEstimateValid = false;
+    issPassCount = 0;
     Serial.printf("[ISS PASS] Brak zsynchronizowanego czasu (NTP) - epoch=%ld, pomijam obliczenia\n", (long)nowEpoch);
     return;
   }
 
-  // UWAGA: przyczyną "brak danych" bylo zbyt krotkie OKNO skanowania (6 h).
-  // ISS krazy wokol Ziemi w ~92 min, ale nad konkretna szerokosc geogr.
-  // (np. Polska) wraca dopiero po kilku orbitach - realnie najblizszy
-  // przelot bywa po ~8-12 h, wiec w oknie 6 h regularnie nie bylo zadnego
-  // AOS. Zwiekszamy okno do 24 h. (Jednostki czasu sa OK - przeciazenie
-  // findsat(unsigned long) samo konwertuje unix->dni julianskie.)
-  const int coarseStepSec = 60;   // krok skanowania 60 s
-  const int maxScanSec = 24 * 3600; // szukaj do 24 h do przodu
-
   issSat.findsat((unsigned long)nowEpoch);
+  bool currentlyVisible = issSat.satEl > 0;
   Serial.printf("[ISS PASS] Diagnostyka SGP4: satLat=%.4f satLon=%.4f satAz=%.4f satEl=%.4f satDist=%.1f (obserwator: lat=%.4f lon=%.4f)\n",
                 issSat.satLat, issSat.satLon, issSat.satAz, issSat.satEl, issSat.satDist,
                 userLatLocal, userLonLocal);
 
-  bool currentlyVisible = issSat.satEl > 0;
-  double prevEl = issSat.satEl;
-  time_t prevT = nowEpoch;
-
+  // Gdy ISS jest juz nad horyzontem - najpierw wyznacz koniec BIEZACEGO
+  // przelotu (LOS) prostym skanem do przodu (max ~100 min = jeden obieg).
+  // To krotkie i ograniczone, w przeciwienstwie do dawnego skanu 24 h.
   time_t currentLosT = 0;
-  double futureMaxEl = 0.0;
-  int passScanIter = 0;
-
-  // Jesli juz widoczny - najpierw znajdz koniec biezacego przelotu (LOS).
   if (currentlyVisible) {
-    for (int s = coarseStepSec; s <= maxScanSec; s += coarseStepSec) {
+    time_t prevT = nowEpoch;
+    for (int s = 60; s <= 100 * 60; s += 60) {
       time_t t = nowEpoch + s;
       issSat.findsat((unsigned long)t);
-        if (++passScanIter % 15 == 0) vTaskDelay(1);
-      double el = issSat.satEl;
-      if (el <= 0) {
+      if (issSat.satEl <= 0) {
         time_t lo = prevT, hi = t;
         for (int it = 0; it < 12; it++) {
           time_t mid = lo + (hi - lo) / 2;
@@ -20194,121 +20230,78 @@ void updateIssNextPassEstimate() {
           if (issSat.satEl > 0) lo = mid; else hi = mid;
         }
         currentLosT = hi;
-        prevT = t;
-        prevEl = el;
         break;
       }
       prevT = t;
-      prevEl = el;
+      if (s % (15 * 60) == 0) vTaskDelay(1);
     }
   }
 
-  // Szukaj nastepnego AOS. Gdy juz widoczny, zaczynamy od momentu LOS, zeby
-  // nie zwrocic biezacego przelotu jako "nastepnego".
-  bool foundAos = false;
-  time_t aosT = 0;
-  if (currentlyVisible) {
-    if (currentLosT > 0) {
-      prevT = currentLosT;
-      issSat.findsat((unsigned long)prevT);
-      prevEl = issSat.satEl; // tu juz <= 0
-      foundAos = false;
-      for (int s = coarseStepSec; s <= maxScanSec; s += coarseStepSec) {
-        time_t t = currentLosT + s;
-        issSat.findsat((unsigned long)t);
-        if (++passScanIter % 15 == 0) vTaskDelay(1);
-        double el = issSat.satEl;
-        if (prevEl <= 0 && el > 0) {
-          time_t lo = prevT, hi = t;
-          for (int it = 0; it < 12; it++) {
-            time_t mid = lo + (hi - lo) / 2;
-            issSat.findsat((unsigned long)mid);
-            if (issSat.satEl > 0) hi = mid; else lo = mid;
-          }
-          aosT = hi;
-          foundAos = true;
-          break;
-        }
-        prevT = t;
-        prevEl = el;
-      }
+  // Lista przyszlych przelotow z predyktora bibliotecznego. Startujemy od
+  // momentu LOS, gdy ISS jest widoczny (zeby nie zwrocic biezacego przelotu
+  // jako "nastepnego"), inaczej od teraz.
+  time_t aosList[ISS_MAX_PASSES];
+  time_t losList[ISS_MAX_PASSES];
+  double maxElList[ISS_MAX_PASSES];
+  int passCount = 0;
+
+  time_t predStart = (currentlyVisible && currentLosT > 0) ? currentLosT : nowEpoch;
+  if (issSat.initpredpoint((unsigned long)predStart, 0.0)) {
+    passinfo pinfo;
+    for (int i = 0; i < 60 && passCount < ISS_MAX_PASSES; i++) {
+      memset(&pinfo, 0, sizeof(pinfo));
+      if (!issSat.nextpass(&pinfo, 60, false, 0.0)) break;
+      time_t aos = (time_t)getUnixFromJulian(pinfo.jdstart);
+      time_t los = (time_t)getUnixFromJulian(pinfo.jdstop);
+      if (los < nowEpoch) continue;          // przelot juz miniony - pomijamy
+      if (aos < nowEpoch) aos = nowEpoch;    // przyciete do teraz
+      aosList[passCount] = aos;
+      losList[passCount] = los;
+      maxElList[passCount] = pinfo.maxelevation;
+      passCount++;
     }
   } else {
-    // Szukaj pierwszego przejscia w gore (AOS) zaczynajac od teraz.
-    for (int s = coarseStepSec; s <= maxScanSec; s += coarseStepSec) {
-      time_t t = nowEpoch + s;
-      issSat.findsat((unsigned long)t);
-        if (++passScanIter % 15 == 0) vTaskDelay(1);
-      double el = issSat.satEl;
-      if (prevEl <= 0 && el > 0) {
-        time_t lo = prevT, hi = t;
-        for (int it = 0; it < 12; it++) {
-          time_t mid = lo + (hi - lo) / 2;
-          issSat.findsat((unsigned long)mid);
-          if (issSat.satEl > 0) hi = mid; else lo = mid;
-        }
-        aosT = hi;
-        foundAos = true;
-        break;
-      }
-      prevT = t;
-      prevEl = el;
-    }
-  }
-
-  // Maksymalna elewacja najblizszego przyszlego przelotu (AOS -> LOS).
-  time_t losT = 0;
-  if (foundAos) {
-    for (int s = coarseStepSec; s <= maxScanSec; s += coarseStepSec) {
-      time_t t = aosT + s;
-      issSat.findsat((unsigned long)t);
-        if (++passScanIter % 15 == 0) vTaskDelay(1);
-      double el = issSat.satEl;
-      if (el > futureMaxEl) futureMaxEl = el;
-      if (el <= 0) {
-        time_t lo = t - coarseStepSec, hi = t;
-        for (int it = 0; it < 12; it++) {
-          time_t mid = lo + (hi - lo) / 2;
-          issSat.findsat((unsigned long)mid);
-          if (issSat.satEl > 0) lo = mid; else hi = mid;
-        }
-        losT = hi;
-        break;
-      }
-    }
+    Serial.println("[ISS PASS] initpredpoint nie znalazl startu - brak danych");
   }
 
   xSemaphoreGive(issTleMutex);
 
+  // Eksport listy przelotow (pod tym samym 4-elementowym ograniczeniem co UI).
+  issPassCount = passCount;
+  for (int i = 0; i < ISS_MAX_PASSES; i++) {
+    issPassAos[i] = (i < passCount) ? aosList[i] : 0;
+    issPassLos[i] = (i < passCount) ? losList[i] : 0;
+    issPassMaxEl[i] = (i < passCount) ? maxElList[i] : 0.0;
+  }
+
+  // Pojedynczy "nastepny przelot" zgodny z istniejacym UI/JSON.
   if (currentlyVisible) {
     issNextPassAosEpoch = nowEpoch;   // biezacy przelot - AOS w przeszlosci
     issNextPassLosEpoch = currentLosT;
     issNextPassEstimateEpoch = (currentLosT > 0) ? currentLosT : nowEpoch;
-    issNextPassEstimateValid = (currentLosT > 0);
-    issNextPassMaxEl = 0;
+    issNextPassEstimateValid = (currentLosT > 0) || (passCount > 0);
     issNextPassWasVisible = true;
-    Serial.printf("[ISS PASS] ISS widoczny teraz, LOS: %s\n",
-                  currentLosT > 0 ? String((long)(currentLosT - nowEpoch)).c_str() : "?");
-    if (foundAos) {
-      struct tm nt; localtime_r(&aosT, &nt);
-      Serial.printf("[ISS PASS] Nastepny AOS po LOS: %02d:%02d (maks. el %.0f)\n",
-                    nt.tm_hour, nt.tm_min, futureMaxEl);
+    issNextPassMaxEl = (passCount > 0) ? maxElList[0] : 0.0;
+    struct tm lt;
+    if (currentLosT > 0) {
+      localtime_r(&currentLosT, &lt);
+      Serial.printf("[ISS PASS] ISS widoczny teraz, LOS %02d:%02d, %d przelot(ow) w planie\n",
+                    lt.tm_hour, lt.tm_min, passCount);
     }
-  } else if (foundAos) {
-    issNextPassAosEpoch = aosT;
-    issNextPassLosEpoch = losT;
-    issNextPassEstimateEpoch = aosT;
+  } else if (passCount > 0) {
+    issNextPassAosEpoch = aosList[0];
+    issNextPassLosEpoch = losList[0];
+    issNextPassEstimateEpoch = aosList[0];
     issNextPassEstimateValid = true;
-    issNextPassMaxEl = futureMaxEl;
+    issNextPassMaxEl = maxElList[0];
     issNextPassWasVisible = false;
-    struct tm nt; localtime_r(&aosT, &nt);
-    Serial.printf("[ISS PASS] Nastepny przelot AOS %02d:%02d (za %ld s, maks. el %.0f, iteracji startu ok)\n",
-                  nt.tm_hour, nt.tm_min, (long)(aosT - nowEpoch), futureMaxEl);
+    struct tm nt; localtime_r(&aosList[0], &nt);
+    Serial.printf("[ISS PASS] Nastepny przelot AOS %02d:%02d (za %ld s, maks. el %.0f), lacznie %d\n",
+                  nt.tm_hour, nt.tm_min, (long)(aosList[0] - nowEpoch), maxElList[0], passCount);
   } else {
     issNextPassEstimateValid = false;
     issNextPassWasVisible = false;
-    Serial.printf("[ISS PASS] Brak przelotu w oknie %d h (lat=%.4f lon=%.4f)\n",
-                  maxScanSec / 3600, userLatLocal, userLonLocal);
+    Serial.printf("[ISS PASS] Brak przelotu w planie (lat=%.4f lon=%.4f)\n", userLatLocal, userLonLocal);
   }
 }
 
@@ -20590,13 +20583,15 @@ void drawIssStaticInterface() {
   tft.setTextColor(TFT_GREEN, TFT_BLACK);
   tft.drawString("AOS IN:", 360, 225, 1);
 
-  // Panel "NASTÄPNY PRZELOT" - u gĂłry po prawej, w wolnej przestrzeni obok
-  // tytuĹ‚u. WartoĹ›Ä‡ (godzina) jest dynamiczna i aktualizowana w
-  // updateIssDynamicDisplay().
-  tft.drawRoundRect(348, 22, 128, 36, 4, TFT_YELLOW);
+  // Panel "NASTEPNE PRZELOTY" - u gory po prawej, w wolnej przestrzeni nad
+  // radarem (okrag siega x>=348 dopiero od y~108 w dol, wiec gornej czesci
+  // nic nie zaslania). Miesci liste kilku najbliszych przelotow: godzina AOS
+  // + maksymalna elewacja. Wartosci wypelnia updateIssNextPassPanel().
+  tft.drawRoundRect(348, 38, 128, 70, 4, TFT_YELLOW);
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   tft.setTextSize(1);
-  tft.drawString("NASTEPNY PRZELOT:", 351, 25, 1);
+  tft.setTextDatum(TL_DATUM);
+  tft.drawString("NASTEPNE PRZELOTY:", 351, 42, 1);
 
   // Central polar radar (concentric circles + cross + compass labels + QTH dot).
   // Drawn via a shared helper so the exact same pixels are (re)painted here
@@ -20767,36 +20762,82 @@ void updateIssDynamicDisplay() {
   snprintf(buf, sizeof(buf), "%0.1fÂ°", localIssElevation);
   tft.drawString(String(buf), 412, 295, 2);
 
-  // AOS IN
+  // AOS IN - odliczanie do nastepnego AOS (albo "WIDOCZNY", gdy ISS jest
+  // teraz nad horyzontem). Wczesniej pokazywalo tylko WIDOCZNY/NIE WIDOCZNY,
+  // co nie nioslo zadnej informacji o czasie - teraz to realne odliczanie
+  // z issNextPassAosEpoch (SGP4/n2yo).
   tft.fillRect(357, 238, 111, 23, TFT_BLACK);
   tft.setTextSize(1);
   if (localIssElevation > 0) {
     tft.setTextColor(TFT_GREEN, TFT_BLACK);
     tft.drawString("WIDOCZNY", 412, 250, 2);
+  } else if (issNextPassEstimateValid && !issNextPassWasVisible && issNextPassAosEpoch > 0) {
+    time_t nowE = time(nullptr);
+    long secs = (long)(issNextPassAosEpoch - nowE);
+    char aosBuf[16];
+    if (secs >= 3600)      snprintf(aosBuf, sizeof(aosBuf), "za %ldh%02ldm", secs / 3600, (secs % 3600) / 60);
+    else if (secs >= 0)    snprintf(aosBuf, sizeof(aosBuf), "za %ldm", secs / 60);
+    else                   snprintf(aosBuf, sizeof(aosBuf), "w toku");
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.drawString(String(aosBuf), 412, 250, 2);
   } else {
     tft.setTextColor(TFT_RED, TFT_BLACK);
     tft.drawString("NIE WIDOCZNY", 412, 250, 2);
   }
 
-  // NASTEPNY PRZELOT - czas z SGP4 (updateIssNextPassEstimate()) lub n2yo.
-  // Gdy ISS jest AKTUALNIE widoczny pokazujemy koniec biezacego przelotu
-  // ("do HH:MM"), bo sam AOS byl w przeszlosci; inaczej najblizszy AOS.
-  tft.fillRect(350, 34, 124, 22, TFT_BLACK);
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-  tft.setTextDatum(MC_DATUM);
-  if (issNextPassEstimateValid) {
-    time_t showEpoch = (issNextPassWasVisible && issNextPassLosEpoch > 0)
-                           ? issNextPassLosEpoch
-                           : issNextPassEstimateEpoch;
-    struct tm passTm;
-    time_t passEpoch = showEpoch + getCachedTimezoneOffset() * 3600;
-    localtime_r(&passEpoch, &passTm);
-    char passBuf[16];
-    snprintf(passBuf, sizeof(passBuf), "%s%02d:%02d",
-             issNextPassWasVisible ? "do " : "", passTm.tm_hour, passTm.tm_min);
-    tft.drawString(String(passBuf), 412, 44, 2);
-  } else {
-    tft.drawString("--:--", 412, 44, 2);
+  // NASTEPNE PRZELOTY - lista kilku najbliszych przelotow z SGP4
+  // (updateIssNextPassEstimate()) lub n2yo. Gdy ISS jest AKTUALNIE widoczny,
+  // pierwszy wiersz pokazuje koniec biezacego przelotu ("do HH:MM").
+  {
+    // Snapshot pod wspolnym dostepem - dane sa prostymi skalarami; kopiujemy
+    // je lokalnie, zeby odczyt w trakcie zapisu przez zadanie ISS nie dal
+    // poszatkowanego wiersza.
+    int    localPassCount = issPassCount;
+    time_t localAos[ISS_MAX_PASSES];
+    double localMaxEl[ISS_MAX_PASSES];
+    for (int i = 0; i < ISS_MAX_PASSES; i++) {
+      localAos[i] = issPassAos[i];
+      localMaxEl[i] = issPassMaxEl[i];
+    }
+    bool localValid = issNextPassEstimateValid;
+    bool localWasVisible = issNextPassWasVisible;
+    time_t localCurLos = issNextPassLosEpoch;
+
+    tft.fillRect(350, 54, 124, 52, TFT_BLACK); // obszar wartosci (tytul zostaje)
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextSize(1);
+
+    int rowY = 56;
+    int shown = 0;
+
+    if (localWasVisible) {
+      // Biezacy przelot - pokaz do kiedy widoczny.
+      if (localCurLos > 0) {
+        struct tm ctm;
+        time_t e = localCurLos + getCachedTimezoneOffset() * 3600;
+        localtime_r(&e, &ctm);
+        char b[20];
+        snprintf(b, sizeof(b), "do %02d:%02d", ctm.tm_hour, ctm.tm_min);
+        tft.setTextColor(TFT_GREEN, TFT_BLACK);
+        tft.drawString(String(b), 352, rowY, 2);
+        rowY += 16; shown++;
+      }
+    }
+    // Kolejne przyszle przeloty (max 3 wiersze lacznie w ramce).
+    for (int i = 0; i < localPassCount && shown < 3; i++) {
+      struct tm ptm;
+      time_t e = localAos[i] + getCachedTimezoneOffset() * 3600;
+      localtime_r(&e, &ptm);
+      char b[24];
+      snprintf(b, sizeof(b), "%02d:%02d  %2.0f", ptm.tm_hour, ptm.tm_min, localMaxEl[i]);
+      tft.setTextColor(i == 0 ? TFT_YELLOW : 0xC618, TFT_BLACK); // pierwszy jasny, kolejne szare
+      tft.drawString(String(b), 352, rowY, 2);
+      rowY += 16; shown++;
+    }
+    if (shown == 0) {
+      tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+      tft.drawString(localValid ? "brak w planie" : "--:--", 352, 56, 2);
+    }
   }
   tft.setTextDatum(TL_DATUM);
 

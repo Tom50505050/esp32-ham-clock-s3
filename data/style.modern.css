@@ -636,6 +636,25 @@ h3 { color: var(--text); margin-top: 22px; margin-bottom: 10px; border-top: 1px 
 .sat-pass .v { font-size: 26px; font-weight: 800; color: var(--text); font-family: var(--mono); margin-top: 4px; }
 .sat-pass .sub { font-size: 12.5px; color: var(--text-dim); margin-top: 4px; }
 
+.sat-passes-card {
+    background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+}
+.sat-passes-card .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); font-weight: 700; }
+.sat-pass-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.sat-pass-list li {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+    font-family: var(--mono); font-size: 13.5px; color: var(--text);
+    padding: 5px 0; border-bottom: 1px solid var(--border);
+}
+.sat-pass-list li:last-child { border-bottom: none; }
+.sat-pass-list li .el { color: var(--accent); font-weight: 700; }
+.sat-pass-list li .dur { color: var(--text-faint); font-size: 12px; }
+.sat-pass-list li.now { color: var(--accent); }
+.sat-pass-empty { justify-content: flex-start !important; color: var(--text-faint); font-family: inherit !important; }
+
 .sat-radar-card {
     background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
     border: 1px solid var(--border);
