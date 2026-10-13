@@ -1041,10 +1041,12 @@ unsigned long screen6RadarLastZoomTapMs = 0;
 const unsigned long SCREEN6_RADAR_HINT_DURATION_MS = 3000UL;
 unsigned long screen6RadarHintUntilMs = 0;
 
-// Zakresy radaru APRS (km) - przelaczane dotknieciem gornej/dolnej polowy.
-const float APRS_RADAR_RANGES[] = {5.0f, 10.0f, 25.0f, 50.0f, 100.0f};
+// Zakresy radaru APRS jako MNOZNIKI promienia filtra APRS-IS (aprsFilterRadius).
+// Serwer APRS-IS wysyla tylko stacje w promieniu filtra (max 50 km), wiec
+// odleglosci stacji sa wzgledem niego; mnoznik tylko skaluje obraz.
+const float APRS_RADAR_RANGE_MULT[] = {0.2f, 0.5f, 1.0f, 2.0f, 4.0f};
 const int APRS_RADAR_RANGE_COUNT = 5;
-const int APRS_RADAR_RANGE_DEFAULT = 1;  // 10 km
+const int APRS_RADAR_RANGE_DEFAULT = 2;  // 1.0x = pelny promien filtra
 int aprsRadarRangeIndex = APRS_RADAR_RANGE_DEFAULT;
 
 // Menu jasnosci (wywolywane dlugim przytrzymaniem)
@@ -5598,7 +5600,7 @@ static void aprsRadarRow(int y, const char *label, const char *value, uint16_t v
 
 // Panel zakresow na dole - aktualny podswietlony.
 static void aprsRadarRangeTiles(int y) {
-  const char *labels[] = {"5km", "10km", "25km", "50km", "100km"};
+  const char *labels[] = {"x0.2", "x0.5", "x1", "x2", "x4"};
   const int tileW = 44;
   const int tileH = 16;
   for (int i = 0; i < APRS_RADAR_RANGE_COUNT; i++) {
@@ -5661,7 +5663,12 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   }
 
   // --- Stacje APRS ---
-  const float maxRange = APRS_RADAR_RANGES[aprsRadarRangeIndex];
+  // Srodek radaru = pozycja uzytkownika z tym samym fallbackiem co reszta UI,
+  // zeby azymut/odleglosc byly liczone od tego samego punktu co station.distance.
+  const double centerLat = userLatLonValid ? userLat : 52.40;
+  const double centerLon = userLatLonValid ? userLon : 16.92;
+  const float filterKm = (aprsFilterRadius > 0) ? (float)aprsFilterRadius : 50.0f;
+  const float maxRange = filterKm * APRS_RADAR_RANGE_MULT[aprsRadarRangeIndex];
   int order[MAX_APRS_DISPLAY_LCD];
   int displayCount = 0;
   buildAprsDisplayOrder(order, displayCount);
@@ -5673,10 +5680,13 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     const APRSStation &st = aprsStations[idx];
     if (!st.hasLatLon || st.callsign.length() == 0) continue;
 
-    float dist = calculateDistance(userLat, userLon, (double)st.lat, (double)st.lon);
+    float dist = st.distance;
+    if (dist <= 0.0f) {
+      dist = calculateDistance(centerLat, centerLon, (double)st.lat, (double)st.lon);
+    }
     if (dist > maxRange) continue;
 
-    float bearingDeg = calculateBearing(userLat, userLon, (double)st.lat, (double)st.lon);
+    float bearingDeg = calculateBearing(centerLat, centerLon, (double)st.lat, (double)st.lon);
     float rPix = (dist / maxRange) * ARP_RADIUS;
     float a = bearingDeg * (float)M_PI / 180.0f;
     int px = ARP_CX + (int)(sin(a) * rPix);
@@ -5759,7 +5769,10 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     if (idx < 0 || idx >= MAX_APRS_STATIONS) continue;
     const APRSStation &st = aprsStations[idx];
     if (!st.hasLatLon || st.callsign.length() == 0) continue;
-    float dist = calculateDistance(userLat, userLon, (double)st.lat, (double)st.lon);
+    float dist = st.distance;
+    if (dist <= 0.0f) {
+      dist = calculateDistance(centerLat, centerLon, (double)st.lat, (double)st.lon);
+    }
     if (dist > maxRange) continue;
 
     int y = 214 + row * 15;
@@ -7359,6 +7372,10 @@ void drawAprsIs() {
 
 void drawAprsRadar() {
   screen6ViewMode = APRS_VIEW_RADAR;
+  // Diagnostyka: ile stacji i jaki promien filtra (pomaga gdy radar pusty).
+  Serial.printf("[APRS RADAR] count=%d filter=%dkm userValid=%d lat=%.4f lon=%.4f\n",
+                aprsStationCount, aprsFilterRadius, userLatLonValid ? 1 : 0,
+                userLat, userLon);
   // Caly ekran rysuje sprite (patrz aprsRadarRenderFrame) - jeden pushSprite.
   drawAprsRadarBody();
 }
