@@ -128,6 +128,7 @@ static bool isScreen6RadarZoomTopHit(uint16_t x, uint16_t y);
 static void triggerScreen6RadarHint();
 static bool isScreen6RadarZoomBottomHit(uint16_t x, uint16_t y);
 float calculateBearing(double lat1, double lon1, double lat2, double lon2);
+float calculateDistance(double lat1, double lon1, double lat2, double lon2);
 
 // ========== DANE PSK REPORTER ==========
 struct PskSpot {
@@ -1035,14 +1036,16 @@ const int SCREEN6_VIEW_BTN_HIT_X = 276;
 const int SCREEN6_VIEW_BTN_HIT_Y = 0;
 const int SCREEN6_VIEW_BTN_HIT_W = 44;
 const int SCREEN6_VIEW_BTN_HIT_H = 50;
-const float SCREEN6_RADAR_ZOOM_MIN = 1.00f;
-const float SCREEN6_RADAR_ZOOM_MAX = 3.00f;
-const float SCREEN6_RADAR_ZOOM_STEP = 0.25f;
 const unsigned long SCREEN6_RADAR_ZOOM_TAP_COOLDOWN_MS = 220UL;
-float screen6RadarZoom = 1.00f;
 unsigned long screen6RadarLastZoomTapMs = 0;
 const unsigned long SCREEN6_RADAR_HINT_DURATION_MS = 3000UL;
 unsigned long screen6RadarHintUntilMs = 0;
+
+// Zakresy radaru APRS (km) - przelaczane dotknieciem gornej/dolnej polowy.
+const float APRS_RADAR_RANGES[] = {5.0f, 10.0f, 25.0f, 50.0f, 100.0f};
+const int APRS_RADAR_RANGE_COUNT = 5;
+const int APRS_RADAR_RANGE_DEFAULT = 1;  // 10 km
+int aprsRadarRangeIndex = APRS_RADAR_RANGE_DEFAULT;
 
 // Menu jasnosci (wywolywane dlugim przytrzymaniem)
 bool brightnessMenuActive = false;
@@ -5212,9 +5215,8 @@ void handleTouchNavigation() {
           return;
         }
         screen6RadarLastZoomTapMs = now;
-        float newZoom = min(SCREEN6_RADAR_ZOOM_MAX, screen6RadarZoom + SCREEN6_RADAR_ZOOM_STEP);
-        if (newZoom > screen6RadarZoom + 0.0001f) {
-          screen6RadarZoom = newZoom;
+        if (aprsRadarRangeIndex < APRS_RADAR_RANGE_COUNT - 1) {
+          aprsRadarRangeIndex++;
           triggerScreen6RadarHint();
           drawScreen(SCREEN_APRS_RADAR);
           resetTftAutoSwitchTimer();
@@ -5226,9 +5228,8 @@ void handleTouchNavigation() {
           return;
         }
         screen6RadarLastZoomTapMs = now;
-        float newZoom = max(SCREEN6_RADAR_ZOOM_MIN, screen6RadarZoom - SCREEN6_RADAR_ZOOM_STEP);
-        if (newZoom < screen6RadarZoom - 0.0001f) {
-          screen6RadarZoom = newZoom;
+        if (aprsRadarRangeIndex > 0) {
+          aprsRadarRangeIndex--;
           triggerScreen6RadarHint();
           drawScreen(SCREEN_APRS_RADAR);
           resetTftAutoSwitchTimer();
@@ -5507,191 +5508,304 @@ static bool isScreen6RadarHintVisible() {
   return (currentScreen == SCREEN_APRS_RADAR && millis() < screen6RadarHintUntilMs);
 }
 
-static void drawScreen6RadarZoomHints() {
-  if (!isScreen6RadarHintVisible()) {
-    return;
+// ============================================================================
+// EKRAN APRS RADAR (sprite 480x320 w PSRAM) - styl "tactical sweep".
+// Cala klatka jest rysowana do bufora i wypychana jednym pushSprite(),
+// wiec nie ma migotania ani resztek poprzedniej klatki. Kolory taktyczne
+// wg typu stacji, panel boczny z telemetria, siatka + pierscienie + wskaznik
+// polnocny, panel zakresow (5/10/25/50/100 km).
+// ============================================================================
+
+// Paleta retro-zielona + kolory taktyczne (RGB565).
+static const uint16_t ARP_COL_BG    = 0x0000; // czarne tlo
+static const uint16_t ARP_COL_GRID  = 0x0320; // ciemna zielen (siatka)
+static const uint16_t ARP_COL_SWEEP = 0x07E0; // jaskrawa zielen (smuga)
+static const uint16_t ARP_COL_TEXT  = 0x07E0; // zielony tekst
+static const uint16_t ARP_COL_DIM   = 0x03E0; // przygaszony zielony
+static const uint16_t ARP_COL_MOBILE= 0xFFE0; // zolty  (pojazdy)
+static const uint16_t ARP_COL_WX    = 0x07FF; // cyjan  (pogoda)
+static const uint16_t ARP_COL_FIXED = 0xFFFF; // bialy  (stacje stale)
+static const uint16_t ARP_COL_DIGI  = 0xF81F; // magenta (przemienniki)
+static const uint16_t ARP_COL_GREEN = 0x07E0; // zielony (OK)
+static const uint16_t ARP_COL_RED   = 0xF800; // czerwony (blad)
+static const uint16_t ARP_COL_PANEL = 0x0841; // tlo panelu
+
+// Geometria radaru i panelu bocznego.
+static const int ARP_CX = 127;
+static const int ARP_CY = 158;
+static const int ARP_RADIUS = 122;
+static const int ARP_PANEL_X = 262;
+static const int ARP_PANEL_W = 218;
+
+// Sprite calego ekranu w PSRAM (16bpp = 307 200 B).
+TFT_eSprite aprsRadarSprite = TFT_eSprite(&tft);
+static bool aprsRadarSpriteReady = false;
+static bool aprsRadarSpriteInitTried = false;
+
+// Kat smugi radaru (stopnie) - aktualizowany raz na klatke.
+static float aprsRadarSweepAngle = 0.0f;
+// Stacje "zapalone" po przejsciu smugi (0..1). Smuga je zapala, potem gasna.
+static uint8_t aprsRadarBlip[MAX_APRS_STATIONS];
+
+static bool ensureAprsRadarSprite() {
+  if (aprsRadarSpriteReady) return true;
+  if (aprsRadarSpriteInitTried) return false;
+  aprsRadarSpriteInitTried = true;
+  aprsRadarSprite.setColorDepth(16);
+  aprsRadarSpriteReady = (aprsRadarSprite.createSprite(480, 320) != nullptr);
+  if (!aprsRadarSpriteReady) {
+    Serial.println("[APRS RADAR] Brak sprite 480x320 (PSRAM?) - ekran niedostepny");
   }
-
-  const int screenW = tft.width();
-  const int screenH = tft.height();
-  const char *topHint = "ZOOM +";
-  const char *bottomHint = "ZOOM -";
-  const int topW = (int)strlen(topHint) * 12;
-  const int bottomW = (int)strlen(bottomHint) * 12;
-
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_YELLOW);
-  tft.setCursor((screenW - topW) / 2, 6);
-  tft.print(topHint);
-  tft.setCursor((screenW - bottomW) / 2, screenH - 20);
-  tft.print(bottomHint);
-
-  const uint16_t radarAlertColor = rgb565(70, 130, 190);
-  int zoomPercent = (int)(screen6RadarZoom * 100.0f + 0.5f);
-  float radarVisibleMaxKm = (screen6RadarZoom > 0.0f)
-                              ? ((float)aprsFilterRadius / screen6RadarZoom)
-                              : (float)aprsFilterRadius;
-
-  String zoomInfo = String("ZOOM:") + String(zoomPercent) + "%";
-  String rmaxInfo = String("Rmax:") + String(radarVisibleMaxKm, 1) + "km";
-  String alertInfo = String("ALERT:") + String(aprsAlertDistanceKm, 1) + "km";
-
-  const int infoX = 2;
-  const int zoomY = screenH - 29;
-  const int rmaxY = screenH - 19;
-  const int alertY = screenH - 9;
-
-  tft.setTextSize(1);
-
-  int zoomW = (int)zoomInfo.length() * 6;
-  int rmaxW = (int)rmaxInfo.length() * 6;
-  int alertW = (int)alertInfo.length() * 6;
-
-  tft.fillRect(infoX - 1, zoomY - 1, zoomW + 2, 10, TFT_BLACK);
-  tft.fillRect(infoX - 1, rmaxY - 1, rmaxW + 2, 10, TFT_BLACK);
-  tft.fillRect(infoX - 1, alertY - 1, alertW + 2, 10, TFT_BLACK);
-
-  tft.setTextColor(TFT_LIGHTGREY);
-  tft.setCursor(infoX, zoomY);
-  tft.print(zoomInfo);
-
-  tft.setCursor(infoX, rmaxY);
-  tft.print(rmaxInfo);
-
-  tft.setTextColor(radarAlertColor);
-  tft.setCursor(infoX, alertY);
-  tft.print(alertInfo);
+  return aprsRadarSpriteReady;
 }
 
-static uint16_t getAprsRadarColorForStation(const APRSStation &station) {
-  String symbolShort = getAPRSSymbolShort(station);
-  if (symbolShort == "CAR") return TFT_RED;
-  if (symbolShort == "HOUSE") return TFT_YELLOW;
-  if (symbolShort == "HUMAN") return TFT_BLUE;
-  return TFT_GREEN;
+// Kolor taktyczny wg typu symbolu APRS.
+static uint16_t aprsRadarStationColor(const APRSStation &station) {
+  String sym = getAPRSSymbolShort(station);
+  if (sym == "CAR" || sym == "TRUCK" || sym == "VAN" || sym == "BIKE" ||
+      sym == "AMBUL" || sym == "FIRETRK" || sym == "ROVER" || sym == "SHIP") {
+    return ARP_COL_MOBILE;
+  }
+  if (sym == "WX") return ARP_COL_WX;
+  if (sym == "DIGI" || sym == "REPEATER" || sym == "NODE" || sym == "MICERPT" || sym == "LORA") {
+    return ARP_COL_DIGI;
+  }
+  return ARP_COL_FIXED;
 }
 
-static void drawAprsRadarBody() {
-  const int screenW = tft.width();
-  const int screenH = tft.height();
-  tft.fillRect(0, 0, screenW, screenH, TFT_BLACK);
+// Etykieta sekcji panelu (zielony naglowek + linia).
+static void aprsRadarSection(int y, const char *txt) {
+  aprsRadarSprite.setTextDatum(TL_DATUM);
+  aprsRadarSprite.setTextSize(1);
+  aprsRadarSprite.setTextColor(ARP_COL_TEXT, ARP_COL_PANEL);
+  aprsRadarSprite.drawString(txt, ARP_PANEL_X + 6, y, 2);
+  aprsRadarSprite.drawFastHLine(ARP_PANEL_X, y + 16, ARP_PANEL_W, ARP_COL_GRID);
+}
 
-  const int centerX = screenW / 2;
-  const int centerY = screenH / 2;
-  const int pad = 6;
-  int baseOuterRadius = min(min(centerX - pad, screenW - centerX - pad),
-                            min(centerY - pad, screenH - centerY - pad));
-  if (baseOuterRadius < 20) {
-    baseOuterRadius = 20;
+// Wiersz "ETYKIETA: wartosc" w panelu.
+static void aprsRadarRow(int y, const char *label, const char *value, uint16_t valCol) {
+  aprsRadarSprite.setTextDatum(TL_DATUM);
+  aprsRadarSprite.setTextSize(1);
+  aprsRadarSprite.setTextColor(ARP_COL_DIM, ARP_COL_PANEL);
+  aprsRadarSprite.drawString(label, ARP_PANEL_X + 6, y, 1);
+  aprsRadarSprite.setTextColor(valCol, ARP_COL_PANEL);
+  aprsRadarSprite.drawString(value, ARP_PANEL_X + 92, y, 1);
+}
+
+// Panel zakresow na dole - aktualny podswietlony.
+static void aprsRadarRangeTiles(int y) {
+  const char *labels[] = {"5km", "10km", "25km", "50km", "100km"};
+  const int tileW = 44;
+  const int tileH = 16;
+  for (int i = 0; i < APRS_RADAR_RANGE_COUNT; i++) {
+    int bx = 4 + i * 50;
+    bool active = (i == aprsRadarRangeIndex);
+    if (active) {
+      aprsRadarSprite.fillRect(bx, y, tileW, tileH, ARP_COL_TEXT);
+      aprsRadarSprite.setTextColor(ARP_COL_BG, ARP_COL_TEXT);
+    } else {
+      aprsRadarSprite.drawRect(bx, y, tileW, tileH, ARP_COL_GRID);
+      aprsRadarSprite.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
+    }
+    aprsRadarSprite.setTextDatum(TL_DATUM);
+    aprsRadarSprite.setTextSize(1);
+    aprsRadarSprite.drawString(labels[i], bx + 6, y + 5, 1);
+  }
+}
+
+// Rysuje jedna klatke radaru. angleDeg - kat smugi; advanceBlips - czy
+// aktualizowac stan "zapalenia" stacji (false przy pelnym odswiezeniu).
+static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
+  if (!ensureAprsRadarSprite()) return;
+
+  TFT_eSprite &sp = aprsRadarSprite;
+  sp.fillScreen(ARP_COL_BG);
+
+  // --- Siatka radaru ---
+  sp.fillCircle(ARP_CX, ARP_CY, ARP_RADIUS, 0x0120);
+  sp.drawCircle(ARP_CX, ARP_CY, ARP_RADIUS, ARP_COL_GRID);
+  sp.drawCircle(ARP_CX, ARP_CY, (ARP_RADIUS * 2) / 3, ARP_COL_GRID);
+  sp.drawCircle(ARP_CX, ARP_CY, ARP_RADIUS / 3, ARP_COL_GRID);
+  sp.drawLine(ARP_CX - ARP_RADIUS, ARP_CY, ARP_CX + ARP_RADIUS, ARP_CY, ARP_COL_GRID);
+  sp.drawLine(ARP_CX, ARP_CY - ARP_RADIUS, ARP_CX, ARP_CY + ARP_RADIUS, ARP_COL_GRID);
+
+  sp.setTextDatum(TL_DATUM);
+  sp.setTextSize(1);
+  sp.setTextColor(ARP_COL_DIM, ARP_COL_BG);
+  sp.drawString("N", ARP_CX - 3, ARP_CY - ARP_RADIUS - 10, 1);
+  sp.drawString("S", ARP_CX - 3, ARP_CY + ARP_RADIUS + 2, 1);
+  sp.drawString("E", ARP_CX + ARP_RADIUS + 2, ARP_CY - 4, 1);
+  sp.drawString("W", ARP_CX - ARP_RADIUS - 8, ARP_CY - 4, 1);
+
+  // --- Smuga radaru (co 30 stopni linia, na koncu jasna krawedz) ---
+  for (int k = 0; k < 6; k++) {
+    float a = (angleDeg - k * 3.0f) * (float)M_PI / 180.0f;
+    uint16_t col = (k == 0) ? ARP_COL_SWEEP : ARP_COL_GRID;
+    int ex = ARP_CX + (int)(cos(a) * ARP_RADIUS);
+    int ey = ARP_CY + (int)(sin(a) * ARP_RADIUS);
+    sp.drawLine(ARP_CX, ARP_CY, ex, ey, col);
   }
 
-  int outerRadius = (int)(baseOuterRadius * screen6RadarZoom);
-  if (outerRadius < 20) {
-    outerRadius = 20;
-  }
-
-  const int fixedOuterRadius = baseOuterRadius; // nowy, staĹ‚y wizualnie pierĹ›cieĹ„ 100%
-  const int fixedHalfRadius = max(1, fixedOuterRadius / 2); // nowy, staĹ‚y wizualnie pierĹ›cieĹ„ 50%
-
-  const float zoomSafe = (screen6RadarZoom > 0.01f) ? screen6RadarZoom : 0.01f;
-  const float fixedOuterKm = (aprsFilterRadius > 0)
-                              ? ((float)aprsFilterRadius / zoomSafe)
-                              : 0.0f;
-
-  const uint16_t radarCircleBgColor = TFT_BLACK;
-  const uint16_t radarAlertColor = rgb565(70, 130, 190);
-  const uint16_t ringColor = TFT_DARKGREY;
-  const int innerRadius = (aprsFilterRadius > 0)
-                            ? (int)((aprsAlertDistanceKm / (float)aprsFilterRadius) * outerRadius)
-                            : 0;
-  const int clampedInnerRadius = constrain(innerRadius, 1, outerRadius);
-
-  if (outerRadius <= baseOuterRadius + 2) {
-    tft.fillCircle(centerX, centerY, outerRadius - 1, radarCircleBgColor);
-  }
-
-  // Dodane staĹ‚e pierĹ›cienie referencyjne na spodzie (stacje sÄ… rysowane pĂłĹşniej, nad nimi)
-  tft.drawCircle(centerX, centerY, fixedOuterRadius, ringColor); // 100%
-  tft.drawCircle(centerX, centerY, fixedHalfRadius, ringColor);  // 50%
-
-  // Oryginalne okrÄ™gi radaru
-  tft.drawCircle(centerX, centerY, outerRadius, TFT_WHITE);
-  tft.drawCircle(centerX, centerY, clampedInnerRadius, radarAlertColor);
-
-  tft.drawFastVLine(centerX, centerY - outerRadius, outerRadius * 2, 0x39C7);
-  tft.drawFastHLine(centerX - outerRadius, centerY, outerRadius * 2, 0x39C7);
-
-  auto kmLabel = [](float km) -> String {
-    if (km >= 100.0f) return String((int)(km + 0.5f)) + "km";
-    if (km >= 10.0f) return String(km, 1) + "km";
-    return String(km, 2) + "km";
-  };
-
-  tft.setTextSize(1);
-  tft.setTextColor(TFT_LIGHTGREY);
-  String ring100Text = kmLabel(fixedOuterKm);
-  String ring50Text = kmLabel(fixedOuterKm * 0.5f);
-
-  int ringLabelX = centerX + 4;
-  int ring100Y = max(0, centerY - fixedOuterRadius + 2);
-  int ring50Y = max(0, centerY - fixedHalfRadius + 2);
-
-  tft.fillRect(ringLabelX - 1, ring100Y - 1, (int)ring100Text.length() * 6 + 2, 10, TFT_BLACK);
-  tft.fillRect(ringLabelX - 1, ring50Y - 1, (int)ring50Text.length() * 6 + 2, 10, TFT_BLACK);
-  tft.setCursor(ringLabelX, ring100Y);
-  tft.print(ring100Text);
-  tft.setCursor(ringLabelX, ring50Y);
-  tft.print(ring50Text);
-
-  tft.fillCircle(centerX, centerY, 4, TFT_RADIO_ORANGE);
-
+  // --- Stacje APRS ---
+  const float maxRange = APRS_RADAR_RANGES[aprsRadarRangeIndex];
   int order[MAX_APRS_DISPLAY_LCD];
   int displayCount = 0;
   buildAprsDisplayOrder(order, displayCount);
-  int maxRows = min(displayCount, MAX_APRS_DISPLAY_LCD);
+  int shown = 0;
 
-  for (int i = 0; i < maxRows; i++) {
-    const APRSStation &station = aprsStations[order[i]];
-    if (!station.hasLatLon || station.distance <= 0.0f) {
-      continue;
+  for (int i = 0; i < displayCount; i++) {
+    int idx = order[i];
+    if (idx < 0 || idx >= MAX_APRS_STATIONS) continue;
+    const APRSStation &st = aprsStations[idx];
+    if (!st.hasLatLon || st.callsign.length() == 0) continue;
+
+    float dist = calculateDistance(userLat, userLon, (double)st.lat, (double)st.lon);
+    if (dist > maxRange) continue;
+
+    float bearingDeg = calculateBearing(userLat, userLon, (double)st.lat, (double)st.lon);
+    float rPix = (dist / maxRange) * ARP_RADIUS;
+    float a = bearingDeg * (float)M_PI / 180.0f;
+    int px = ARP_CX + (int)(sin(a) * rPix);
+    int py = ARP_CY - (int)(cos(a) * rPix);
+
+    // Blip: zapalony gdy smuga minie jego azymut, potem gasnie.
+    float sweepDelta = angleDeg - bearingDeg;
+    while (sweepDelta < 0) sweepDelta += 360.0f;
+    while (sweepDelta >= 360.0f) sweepDelta -= 360.0f;
+    if (advanceBlips) {
+      if (sweepDelta < 6.0f) {
+        aprsRadarBlip[idx] = 6;   // swiezo "oswietlona"
+      } else if (aprsRadarBlip[idx] > 0) {
+        aprsRadarBlip[idx]--;
+      }
     }
-    if (aprsFilterRadius <= 0 || station.distance > (float)aprsFilterRadius) {
-      continue;
-    }
 
-    float bearingDeg = calculateBearing(userLat, userLon, (double)station.lat, (double)station.lon);
-    float angleRad = bearingDeg * (float)M_PI / 180.0f;
-    float scaledRadius = (station.distance / (float)aprsFilterRadius) * outerRadius;
-    if (scaledRadius > outerRadius) {
-      continue;
-    }
-    int px = centerX + (int)(sin(angleRad) * scaledRadius);
-    int py = centerY - (int)(cos(angleRad) * scaledRadius);
+    uint16_t base = aprsRadarStationColor(st);
+    int dotR = (aprsRadarBlip[idx] > 0) ? 3 : 2;
+    sp.fillCircle(px, py, dotR, base);
 
-    uint16_t color = getAprsRadarColorForStation(station);
-    tft.fillCircle(px, py, 3, color);
+    String call = st.callsign;
+    if (call.length() > 8) call = call.substring(0, 8);
+    sp.setTextDatum(TL_DATUM);
+    sp.setTextSize(1);
+    sp.setTextColor(base, ARP_COL_BG);
+    int tx = px + 5;
+    int ty = py - 4;
+    if (tx + (int)call.length() * 6 > ARP_PANEL_X - 2) tx = px - 5 - (int)call.length() * 6;
+    if (ty < 2) ty = py + 5;
+    if (ty > 300) ty = 300;
+    sp.drawString(call, tx, ty, 1);
 
-    String call = station.callsign;
-    if (call.length() > 8) {
-      call = call.substring(0, 8);
-    }
-    int tx = px - ((int)call.length() * 3);
-    int ty = py - 10;
-    if (tx < 1) tx = 1;
-    if (tx > screenW - ((int)call.length() * 6) - 1) tx = screenW - ((int)call.length() * 6) - 1;
-    if (ty < 2) ty = py + 6;
-    if (ty > screenH - 9) ty = screenH - 9;
-
-    tft.setTextColor(color);
-    tft.setTextSize(1);
-    tft.setCursor(tx, ty);
-    tft.print(call);
-
-    if ((i & 0x03) == 0) {
-      yield();
-    }
+    shown++;
+    if ((shown & 0x03) == 0) yield();
   }
 
+  // Wlasna stacja (QTH) w centrum.
+  sp.fillCircle(ARP_CX, ARP_CY, 3, ARP_COL_TEXT);
+
+  // --- Panel boczny ---
+  sp.fillRect(ARP_PANEL_X - 1, 0, ARP_PANEL_W + 1, 320, ARP_COL_PANEL);
+  sp.drawFastVLine(ARP_PANEL_X - 1, 0, 320, ARP_COL_GRID);
+
+  // QTH
+  aprsRadarSection(6, "QTH");
+  char buf[40];
+  if (userLatLonValid) {
+    snprintf(buf, sizeof(buf), "%.4f", userLat);
+    aprsRadarRow(26, "SZER:", buf, ARP_COL_TEXT);
+    snprintf(buf, sizeof(buf), "%.4f", userLon);
+    aprsRadarRow(38, "DLUG:", buf, ARP_COL_TEXT);
+  } else {
+    aprsRadarRow(26, "SZER:", "--", ARP_COL_DIM);
+    aprsRadarRow(38, "DLUG:", "--", ARP_COL_DIM);
+  }
+
+  // STATUS
+  aprsRadarSection(56, "STATUS");
+  bool wifiOk = (WiFi.status() == WL_CONNECTED);
+  aprsRadarRow(76, "WIFI:", wifiOk ? "OK" : "BLAD", wifiOk ? ARP_COL_GREEN : ARP_COL_RED);
+  aprsRadarRow(88, "APRS-IS:", aprsConnected ? "OK" : "BLAD", aprsConnected ? ARP_COL_GREEN : ARP_COL_RED);
+
+  // VFO
+  aprsRadarSection(106, "VFO");
+  aprsRadarRow(126, "CZEST:", "144.800 MHz", ARP_COL_FIXED);
+
+  // CEL / ZAKRES
+  aprsRadarSection(144, "ZAKRES RADARU");
+  snprintf(buf, sizeof(buf), "%.0f km", maxRange);
+  aprsRadarRow(164, "PROMIEN:", buf, ARP_COL_TEXT);
+  snprintf(buf, sizeof(buf), "%d", shown);
+  aprsRadarRow(176, "STACJE:", buf, ARP_COL_TEXT);
+
+  // STACJE (lista, kolor taktyczny)
+  aprsRadarSection(194, "STACJE APRS");
+  int row = 0;
+  for (int i = 0; i < displayCount && row < 6; i++) {
+    int idx = order[i];
+    if (idx < 0 || idx >= MAX_APRS_STATIONS) continue;
+    const APRSStation &st = aprsStations[idx];
+    if (!st.hasLatLon || st.callsign.length() == 0) continue;
+    float dist = calculateDistance(userLat, userLon, (double)st.lat, (double)st.lon);
+    if (dist > maxRange) continue;
+
+    int y = 214 + row * 15;
+    String call = st.callsign;
+    if (call.length() > 9) call = call.substring(0, 9);
+    sp.setTextDatum(TL_DATUM);
+    sp.setTextSize(1);
+    sp.setTextColor(aprsRadarStationColor(st), ARP_COL_PANEL);
+    sp.drawString(call, ARP_PANEL_X + 6, y, 1);
+    snprintf(buf, sizeof(buf), "%4.1f", dist);
+    sp.setTextDatum(TR_DATUM);
+    sp.setTextColor(ARP_COL_DIM, ARP_COL_PANEL);
+    sp.drawString(buf, ARP_PANEL_X + ARP_PANEL_W - 8, y, 1);
+    row++;
+  }
+  if (row == 0) {
+    sp.setTextDatum(TL_DATUM);
+    sp.setTextColor(ARP_COL_DIM, ARP_COL_PANEL);
+    sp.drawString("brak stacji w zasiegu", ARP_PANEL_X + 6, 216, 1);
+  }
+
+  // --- Zegar UTC w lewym gornym rogu ---
+  struct tm timeinfo;
+  if (getTimeWithTimezone(&timeinfo)) {
+    char tb[8];
+    strftime(tb, sizeof(tb), "%H:%M", &timeinfo);
+    sp.setTextDatum(TL_DATUM);
+    sp.setTextSize(1);
+    sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
+    sp.drawString(tb, 6, 6, 1);
+  }
+
+  // --- Panel zakresow na dole ---
+  aprsRadarRangeTiles(300);
+
+  // Krotka podpowiedz po zmianie zakresu (dotkniecie gornej/dolnej polowy).
+  if (isScreen6RadarHintVisible()) {
+    sp.setTextDatum(TC_DATUM);
+    sp.setTextSize(1);
+    sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
+    sp.drawString("+ ZAKRES", ARP_CX, 6, 1);
+    sp.drawString("- ZAKRES", ARP_CX, 290, 1);
+    sp.setTextDatum(TL_DATUM);
+  }
+
+  sp.pushSprite(0, 0);
+}
+
+static void drawAprsRadarBody() {
+  // Pelne odswiezenie: nie zmieniamy stanu blipow, tylko odtwarzamy klatke.
+  aprsRadarRenderFrame(aprsRadarSweepAngle, false);
+}
+
+// Animacja smugi - wolane cyklicznie z loop() gdy ekran radaru jest aktywny.
+static void aprsRadarTick() {
+  if (currentScreen != SCREEN_APRS_RADAR || inMenu || !tftInitialized) return;
+  if (!aprsRadarSpriteReady && !ensureAprsRadarSprite()) return;
+  aprsRadarSweepAngle += 4.0f;
+  if (aprsRadarSweepAngle >= 360.0f) aprsRadarSweepAngle -= 360.0f;
+  aprsRadarRenderFrame(aprsRadarSweepAngle, true);
 }
 
 void drawFilterTile(int x, int y, int w, int h, const char *label, bool active) {
@@ -6770,7 +6884,7 @@ uint32_t computeScreen6Signature() {
   hash *= fnvPrime;
   hash ^= (uint32_t)screen6SortMode;
   hash *= fnvPrime;
-  hash ^= (uint32_t)(screen6RadarZoom * 100.0f);
+  hash ^= (uint32_t)aprsRadarRangeIndex;
   hash *= fnvPrime;
   hash ^= isScreen6RadarHintVisible() ? 1u : 0u;
   hash *= fnvPrime;
@@ -7227,35 +7341,8 @@ void drawAprsIs() {
 
 void drawAprsRadar() {
   screen6ViewMode = APRS_VIEW_RADAR;
-  tft.fillScreen(TFT_BLACK);
+  // Caly ekran rysuje sprite (patrz aprsRadarRenderFrame) - jeden pushSprite.
   drawAprsRadarBody();
-
-  drawHamburgerMenuButton3D(5, 7);
-
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  const char *aprsTitleTop = "APRS";
-  const char *aprsTitleBottom = "RADAR";
-  int aprsTopWidth = strlen(aprsTitleTop) * 12;
-  int aprsBottomWidth = strlen(aprsTitleBottom) * 12;
-  int aprsTopX = tft.width() - aprsTopWidth - 4;
-  int aprsBottomX = tft.width() - aprsBottomWidth - 4;
-  tft.setCursor(aprsTopX, tft.height() - 36);
-  tft.print(aprsTitleTop);
-  tft.setCursor(aprsBottomX, tft.height() - 20);
-  tft.print(aprsTitleBottom);
-
-  // ZEGAR W PRAWIN GĂ“RNYM ROGU
-  struct tm timeinfo;
-  if (getTimeWithTimezone(&timeinfo)) {
-    char timeBuffer[6];
-    strftime(timeBuffer, 6, "%H:%M", &timeinfo);
-    int timeWidth = strlen(timeBuffer) * 12;
-    tft.setCursor(tft.width() - timeWidth - 4, 5);
-    tft.print(timeBuffer);
-  }
-
-  drawScreen6RadarZoomHints();
 }
 
 static String extractXmlTagValue(const String &xml, const char* tag) {
@@ -22184,6 +22271,15 @@ void loop() {
     loopPskMqtt();
   }
   
+  // Animacja smugi radaru APRS (~100 ms/klatke, sprite = brak migotania)
+  static unsigned long lastAprsRadarTick = 0;
+  if (currentScreen == SCREEN_APRS_RADAR && tftInitialized && !inMenu && !aprsAlertScreenActive) {
+    if (millis() - lastAprsRadarTick >= 100) {
+      lastAprsRadarTick = millis();
+      aprsRadarTick();
+    }
+  }
+
   // Dynamiczne odĹ›wieĹĽanie ekranu ISS co 1 sekundÄ™
 #ifdef ENABLE_TFT_DISPLAY
   static unsigned long lastIssTftRefresh = 0;
