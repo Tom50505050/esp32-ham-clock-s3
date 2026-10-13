@@ -183,13 +183,13 @@ Restart: `bash tools/serve.sh` (http.server 12000 w /workspace/share).
 - Podglad strony urzadzenia: /workspace/share/index-device.html (dodany do :12000).
 
 
-## Autor / naglowki WWW (v1.4.3, 12.10.2026)
-- Naglowek na WSZYSTKICH stronach WWW = "ESP32-HAM-CLOCK 1v"
+## Autor / naglowki WWW (v1.2, 12.10.2026)
+- Naglowek na WSZYSTKICH stronach WWW = "ESP32-HAM-CLOCK v1.2"
   (title, app-title, h3 na stronie LINKI, h2 na stronie Konfiguracja) - PL i EN.
 - Stopka (PL): "Autor oprogramowania Tomasz SP9TNV na podstawie projektu Konrad
   Wisniewski SP3KON." + "Oprogramowanie zostalo zmodyfikowane przez SP9TNV na
   podstawie projektu Konrad Wisniewski SP3KON (z uzyciem AI)." + "Obecna wersja
-  oprogramowania ESP32-HAM-CLOCK 1v z dnia 12.10.2026." + "Kontakt: SP9TNV@gmail.com".
+  oprogramowania ESP32-HAM-CLOCK v1.2 z dnia 12.10.2026." + "Kontakt: SP9TNV@gmail.com".
 - Analogicznie EN.
 - Firmware (main.cpp): ekran "o programie" na TFT, instrukcja LittleFS, stopka
   HTML pomocy i strona konfiguracji -> autor Tomasz SP9TNV, kontakt SP9TNV@gmail.com.

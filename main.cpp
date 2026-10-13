@@ -36,7 +36,7 @@ void normalizePolish(String &text);
 #endif
 
 // Wersja firmware
-#define FIRMWARE_VERSION "1.4.3"
+#define FIRMWARE_VERSION "1.2"
 
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -2297,7 +2297,7 @@ void drawWelcomeScreenYellow() {
   const int lineGap = 30;
   String lines[] = {
     "ESP32-HAM-CLOCK",
-    "version 1v",
+    "version v1.2",
     "Autor: Tomasz SP9TNV",
     "Base: Konrad SP3KON",
     "License: MIT",
@@ -13614,12 +13614,12 @@ void sendAPRSLogin() {
     return;
   }
   
-  // Format loginu: user Callsign pass 23123 vers ESP32-HAM-CLOCK 1.4
+  // Format loginu: user Callsign pass 23123 vers ESP32-HAM-CLOCK 1.2
   String login = "user ";
   login += getAprsTxCallsignWithSsid();
   login += " pass ";
   login += String(aprsPasscode);
-  login += " vers ESP32-HAM-CLOCK 1.4";
+  login += " vers ESP32-HAM-CLOCK 1.2";
   
   Serial.print("[APRS] WysyĹ‚anie loginu: ");
   Serial.println(login);
@@ -16418,7 +16418,7 @@ static bool streamLittleFsFile(const char *path, const char *contentType) {
 
 String getManualPL() {
   return String(
-    "ESP32-HAM-CLOCK 1v (12.10.2026)\n"
+    "ESP32-HAM-CLOCK v1.2 (12.10.2026)\n"
     "Autor oprogramowania: Tomasz SP9TNV\n"
     "Na podstawie projektu: Konrad Wisniewski SP3KON (z uĹĽyciem AI)\n"
     "Kontakt: SP9TNV@gmail.com\n\n"
@@ -16670,7 +16670,7 @@ void setupWebServer() {
     // Stopka
     html += "<hr style='margin:40px 0;'>";
     html += "<p style='text-align:center;color:#666;'>";
-    html += "<strong>ESP32-HAM-CLOCK 1v</strong> | Autor oprogramowania: Tomasz SP9TNV<br>";
+    html += "<strong>ESP32-HAM-CLOCK v1.2</strong> | Autor oprogramowania: Tomasz SP9TNV<br>";
     html += "Na podstawie projektu Konrad WiĹ›niewski SP3KON | Licencja: MIT<br>";
     html += "<a href='mailto:SP9TNV@gmail.com'>SP9TNV@gmail.com</a>";
     html += "</p>";
@@ -20010,7 +20010,7 @@ bool fetchIssTLE() {
   String url = "https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE";
   http.begin(client, url);
   http.setTimeout(4000);
-  http.addHeader("User-Agent", "ESP32-HAM-CLOCK/1.4 (TLE fetch)");
+  http.addHeader("User-Agent", "ESP32-HAM-CLOCK/1.2 (TLE fetch)");
   int httpCode = http.GET();
 
   bool ok = false;
@@ -20707,7 +20707,7 @@ String lookupIssCountryFromCoords(double lat, double lng) {
   // Keeping this call short and single-shot leaves the rest of the system
   // room to breathe; a missed lookup here just tries again in 15s anyway.
   http.setTimeout(3000);
-  http.addHeader("User-Agent", "ESP32-HAM-CLOCK/1.4 (ISS pass tracker)");
+  http.addHeader("User-Agent", "ESP32-HAM-CLOCK/1.2 (ISS pass tracker)");
   int httpCode = http.GET();
 
   // Trzy rĂłĹĽne, rozrĂłĹĽnialne wyniki:
