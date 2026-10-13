@@ -547,3 +547,24 @@ LittleFS (`pio run -t buildfs`) i wgrac image FS, nie tylko firmware.
 (lewo/prawo). Wczesny `return` dla danego ekranu (jak bylo dla SYSTEM_INFO)
 zjada dotkniecia ZANIM dojdzie do nawigacji - ekran staje sie "uwieziony".
 Ekran tylko-do-odczytu nie potrzebuje zadnego bloku w handleTouchNavigation.
+
+## ISS: radar AZ/EL, wysrodkowany naglowek, wymuszone odswiezanie przelotow (13.10.2026)
+- RADAR AZYMUT/ELEWACJA nie pokazywal danych, gdy ISS byl POD HORYZONTEM:
+  stary warunek `if (el >= 0 && az >= 0)` wpadal w galaz "brak danych" (el < 0
+  niemal caly czas, bo ISS widoczny tylko kilka min/przelot). Teraz: `hasData`
+  -> nad horyzontem znacznik wg azymutu/promienia elewacji, pod horyzontem
+  znacznik w srodku (nadir) + etykieta "AZ xx  EL yy". "brak danych" tylko
+  gdy naprawde brak pozycji.
+- Naglowek: "ESP32-HAM-CLOCK" i "ISS TRACKER" wysrodkowane (TC_DATUM @ x=240).
+- Panel "NAJBLIZSZY/NATEPNE PRZELOTY" byl pusty po wejsciu na ekran, bo plan
+  liczony jest w issTask co 5 min / po TLE (TLE startuje dopiero po 90 s).
+  Dodane `volatile bool issForceNextPassRefresh`: ustawiane przy wejsciu na
+  ekran (drawScreen) i po swiezym TLE; issTask obsluguje je natychmiast,
+  nie czekajac na 5-minutowy interwal.
+- JASNOSC: pole "Nocne obnizenie jasnosci" w WWW (tft_night_dimming) bylo
+  ignorowane przez firmware. Teraz zapisywane do pref `tft_night_dim`,
+  odtwarzane, i stosowane przez `applyEffectiveBacklight()` (osobne
+  `setBacklightPercentRaw()` NIE nadpisuje bazowego `backlightPercent`).
+  Noc = ikona OWM "n" albo brak ikony i godzina lokalna poza 6-18; loop
+  przelicza PWM przy zmianie pory dnia. Max jasnosc = 100% (0xFFFF duty);
+  slider WWW ogranicza do min 10%.

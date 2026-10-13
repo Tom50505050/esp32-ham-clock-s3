@@ -210,6 +210,8 @@ void drawScreenSleepMenu();
 void handleScreenSleepMenuTouch(uint16_t x, uint16_t y);
 void enterScreenSleep();
 void wakeUpFromSleep();
+void applyEffectiveBacklight();
+void setBacklightPercentRaw(int percent);
 
 void savePreferences();
 void locatorToLatLon(String locator, double &lat, double &lon);
@@ -495,6 +497,7 @@ HamClockTFT tft;
 #define MIN_BACKLIGHT_PERCENT 10
 #define TFT_BACKLIGHT 100
 int backlightPercent = TFT_BACKLIGHT;
+int tftNightDimmingPercent = 0;   // nocne obnizenie jasnosci (0-100%), z WWW
 
 // ========== DOTYK (XPT2046) ==========
 // Piny docelowe dla ESP32-S3 N16R8 (zewnętrzny ILI9488 + XPT2046 na wspólnym SPI).
@@ -1653,6 +1656,8 @@ bool issWasInRangeLastCheck = false;
 // dziala (widac kolejne godziny), nawet jesli pierwszy AOS jest odlegly.
 #define ISS_MAX_PASSES 4
 int issPassCount = 0;
+// Wymuszone odswiezenie planu przelotow (wejscie na ekran ISS / swieze TLE).
+volatile bool issForceNextPassRefresh = false;
 time_t issPassAos[ISS_MAX_PASSES] = {0};
 time_t issPassLos[ISS_MAX_PASSES] = {0};
 double issPassMaxEl[ISS_MAX_PASSES] = {0.0};
@@ -1775,6 +1780,18 @@ void issTask(void *pvParameters) {
     // liczymy to sami lokalnie (skanowanie do przodu co 30s w oknie 6h, co
     // jest wyraĹşnie droĹĽsze niĹĽ pojedyncza propagacja, wiÄ™c robimy to rzadko).
     static unsigned long lastIssPassEstimate = 0;
+    // Wymuszone odswiezenie (wejscie na ekran ISS albo swieze TLE) - nie
+    // czekaj na 5-minutowy interwal, zeby "NAJBLIZSZY/NATEPNE PRZELOTY"
+    // nie byly puste zaraz po wejsciu na ekran.
+    if (issForceNextPassRefresh) {
+      issForceNextPassRefresh = false;
+      if (n2yoApiKey.length() > 0) {
+        if (!fetchIssNextPassFromN2yo() && issTleValid) updateIssNextPassEstimate();
+      } else if (issTleValid) {
+        updateIssNextPassEstimate();
+      }
+      lastIssPassEstimate = millis();
+    }
     if (lastIssPassEstimate == 0 || now - lastIssPassEstimate > 5UL * 60UL * 1000UL) {
       lastIssPassEstimate = millis();
       if (n2yoApiKey.length() > 0) {
@@ -2096,6 +2113,38 @@ void setBacklightPercent(int percent) {
   writeBacklightDuty((percent * dutyMax) / 100U);
 }
 
+// Zapis PWM bez ruszania wartosci bazowej backlightPercent. Uzywane przez
+// nocne obnizenie jasnosci, zeby nie nadpisac jasnosci ustawionej przez
+// uzytkownika (setBacklightPercent() robi backlightPercent = percent).
+void setBacklightPercentRaw(int percent) {
+  if (percent < MIN_BACKLIGHT_PERCENT) percent = MIN_BACKLIGHT_PERCENT;
+  if (percent > 100) percent = 100;
+  uint32_t dutyMax = (1U << BACKLIGHT_PWM_RES_BITS) - 1U;
+  writeBacklightDuty((percent * dutyMax) / 100U);
+}
+
+// Noc = ikona OWM "n" albo brak ikony i godzina lokalna poza 6-18.
+bool tftIsNightTime() {
+  if (weatherData.iconCode.endsWith("n")) return true;
+  if (weatherData.iconCode.endsWith("d")) return false;
+  struct tm ti;
+  if (getLocalTime(&ti, 1)) return (ti.tm_hour < 6 || ti.tm_hour >= 18);
+  return false;
+}
+
+int effectiveBacklightPercent() {
+  int p = backlightPercent;
+  if (tftNightDimmingPercent > 0 && tftIsNightTime()) {
+    p = p - (p * tftNightDimmingPercent) / 100;
+  }
+  if (p < MIN_BACKLIGHT_PERCENT) p = MIN_BACKLIGHT_PERCENT;
+  if (p > 100) p = 100;
+  return p;
+}
+
+// Wypelnienie PWM z uwzglednieniem nocnego obnizenia (bez zmiany bazowej wartosci).
+void applyEffectiveBacklight() { setBacklightPercentRaw(effectiveBacklightPercent()); }
+
 void applyTouchRotation() {
 #if TOUCH_ENABLED
   Serial.print("*** Applying touch.setRotation(");
@@ -2136,7 +2185,7 @@ void initTFT() {
   
   // Podświetlenie i reset muszą być na prawdziwych wyjściach GPIO.
   setupBacklightPwm();
-  setBacklightPercent(100);
+  applyEffectiveBacklight();
 #if (TFT_RST >= 0)
   pinMode(TFT_RST, OUTPUT);
   digitalWrite(TFT_RST, HIGH);
@@ -2508,6 +2557,7 @@ void drawScreen(ScreenType screenNum) {
       drawPskMap();
       break;
     case SCREEN_ISS_PASS_TRACKING:
+      issForceNextPassRefresh = true;  // odswiez plan przelotow przy wejsciu
       drawIssPassTracking();
       break;
     case SCREEN_OFF:
@@ -6823,6 +6873,7 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   if (isPointInRect(x, y, saveX, btnY, btnW, btnH)) {
     backlightPercent = brightnessMenuValue;
     savePreferences();
+    applyEffectiveBacklight();
     brightnessMenuActive = false;
     restoreAfterBrightnessMenu();
     return;
@@ -6837,7 +6888,7 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   }
   if (isPointInRect(x, y, closeX, btnY, btnW, btnH)) {
     backlightPercent = brightnessMenuPrevBacklight;
-    setBacklightPercent(backlightPercent);
+    applyEffectiveBacklight();
     menuThemeHue = brightnessMenuPrevThemeHue;
     applyMenuThemeFromHue();
     brightnessMenuActive = false;
@@ -15728,8 +15779,8 @@ void wakeUpFromSleep() {
   screenSleepActive = false;
   screenSleepLastActivityMs = millis();
 
-  // PrzywrĂłÄ‡ podĹ›wietlenie
-  setBacklightPercent(backlightPercent);
+  // PrzywrĂłÄ‡ podĹ›wietlenie (z uwzglednieniem nocnego obnizenia)
+  applyEffectiveBacklight();
 
   // PrzywrĂłÄ‡ poprzedni ekran
   drawScreen(screenSleepPrevScreen);
@@ -15835,6 +15886,9 @@ void loadPreferences() {
   backlightPercent = preferences->getInt("tft_backlight", TFT_BACKLIGHT);
   if (backlightPercent < MIN_BACKLIGHT_PERCENT) backlightPercent = MIN_BACKLIGHT_PERCENT;
   if (backlightPercent > 100) backlightPercent = 100;
+  tftNightDimmingPercent = preferences->getInt("tft_night_dim", 0);
+  if (tftNightDimmingPercent < 0) tftNightDimmingPercent = 0;
+  if (tftNightDimmingPercent > 100) tftNightDimmingPercent = 100;
   tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", tftInvertColors));
   tftLanguage = preferences->getUChar("tft_lang", TFT_LANG_PL);
   if (tftLanguage > TFT_LANG_EN) tftLanguage = TFT_LANG_PL;
@@ -16007,6 +16061,7 @@ void savePreferences() {
   preferences->putString("n2yo_key", n2yoApiKey);
   preferences->putString("openwebrx_url", openWebRxUrl);
   preferences->putInt("tft_backlight", backlightPercent);
+  preferences->putInt("tft_night_dim", tftNightDimmingPercent);
   preferences->putBool("tft_inv", sanitizeTftInvertSetting(tftInvertColors));
   preferences->putUChar("tft_lang", tftLanguage);
   preferences->putUChar("tft_tbl_size", dxTableSizeMode);
@@ -16744,6 +16799,12 @@ void setupWebServer() {
         if (backlightPercent < MIN_BACKLIGHT_PERCENT) backlightPercent = MIN_BACKLIGHT_PERCENT;
         if (backlightPercent > 100) backlightPercent = 100;
       }
+      if (doc["tft_night_dimming"].is<int>()) {
+        tftNightDimmingPercent = doc["tft_night_dimming"].as<int>();
+        if (tftNightDimmingPercent < 0) tftNightDimmingPercent = 0;
+        if (tftNightDimmingPercent > 100) tftNightDimmingPercent = 100;
+        applyEffectiveBacklight();
+      }
       if (doc["tft_invert"].is<bool>()) {
         bool receivedValue = doc["tft_invert"].as<bool>();
         Serial.print("*** Received tft_invert from JSON: ");
@@ -17227,7 +17288,7 @@ void setupWebServer() {
         updateUserLatLonFromLocator();
       }
       savePreferences();
-      setBacklightPercent(backlightPercent);
+      applyEffectiveBacklight();
       if (tftInitialized) {
         applyTftInversion();
       }
@@ -17371,6 +17432,7 @@ void setupWebServer() {
     doc["n2yo_key"] = n2yoApiKey;
     doc["openwebrx_url"] = openWebRxUrl;
     doc["tft_backlight"] = backlightPercent;
+    doc["tft_night_dimming"] = tftNightDimmingPercent;
     doc["tft_invert"] = sanitizeTftInvertSetting(tftInvertColors);
     doc["tft_rotation"] = tftRotation;
     doc["tft_lang"] = tftLangToCode(tftLanguage);
@@ -19744,6 +19806,7 @@ bool fetchIssTLE() {
           l2.toCharArray(issTleLine2, sizeof(issTleLine2));
           issSat.init(issTleName, issTleLine1, issTleLine2);
           issTleValid = true;
+          issForceNextPassRefresh = true;  // swieze TLE - przelicz przeloty od razu
           xSemaphoreGive(issTleMutex);
           ok = true;
           Serial.println("[ISS TLE] Zaktualizowano dane orbitalne (SGP4)");
@@ -20681,10 +20744,12 @@ static void issRenderFrame(double lat, double lng, double alt, double speed,
   issSprite.drawFastHLine(0, 29, 480, ISS_COL_ACCENT);
   issSprite.setTextDatum(TL_DATUM);
   issSprite.setTextSize(1);
+  issSprite.setTextDatum(TC_DATUM);
   issSprite.setTextColor(ISS_COL_FAINT, ISS_COL_CARD);
-  issSprite.drawString("ESP32-HAM-CLOCK", 10, 4, 1);
+  issSprite.drawString("ESP32-HAM-CLOCK", 240, 4, 1);
   issSprite.setTextColor(ISS_COL_TEXT, ISS_COL_CARD);
-  issSprite.drawString("ISS TRACKER", 10, 14, 2);
+  issSprite.drawString("ISS TRACKER", 240, 14, 2);
+  issSprite.setTextDatum(TL_DATUM);
   bool live = hasData;
   issSprite.fillCircle(410, 15, 4, live ? ISS_COL_ACCENT : ISS_COL_FAINT);
   issSprite.setTextColor(live ? ISS_COL_ACCENT : ISS_COL_FAINT, ISS_COL_CARD);
@@ -20843,17 +20908,29 @@ static void issRenderFrame(double lat, double lng, double alt, double speed,
   // ---- Srodek dol: radar ----
   const int RCX = 240, RCY = 232, RRAD = 68;
   issDrawRadar(RCX, RCY, RRAD);
-  if (el >= 0.0 && az >= 0.0) {
-    double rr = RRAD * (1.0 - (el > 90 ? 90 : el) / 90.0);
-    double ang = (az - 90.0) * DEG_TO_RAD;
-    int sx = RCX + (int)(cos(ang) * rr);
-    int sy = RCY + (int)(sin(ang) * rr);
-    issSprite.fillCircle(sx, sy, 5, el > 0 ? ISS_COL_ACCENT : ISS_COL_FAINT);
-    snprintf(b, sizeof(b), "ISS %.0f", el);
-    issSprite.setTextDatum(TL_DATUM);
-    issSprite.setTextSize(1);
-    issSprite.setTextColor(ISS_COL_TEXT, ISS_MAP_WATER);
-    issSprite.drawString(b, sx + 8, sy - 12, 1);
+  if (hasData) {
+    if (el >= 0.0) {
+      // Nad horyzontem: znacznik wg azymutu, promien wg elewacji (srodek = zenit).
+      double rr = RRAD * (1.0 - (el > 90 ? 90 : el) / 90.0);
+      double ang = (az - 90.0) * DEG_TO_RAD;
+      int sx = RCX + (int)(cos(ang) * rr);
+      int sy = RCY + (int)(sin(ang) * rr);
+      issSprite.fillCircle(sx, sy, 5, ISS_COL_ACCENT);
+      snprintf(b, sizeof(b), "AZ %.0f  EL %.0f", az, el);
+      issSprite.setTextDatum(TL_DATUM);
+      issSprite.setTextSize(1);
+      issSprite.setTextColor(ISS_COL_TEXT, ISS_MAP_WATER);
+      issSprite.drawString(b, sx + 8, sy - 12, 1);
+    } else {
+      // Pod horyzontem: srodek radaru = nadir, znacznik przy krawedzi (el -90).
+      issSprite.fillCircle(RCX, RCY, 5, ISS_COL_FAINT);
+      snprintf(b, sizeof(b), "AZ %.0f  EL %.0f", az, el);
+      issSprite.setTextDatum(TC_DATUM);
+      issSprite.setTextSize(1);
+      issSprite.setTextColor(ISS_COL_WARN, ISS_MAP_WATER);
+      issSprite.drawString(b, RCX, RCY + RRAD - 14, 1);
+      issSprite.setTextDatum(TL_DATUM);
+    }
   } else {
     issSprite.setTextDatum(TL_DATUM);
     issSprite.setTextSize(1);
@@ -21910,6 +21987,18 @@ void loop() {
     if (millis() - lastIssTftRefresh >= 1000) {
       lastIssTftRefresh = millis();
       updateIssDynamicDisplay();
+    }
+  }
+
+  // Nocne obnizenie jasnosci - przelicz przy zmianie pory dnia (ikona OWM).
+  static bool lastNightState = false;
+  static bool lastNightStateInit = false;
+  if (tftNightDimmingPercent > 0) {
+    bool night = tftIsNightTime();
+    if (!lastNightStateInit || night != lastNightState) {
+      lastNightState = night;
+      lastNightStateInit = true;
+      applyEffectiveBacklight();
     }
   }
 #endif
