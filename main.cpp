@@ -14556,6 +14556,10 @@ void requestRestart(unsigned long delayMs = 1500) {
 
 // Powod ostatniego rozlaczenia STA - zapisywany przez handler WiFi.onEvent.
 static volatile int g_lastWifiReason = 0;
+// BSSID (adres MAC AP) znaleziony w skanie - przypinamy sie do konkretnego
+// radia, zeby uniknac odrzucenia przez band steering / Smart Connect.
+static uint8_t g_targetBssid[6] = {0};
+static bool g_haveBssid = false;
 
 // Jedna proba polaczenia STA przy danej mocy nadawania.
 // AUTH_EXPIRE (2) powtarzane przy pelnej mocy to czesto problem zasilania
@@ -14569,7 +14573,9 @@ static bool wifiAttemptAtPower(const String &ssid, const String &pass, int chann
   WiFi.mode(WIFI_STA);
   delay(50);
   WiFi.setTxPower(power);
-  if (channel > 0) {
+  if (channel > 0 && g_haveBssid) {
+    WiFi.begin(ssid.c_str(), pass.c_str(), channel, g_targetBssid);
+  } else if (channel > 0) {
     WiFi.begin(ssid.c_str(), pass.c_str(), channel);
   } else {
     WiFi.begin(ssid.c_str(), pass.c_str());
@@ -14628,6 +14634,7 @@ bool connectToWiFi() {
   auto findNetwork = [](const String &ssid, int &channel, int &authMode) -> bool {
     channel = 0;
     authMode = -1;
+    g_haveBssid = false;
     int16_t n = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/true);
     if (n == WIFI_SCAN_RUNNING) {
       delay(200);
@@ -14643,8 +14650,15 @@ bool connectToWiFi() {
         found = true;
         channel = WiFi.channel(i);
         authMode = (int)WiFi.encryptionType(i);
-        Serial.printf("[WIFI SCAN] %s widoczna: RSSI=%d ch=%d enc=%d\n",
-                      ssid.c_str(), (int)WiFi.RSSI(i), channel, authMode);
+        uint8_t *bssid = WiFi.BSSID(i);
+        if (bssid != nullptr) {
+          memcpy(g_targetBssid, bssid, 6);
+          g_haveBssid = true;
+        }
+        Serial.printf("[WIFI SCAN] %s widoczna: RSSI=%d ch=%d enc=%d bssid=%02X:%02X:%02X:%02X:%02X:%02X\n",
+                      ssid.c_str(), (int)WiFi.RSSI(i), channel, authMode,
+                      g_targetBssid[0], g_targetBssid[1], g_targetBssid[2],
+                      g_targetBssid[3], g_targetBssid[4], g_targetBssid[5]);
         break;
       }
     }
