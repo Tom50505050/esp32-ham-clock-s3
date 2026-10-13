@@ -517,3 +517,17 @@ radar byl pusty. Panel QTH pokazuje CALL + LOKATOR + SZER/DLUG.
 UWAGA: jesli PSRAM/sprite sie nie zaalokuje, ekran nie rysuje sie wcale
 (`ensureAprsRadarSprite` zwraca false) - to celowe, zeby nie mieszac sprite
 z bezposrednim rysowaniem do tft. Sprawdz `[APRS RADAR] Brak sprite...` w logu.
+
+## EKRAN 11: INFORMACJE SYSTEMOWE (SCREEN_SYSTEM_INFO = 11)
+Zastapil ekran "Unlis Hunter" (gra usunieta). Dashboard telemetrii w stylu
+"modern dark": `drawSystemInfo()` rysuje szkielet (naglowek + 4 karty),
+`updateSystemInfo()` odswieza metryki i wykres co 1 s z `UI_Task`.
+- Karty: HARDWARE & PROCESSOR (MCU/arch/clock/CPU temp/flash+PSRAM),
+  MEMORY & NETWORK (free heap, PSRAM free, WiFi status/RSSI/IP),
+  CPU TEMP HISTORY (wykres 45 probek, os 40..60 C), SYSTEM LOGS.
+- Temperatura: `temperatureRead()` (Arduino ESP32 core); jesli NaN/<0 ->
+  wartosc zastepcza. Kolor progu: zielony <55, zolty 55-65, czerwony >=65.
+- Ekran tylko do odczytu (brak menu). Nawigacja w rogach jak na innych
+  ekranach; stary kod "unlishunter" nadal mapowany na ten ekran (kompatybilnosc).
+- Wykres i metryki rysowane bezposrednio na tft (bez sprite) - aktualizacje
+  co 1 s, wiec nie ma ciaglego ruchu po SPI jak przy radarze.
