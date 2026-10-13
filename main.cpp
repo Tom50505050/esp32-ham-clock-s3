@@ -1617,7 +1617,7 @@ uint16_t callsignColor = 65535; // Default white (0xFFFF)
 // Menu koloru znaku (przytrzymanie palca na znaku na ekranie HAM CLOCK).
 bool callsignColorMenuActive = false;
 int callsignColorMenuHue = 0;    // 0..255
-int callsignColorMenuSat = 0;    // 0..100 (%)
+int callsignColorMenuSat = 100;  // 0..100 (%) - domyslnie pelne nasycenie
 int callsignColorMenuVal = 100;  // 0..100 (%)
 uint16_t callsignColorMenuPrev = 65535;
 ScreenType callsignColorMenuPrevScreen = SCREEN_HAM_CLOCK;
@@ -6957,10 +6957,11 @@ uint16_t hsv565(int hue, int sat, int val) {
   val = constrain(val, 0, 100);
   uint8_t region = hue / 43;                 // 6 obszarow koloru
   uint8_t rem = (uint8_t)((hue - region * 43) * 6);  // 0..255
-  uint8_t p = (uint8_t)((val * (100 - sat)) / 100);
-  uint8_t q = (uint8_t)((val * (100 - (sat * rem) / 255)) / 100);
-  uint8_t t = (uint8_t)((val * (100 - (sat * (255 - rem)) / 255)) / 100);
-  uint8_t v = (uint8_t)val;
+  // Kanaly w skali 0..255 (rgb565() oczekuje 8 bitow, nie procentow).
+  uint8_t v = (uint8_t)((val * 255) / 100);
+  uint8_t p = (uint8_t)((v * (100 - sat)) / 100);
+  uint8_t q = (uint8_t)((v * (100 - (sat * rem) / 255)) / 100);
+  uint8_t t = (uint8_t)((v * (100 - (sat * (255 - rem)) / 255)) / 100);
   uint8_t r, g, b;
   switch (region) {
     case 0: r = v; g = t; b = p; break;
@@ -7066,6 +7067,11 @@ void drawCallsignColorMenu() {
 
 void openCallsignColorMenu() {
   rgb565ToHsv(callsignColor, callsignColorMenuHue, callsignColorMenuSat, callsignColorMenuVal);
+  if (callsignColorMenuSat == 0) {
+    // Domyslny bialy znak nie ma nasycenia - suwaki startuja na 100%.
+    callsignColorMenuSat = 100;
+    callsignColorMenuVal = 100;
+  }
   callsignColorMenuPrev = callsignColor;
   callsignColorMenuPrevScreen = currentScreen;
   callsignColorMenuPrevInMenu = inMenu;
