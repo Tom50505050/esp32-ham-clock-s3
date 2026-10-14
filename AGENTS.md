@@ -694,3 +694,28 @@ Log pokazal dwa realne problemy (PSK byl cicho, CALLOOK sypal 404):
    na lokator. Teraz: ZNAK wyzej (TC_DATUM na CY-28), pod znacznikiem kolejno
    LOK: <lokator>, SZER: <lat>, DLUG: <lon> (kazdy z etykieta i danymi).
    Szerokosc tekstu (~78 px) miesci sie w okregu radaru (promien 122 px).
+
+
+## Wspolny styl "ISS TRACKER" na wszystkich ekranach (14.10.2026)
+Cel: wszystkie ekrany wygladaja jak ekran ISS TRACKER, przy zachowaniu funkcji.
+- Paleta `UI_COL_*` (obok `HamClockTFT tft;`): BG/CARD/BORDER/ACCENT/ACCENT2/
+  WARN/TEXT/DIM/FAINT/RED/GREEN. Ciemna karta + akcent teal/niebieski.
+- Pomocnicze funkcje: `uiHeader(title, showMenu)` (ciemna belka 30 px + teal
+  linia, tytul wysrodkowany, hamburger w stylu ISS, ikony WiFi/baterii),
+  `uiFooter()` (strzalki < > + "SWITCH SCREEN"), `uiHamburger(x,y)`.
+- `drawScreen()` rysuje naglowek i stopke dla WSZYSTKICH ekranow poza
+  `issFullBleed` = {MATRIX_CLOCK, PSK_MAP, APRS_RADAR, SYSTEM_INFO,
+  ISS_PASS_TRACKING}. Dzieki temu pojedyncze `drawXxx()` nie rysuja juz wlasnych
+  pomaranczowych belek/hamburgera/ikon (usunieto je; zostawiono komentarze).
+- `updateScreen1Header()` = `uiHeader("ESP32-HAM-CLOCK", false)`;
+  `updateScreen1HeaderClock()` = puste (naglowek ISS bez osobnego zegara).
+- `drawSwitchScreenFooter()` deleguje do `uiFooter()`.
+- APRS RADAR: naglowek ISS rysowany wewnatrz sprite'a (`aprsRadarRenderFrame`)
+  nad obszarem radaru (x < ARP_PANEL_X-1), zegar UTC po prawej w naglowku.
+- PSK MAP: `drawPskMapHeader()` uzywa `uiHeader` (nakladka na mape); status
+  AUTO/Spoty przesuniety pod belke (y ~34/35).
+- Tabele (DX/POTA/HamAlert/APRS-IS): naglowki kolumn w `UI_COL_FAINT`,
+  "WAITING FOR ..." w `UI_COL_WARN`.
+- Full-bleed zachowane: MATRIX (wlasny motyw), SYSTEM_INFO (wlasna paleta
+  SYS_COL_*), ISS TRACKER (wzorzec), PSK (mapa na pelnym ekranie).
+- Build: `pio run -e esp32-s3-n16r8 -e esp32-s3-n16r8-notouch` -> SUCCESS.

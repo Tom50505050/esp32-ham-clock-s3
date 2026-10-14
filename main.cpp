@@ -122,6 +122,8 @@ void drawAprsSortMenu();
 void drawWeatherMenu();
 void drawHamClockTimeMenu();
 static bool isScreen6RadarRangeTileHit(uint16_t x, uint16_t y, int &index);
+static void uiHeader(const char *title, bool showMenu);
+static void uiFooter();
 static void triggerScreen6RadarHint();
 float calculateBearing(double lat1, double lon1, double lat2, double lon2);
 float calculateDistance(double lat1, double lon1, double lat2, double lon2);
@@ -496,6 +498,23 @@ private:
 
 HamClockTFT tft;
 
+// ========== WSPOLNY STYL "ISS TRACKER" ==========
+// Ciemne karty + akcenty teal/niebieski. Uzywane przez wszystkie ekrany, zeby
+// wyglad byl spojny z ekranem ISS TRACKER (SCREEN_ISS_PASS_TRACKING).
+static const uint16_t UI_COL_BG      = 0x0000; // #000000 tlo
+static const uint16_t UI_COL_CARD    = 0x0884; // #0b1220 karta
+static const uint16_t UI_COL_BORDER  = 0x298A; // #2a3357 obramowanie
+static const uint16_t UI_COL_ACCENT  = 0x3697; // #35d0ba akcent (teal)
+static const uint16_t UI_COL_ACCENT2 = 0x4D5F; // #4ea8ff akcent (niebieski)
+static const uint16_t UI_COL_WARN    = 0xFE4A; // #ffc857 zloty
+static const uint16_t UI_COL_TEXT    = 0xEF7E; // #e8eef7 tekst
+static const uint16_t UI_COL_DIM     = 0x9D98; // #9fb0c6 przygaszony
+static const uint16_t UI_COL_FAINT   = 0x6BF2; // #6c7d94 slabу
+static const uint16_t UI_COL_RED     = 0xF800; // czerwony (blad)
+static const uint16_t UI_COL_GREEN   = 0x07E0; // zielony (OK)
+static const int UI_HEADER_H = 30;
+static const int UI_FOOTER_Y = 300;
+
 #define TFT_BL_PIN TFT_BL
 
 #define BACKLIGHT_PWM_CHANNEL 0
@@ -726,19 +745,7 @@ extern bool touchCalActive;
 extern bool pskKeyboardActive;  // Klawiatura PSK aktywna
 
 static void drawSwitchScreenFooter() {
-  // Nie rysuj strzaĹ‚ek gdy jesteĹ›my w menu ustawieĹ„
-  if (inMenu || brightnessMenuActive || screenSaverMenuActive || screenSleepMenuActive || touchCalActive || pskKeyboardActive) {
-    return;
-  }
-  // StrzaĹ‚ki nawigacyjne - duĹĽe, blisko krawÄ™dzi (takie same na wszystkich ekranach)
-  int arrowY = 290;
-  int arrowSize = 12;
-  tft.fillTriangle(15, arrowY, 15 + arrowSize, arrowY - arrowSize, 15 + arrowSize, arrowY + arrowSize, menuThemeColor);
-  tft.fillTriangle(465, arrowY, 465 - arrowSize, arrowY - arrowSize, 465 - arrowSize, arrowY + arrowSize, menuThemeColor);
-  tft.setTextColor(0x52AA);
-  tft.setTextSize(1);
-  tft.setCursor(195, 286);
-  tft.print("SWITCH SCREEN");
+  uiFooter();
 }
 
 // Ustawienie trybu czasu dla ekranu 1
@@ -2548,6 +2555,28 @@ void drawScreen(ScreenType screenNum) {
   }
   
   tft.fillScreen(TFT_BLACK);
+
+  // Wspolny styl ISS: naglowek i stopka dla wszystkich ekranow poza pelnoekranowymi.
+  const bool issFullBleed = (screenNum == SCREEN_MATRIX_CLOCK ||
+                             screenNum == SCREEN_PSK_MAP ||
+                             screenNum == SCREEN_APRS_RADAR ||
+                             screenNum == SCREEN_SYSTEM_INFO ||
+                             screenNum == SCREEN_ISS_PASS_TRACKING);
+  if (!issFullBleed) {
+    switch (screenNum) {
+      case SCREEN_HAM_CLOCK:        uiHeader("ESP32-HAM-CLOCK", false); screen1HeaderNeedsRedraw = false; break;
+      case SCREEN_DX_CLUSTER:       uiHeader(clusterHost.c_str(), true); break;
+      case SCREEN_POTA_CLUSTER:     uiHeader("POTA.app", true); break;
+      case SCREEN_HAMALERT_CLUSTER: uiHeader("HAMALERT.org", true); break;
+      case SCREEN_APRS_IS:          uiHeader("APRS-IS", true); break;
+      case SCREEN_WEATHER_DSP:      uiHeader(tr(TR_WEATHER), true); break;
+      case SCREEN_WEATHER_FORECAST: uiHeader((tftLanguage == TFT_LANG_EN) ? "Weather forecast" : "Prognoza pogody", true); break;
+      case SCREEN_SUN_SPOTS:        uiHeader((tftLanguage == TFT_LANG_EN) ? "PROPAGATION" : "PROPAGACJA", false); break;
+      case SCREEN_BAND_INFO:        uiHeader("SOLAR PROPAGATION INDEX", false); break;
+      case SCREEN_SYSTEM_INFO:      uiHeader("SYSTEM INFO", true); break;
+      default: break;
+    }
+  }
   
   switch (screenNum) {
     case SCREEN_HAM_CLOCK:
@@ -2597,6 +2626,10 @@ void drawScreen(ScreenType screenNum) {
     default:
       drawHamClock();
       break;
+  }
+
+  if (!issFullBleed && screenNum != SCREEN_OFF) {
+    uiFooter();
   }
 }
 
@@ -3216,38 +3249,7 @@ void drawBatteryIcon(int x, int y, int percentage = -1) {
 }
 
 void updateScreen1HeaderClock() {
-  if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
-    return;
-  }
-
-  const int screenW = 480;
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo, 1)) {
-    return;
-  }
-
-  static char lastTimeBuffer[6] = "";
-  char timeBuffer[6];
-  strftime(timeBuffer, 6, "%H:%M", &timeinfo);
-  
-  // Aktualizuj tylko jeĹ›li czas siÄ™ zmieniĹ‚
-  if (strcmp(timeBuffer, lastTimeBuffer) == 0) {
-    return;
-  }
-  strcpy(lastTimeBuffer, timeBuffer);
-  
-  // ZEGAR PO LEWEJ STRONIE - odĹ›wieĹĽanie co sekundÄ™
-  String timeStr = String(timeBuffer);
-  tft.setTextSize(2);
-  int timeWidth = tft.textWidth(timeStr);
-  int timeX = 10; // Lewa strona nagĹ‚Ăłwka
-  int timeY = 12;
-  
-  // WyczyĹ›Ä‡ tĹ‚o pod zegarem
-  tft.fillRect(timeX - 2, timeY - 2, timeWidth + 4, 20, TFT_RADIO_ORANGE);
-  tft.setTextColor(TFT_BLACK);
-  tft.setCursor(timeX, timeY);
-  tft.print(timeStr);
+  return;  // naglowek HAM CLOCK w stylu ISS bez osobnego zegara
 }
 
 void updateDxClusterClock() {
@@ -3284,94 +3286,30 @@ void updateScreen1Header() {
   if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
     return;
   }
-
   if (!screen1HeaderNeedsRedraw) {
     return;
   }
-
-  const int headerY = 0;
-  const int headerH = 40;
-  const int screenW = 480;
-  
-  // 1. TĹO I RAMKA LOGO
-  tft.fillRect(0, headerY, screenW, headerH, TFT_RADIO_ORANGE);
-  // Ciemniejsza krawÄ™dĹş na dole dla efektu 3D
-  tft.drawFastHLine(0, headerH - 1, screenW, 0x8410); 
-
-  // 2. FORMATOWANIE "LOGO" - "ESP32" w czarnej obwĂłdce, "-HAM-CLOCK" normalnie
-  String logoPart1 = "ESP32";
-  String logoPart2 = "-HAM-CLOCK";
-  tft.setTextSize(2);
-  int charW = 12; // ~12px na znak przy TextSize 2
-  int textH = 16; // ~16px wysokoĹ›Ä‡ tekstu przy TextSize 2
-  
-  // SzerokoĹ›ci czÄ™Ĺ›ci napisu
-  int part1W = logoPart1.length() * charW;
-  int part2W = logoPart2.length() * charW;
-  int totalW = part1W + part2W;
-  int startX = (screenW - totalW) / 2;
-  int textY = 12;
-  int paddingX = 6;  // OdstÄ™p poziomy w obwĂłdce
-  int paddingY = 3;  // OdstÄ™p pionowy w obwĂłdce
-  
-  // Czarna obwĂłdka tylko dla "ESP32"
-  tft.fillRect(startX - paddingX, textY - paddingY, 
-               part1W + (2 * paddingX), textH + (2 * paddingY), 
-               TFT_BLACK);
-  
-  // "ESP32" w kolorze pomaraĹ„czowym (kolor paska)
-  tft.setTextColor(TFT_RADIO_ORANGE);
-  tft.setCursor(startX, textY);
-  tft.print(logoPart1);
-  
-  // "-HAM-CLOCK" w kolorze czarnym (tak jak byĹ‚o)
-  tft.setTextColor(TFT_BLACK);
-  tft.setCursor(startX + part1W, textY);
-  tft.print(logoPart2);
-
-  // 3. IKONA WiFi W PRAWYM GĂ“RNYM ROGU - BELKI JAK W TELEFONIE
-  drawWifiSignalBars(screenW - 45, 8);
-  
-  // 3.5. IKONA BATERII OBOK IKONY WiFi
-  drawBatteryIcon(screenW - 70, 8);
-
-  // 4. ZEGAR W LEWYM GĂ“RNYM ROGU NAGĹĂ“WKA
-  struct tm timeinfo;
-  if (getLocalTime(&timeinfo, 1)) {
-    char timeBuffer[6];
-    strftime(timeBuffer, 6, "%H:%M", &timeinfo);
-    String timeStr = String(timeBuffer);
-    tft.setTextSize(2);
-    int timeWidth = tft.textWidth(timeStr);
-    int timeX = 10; // Lewa strona nagĹ‚Ăłwka
-    int timeY = 12;
-    // WyczyĹ›Ä‡ tĹ‚o pod zegarem
-    tft.fillRect(timeX - 2, timeY - 2, timeWidth + 4, 20, TFT_RADIO_ORANGE);
-    tft.setTextColor(TFT_BLACK);
-    tft.setCursor(timeX, timeY);
-    tft.print(timeStr);
-  }
-
+  uiHeader("ESP32-HAM-CLOCK", false);
   screen1HeaderNeedsRedraw = false;
 }
 
 void drawHamClock() {
   // Ciemne tĹ‚o - profesjonalny wyglÄ…d i mniejsze zmÄ™czenie oczu
-  tft.fillScreen(TFT_BLACK);
-  screen1HeaderNeedsRedraw = true;
+  // ekran czysci drawScreen (wspolny styl ISS)
+  // naglowek rysuje drawScreen (wspolny styl ISS)
   
   const int screenW = 480;
   const int screenH = 320;
   
   // 1. NAGĹĂ“WEK - PomaraĹ„czowa belka z wyĹ›rodkowanym napisem i ikonÄ… WiFi
-  updateScreen1Header();
+  // naglowek rysuje drawScreen (wspolny styl ISS)
 
   // 2. RAMKA WOKĂ“Ĺ ZNAKU, ZEGARA I DATY - powiÄ™kszona
   int clockFrameX = 30;     // OdstÄ™p od lewej
   int clockFrameW = 420;    // SzerokoĹ›Ä‡ ramki (szersza)
   int clockFrameY = 45;     // GĂłra ramki
   int clockFrameH = 220;    // WysokoĹ›Ä‡ ramki (powiÄ™kszona dla wiÄ™kszego zegara i imienin)
-  tft.drawRoundRect(clockFrameX, clockFrameY, clockFrameW, clockFrameH, 10, TFT_DARKGREY);
+  tft.drawRoundRect(clockFrameX, clockFrameY, clockFrameW, clockFrameH, 10, UI_COL_BORDER);
 
   // 3. CALLSIGN - WyĹ›rodkowany w ramce (dokĹ‚adne obliczenia)
   tft.setTextColor(callsignColor);
@@ -3528,11 +3466,6 @@ void drawHamClock() {
     tft.print(noConn);
   }
   
-  // 8. STRZAĹKI NAWIGACYJNE
-  int arrowY = screenH - 30;
-  int arrowSize = 12;
-  tft.fillTriangle(15, arrowY, 15 + arrowSize, arrowY - arrowSize, 15 + arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
-  tft.fillTriangle(screenW - 15, arrowY, screenW - 15 - arrowSize, arrowY - arrowSize, screenW - 15 - arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
   
   // 9. IKONA BATERII - od razu przy starcie (skipScreenCheck = true)
 #ifdef BATTERY_MONITORING_ENABLED
@@ -4017,7 +3950,7 @@ void updateScreen2Data() {
   unlockDxSpots();
 
   if (displayCount == 0) {
-    tft.setTextColor(TFT_RED);
+    tft.setTextColor(UI_COL_WARN);
     tft.setTextSize(2);
     tft.setCursor(40, 120);
     tft.print("WAITING FOR SPOTS...");
@@ -4031,23 +3964,12 @@ void updateScreen2Data() {
 void drawPotaCluster() {
   // UĹĽyj tych samych wspĂłĹ‚rzÄ™dnych co w drawHamClock() - ograniczenie do obszaru ramki
 
-  tft.fillRect(0, 0, 480, 32, TFT_RADIO_ORANGE);
-  tft.setTextColor(TFT_BLACK);
 
-  drawHamburgerMenuButton3D(5, 7);
 
-  // Napis POTA.app
-  tft.setTextSize(2);
-  String potaText = "POTA.app";
-  int potaX = 45;
-  tft.setCursor(potaX, 8);
-  tft.print(potaText);
 
   // Ikona WiFi w gĂłrnym prawym rogu
-  drawWifiSignalBars(445, 4);
   
   // Ikona baterii obok ikony WiFi
-  drawBatteryIcon(420, 4);
 
   // ZEGAR w prawym gĂłrnym rogu - USUNIÄTY
   // struct tm timeinfo;
@@ -4061,7 +3983,7 @@ void drawPotaCluster() {
 
   int yPos = 40;
   const bool enlarged = isDxTableEnlarged();
-  tft.setTextColor(TFT_DARKGREY);
+  tft.setTextColor(UI_COL_FAINT);
   tft.setTextSize(1);
 
   if (enlarged) {
@@ -4148,16 +4070,9 @@ void drawPotaCluster() {
     displayCount++;
   }
 
-  if (isTableNavFooterVisible(SCREEN_POTA_CLUSTER)) {
-    // StrzaĹ‚ki nawigacyjne - duĹĽe, blisko krawÄ™dzi (takie same na wszystkich ekranach)
-    int arrowY = 290;
-    int arrowSize = 12;
-    tft.fillTriangle(15, arrowY, 15 + arrowSize, arrowY - arrowSize, 15 + arrowSize, arrowY + arrowSize, menuThemeColor);
-    tft.fillTriangle(465, arrowY, 465 - arrowSize, arrowY - arrowSize, 465 - arrowSize, arrowY + arrowSize, menuThemeColor);
-  }
 
   if (displayCount == 0) {
-    tft.setTextColor(TFT_RED);
+    tft.setTextColor(UI_COL_WARN);
     tft.setTextSize(2);
     tft.setCursor(40, 120);
     tft.print("WAITING FOR SPOTS...");
@@ -4463,7 +4378,7 @@ void updateScreen7Data() {
   }
 
   if (displayCount == 0) {
-    tft.setTextColor(TFT_RED);
+    tft.setTextColor(UI_COL_WARN);
     tft.setTextSize(2);
     tft.setCursor(40, 120);
     tft.print("WAITING FOR SPOTS...");
@@ -4499,28 +4414,20 @@ static String formatHamalertTftTime(const String &rawTime) {
 }
 
 void drawHamalertCluster() {
-  tft.fillScreen(TFT_BLACK);
+  // ekran czysci drawScreen (wspolny styl ISS)
 
-  tft.fillRect(0, 0, 480, 32, TFT_RADIO_ORANGE);
-  tft.setTextColor(TFT_BLACK);
 
-  drawHamburgerMenuButton3D(5, 7);
 
-  tft.setTextSize(2);
-  tft.setCursor(35, 8);
-  tft.print("HAMALERT.org");
 
   // Ikona WiFi w gĂłrnym prawym rogu
-  drawWifiSignalBars(445, 4);
   
   // Ikona baterii obok ikony WiFi
-  drawBatteryIcon(420, 4);
 
   // ZEGAR - rysowany osobno przez updateHamalertClock()
 
   int yPos = 40;
   const bool enlarged = isDxTableEnlarged();
-  tft.setTextColor(TFT_DARKGREY);
+  tft.setTextColor(UI_COL_FAINT);
   tft.setTextSize(1);
   if (enlarged) {
     tft.setCursor(5, yPos);   tft.print("UTC");
@@ -4605,10 +4512,9 @@ void drawHamalertCluster() {
   }
 
   // StrzaĹ‚ki nawigacyjne - ZAWSZE widoczne
-  drawSwitchScreenFooter();
 
   if (displayCount == 0) {
-    tft.setTextColor(TFT_RED);
+    tft.setTextColor(UI_COL_WARN);
     tft.setTextSize(2);
     tft.setCursor(40, 120);
     tft.print("WAITING FOR SPOTS...");
@@ -4794,7 +4700,7 @@ void updateScreen8Data() {
   }
 
   if (displayCount == 0) {
-    tft.setTextColor(TFT_RED);
+    tft.setTextColor(UI_COL_WARN);
     tft.setTextSize(2);
     tft.setCursor(40, 120);
     tft.print("WAITING FOR SPOTS...");
@@ -5334,32 +5240,24 @@ void handleTouchNavigation() {
 }
 // Ekran 2: DX Cluster
 void drawDxCluster() {
-  tft.fillScreen(TFT_BLACK);
+  // ekran czysci drawScreen (wspolny styl ISS)
 
   // 1. NAGĂ„Ä…Ă‚ÂĂ„â€šĂ˘â‚¬Ĺ›WEK: Belka z menu, nazwÄ‚â€žĂ˘â‚¬Â¦ klastra i czasem UTC
-  tft.fillRect(0, 0, 480, 32, TFT_RADIO_ORANGE);
-  tft.setTextColor(TFT_BLACK);
 
 // IKONA MENU (3D)
-drawHamburgerMenuButton3D(5, 7);
 
 // Nazwa klastra - przesuniÄ™ta w prawo (x=35 zamiast 5), by zrobiÄ‡ miejsce na menu
-tft.setTextSize(2);
-tft.setCursor(35, 8);
-tft.print(clusterHost);
 
   // Ikona WiFi w gĂłrnym prawym rogu
-  drawWifiSignalBars(445, 4);
   
   // Ikona baterii obok ikony WiFi
-  drawBatteryIcon(420, 4);
 
   // ZEGAR - rysowany osobno przez updateDxClusterClock()
 
   // 2. NAGĹĂ“WKI TABELI
   const bool enlarged = isDxTableEnlarged();
   int yPos = 40;
-  tft.setTextColor(TFT_DARKGREY);
+  tft.setTextColor(UI_COL_FAINT);
   tft.setTextSize(1);
 
   if (enlarged) {
@@ -5449,10 +5347,9 @@ tft.print(clusterHost);
   unlockDxSpots();
 
   // 4. Pasek nawigacji - ZAWSZE widoczny (zmienione z 5 sekund)
-  drawSwitchScreenFooter();
 
   if (displayCount == 0) {
-    tft.setTextColor(TFT_RED);
+    tft.setTextColor(UI_COL_WARN);
     tft.setTextSize(2);
     tft.setCursor(40, 120);
     tft.print("WAITING FOR SPOTS...");
@@ -5483,6 +5380,50 @@ void drawHamburgerMenuButton3D(int x, int y) {
   tft.fillRect(x, y, iconW, 3, TFT_BLACK);
   tft.fillRect(x, y + 7, iconW, 3, TFT_BLACK);
   tft.fillRect(x, y + 14, iconW, 3, TFT_BLACK);
+}
+
+// Hamburger w stylu ISS (teal na ciemnej karcie) - zgodny z obszarem dotyku menu.
+static void uiHamburger(int x, int y) {
+  const int iconW = 20, iconH = 17, pad = 3;
+  const int btnX = x - pad, btnY = y - pad;
+  const int btnW = iconW + pad * 2, btnH = iconH + pad * 2;
+  tft.fillRoundRect(btnX, btnY, btnW, btnH, 3, UI_COL_CARD);
+  tft.drawRoundRect(btnX, btnY, btnW, btnH, 3, UI_COL_ACCENT2);
+  tft.fillRect(x, y, iconW, 3, UI_COL_ACCENT2);
+  tft.fillRect(x, y + 7, iconW, 3, UI_COL_ACCENT2);
+  tft.fillRect(x, y + 14, iconW, 3, UI_COL_ACCENT2);
+}
+
+// Naglowek ekranu w stylu ISS: ciemna karta + teal linia, tytul wysrodkowany,
+// opcjonalny hamburger po lewej, ikony WiFi/baterii po prawej.
+static void uiHeader(const char *title, bool showMenu) {
+  tft.fillRect(0, 0, 480, UI_HEADER_H, UI_COL_CARD);
+  tft.drawFastHLine(0, UI_HEADER_H - 1, 480, UI_COL_ACCENT);
+  if (showMenu) uiHamburger(5, 5);
+  tft.setTextDatum(TC_DATUM);
+  tft.setTextSize(2);
+  tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+  tft.drawString(title, 240, 7, 2);
+  tft.setTextDatum(TL_DATUM);
+  drawWifiSignalBars(445, 4);
+  drawBatteryIcon(420, 4);
+}
+
+// Stopka: strzalki < > + podpis "SWITCH SCREEN" (styl ISS).
+static void uiFooter() {
+  if (inMenu || brightnessMenuActive || screenSaverMenuActive ||
+      screenSleepMenuActive || touchCalActive || pskKeyboardActive) {
+    return;
+  }
+  const int arrowY = 309;
+  const int arrowSize = 10;
+  tft.fillTriangle(14, arrowY, 14 + arrowSize, arrowY - arrowSize, 14 + arrowSize, arrowY + arrowSize, UI_COL_ACCENT);
+  tft.fillTriangle(466, arrowY, 466 - arrowSize, arrowY - arrowSize, 466 - arrowSize, arrowY + arrowSize, UI_COL_ACCENT);
+  tft.setTextDatum(TC_DATUM);
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_FAINT, UI_COL_BG);
+  tft.drawString("SWITCH SCREEN", 240, UI_FOOTER_Y, 1);
+  tft.setTextDatum(TL_DATUM);
 }
 
 // Hamburger rysowany do sprite'a radaru (ten sam wyglad co wersja na tft).
@@ -5702,6 +5643,20 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   TFT_eSprite &sp = aprsRadarSprite;
   sp.fillScreen(ARP_COL_BG);
 
+  // Naglowek w stylu ISS (karta + teal linia) nad obszarem radaru (panel ma wlasne tlo).
+  sp.fillRect(0, 0, ARP_PANEL_X - 1, UI_HEADER_H, UI_COL_CARD);
+  sp.drawFastHLine(0, UI_HEADER_H - 1, ARP_PANEL_X - 1, UI_COL_ACCENT);
+  sp.fillRoundRect(2, 2, 26, 23, 3, UI_COL_CARD);
+  sp.drawRoundRect(2, 2, 26, 23, 3, UI_COL_ACCENT2);
+  sp.fillRect(5, 7, 20, 3, UI_COL_ACCENT2);
+  sp.fillRect(5, 14, 20, 3, UI_COL_ACCENT2);
+  sp.fillRect(5, 21, 20, 3, UI_COL_ACCENT2);
+  sp.setTextDatum(TC_DATUM);
+  sp.setTextSize(2);
+  sp.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+  sp.drawString("APRS RADAR", (ARP_PANEL_X - 1) / 2, 7, 2);
+  sp.setTextDatum(TL_DATUM);
+
   // --- Siatka radaru ---
   sp.fillCircle(ARP_CX, ARP_CY, ARP_RADIUS, 0x0120);
   sp.drawCircle(ARP_CX, ARP_CY, ARP_RADIUS, ARP_COL_GRID);
@@ -5896,15 +5851,16 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     sp.drawString("brak stacji w zasiegu", ARP_PANEL_X + 6, 226, 1);
   }
 
-  // --- Zegar UTC w lewym gornym rogu (obok przycisku menu) ---
+  // --- Zegar UTC w naglowku (prawa strona) ---
   struct tm timeinfo;
   if (getTimeWithTimezone(&timeinfo)) {
     char tb[8];
     strftime(tb, sizeof(tb), "%H:%M", &timeinfo);
+    sp.setTextDatum(TR_DATUM);
+    sp.setTextSize(2);
+    sp.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+    sp.drawString(tb, ARP_PANEL_X - 8, 7, 2);
     sp.setTextDatum(TL_DATUM);
-    sp.setTextSize(1);
-    sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
-    sp.drawString(tb, 48, 2, 1);
   }
 
   // --- Panel zakresow na dole ---
@@ -5921,10 +5877,6 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     sp.drawString(hint, ARP_CX, 283, 1);
     sp.setTextDatum(TL_DATUM);
   }
-
-  // Przycisk menu rysujemy do sprite'a, przed pushSprite - wtedy kazda klatka
-  // zawiera hamburger i nie ma migotania zwiazanego z przerysowaniem na tft.
-  drawHamburgerMenuButton3DSprite(sp, 5, 7);
 
   sp.pushSprite(0, 0);
 
@@ -7524,7 +7476,7 @@ void updateScreen6Data() {
   }
 
   if (visibleCount == 0) {
-    tft.setTextColor(TFT_RED);
+    tft.setTextColor(UI_COL_WARN);
     tft.setTextSize(2);
     tft.setCursor(40, 120);
     tft.print("WAITING FOR APRS...");
@@ -7536,32 +7488,24 @@ void updateScreen6Data() {
 
 void drawAprsIs() {
   screen6ViewMode = APRS_VIEW_LIST;
-  tft.fillScreen(TFT_BLACK);
+  // ekran czysci drawScreen (wspolny styl ISS)
 
   // 1. NAGĂ„Ä…Ă‚ÂĂ„â€šĂ˘â‚¬Ĺ›WEK: Belka z menu, nazwÄ‚â€žĂ˘â‚¬Â¦ serwera i czasem UTC
-  tft.fillRect(0, 0, 480, 32, TFT_RADIO_ORANGE);
-  tft.setTextColor(TFT_BLACK);
 
   // IKONA MENU (3D)
-  drawHamburgerMenuButton3D(5, 7);
 
   // Nazwa serwera APRS-IS - przesuniĂ„ta w prawo (x=35 zamiast 5), by zrobiĂ„â€ˇ miejsce na menu
-  tft.setTextSize(2);
-  tft.setCursor(35, 8);
-  tft.print("APRS-IS");
 
   // Ikona WiFi w gĂÂłrnym prawym rogu
-  drawWifiSignalBars(445, 4);
   
   // Ikona baterii obok ikony WiFi
-  drawBatteryIcon(420, 4);
 
   // ZEGAR USUNIĂ„TY z nagĂ…â€šĂÂłwka APRS-IS
 
   // 2. NAGĂ…ÂĂâ€śWKI TABELI
   int yPos = 40;
   const bool enlarged = isDxTableEnlarged();
-  tft.setTextColor(TFT_DARKGREY);
+  tft.setTextColor(UI_COL_FAINT);
   tft.setTextSize(1);
   if (enlarged) {
     tft.setCursor(5, yPos);   tft.print("UTC");
@@ -7657,10 +7601,9 @@ void drawAprsIs() {
   }
 
   // 4. Pasek nawigacji - ZAWSZE widoczny
-  drawSwitchScreenFooter();
 
   if (visibleCount == 0) {
-    tft.setTextColor(TFT_RED);
+    tft.setTextColor(UI_COL_WARN);
     tft.setTextSize(2);
     tft.setCursor(40, 120);
     tft.print("WAITING FOR APRS...");
@@ -7965,22 +7908,14 @@ void updateScreen3Data() {
 }
 
 void drawSunSpots() {
-  tft.fillScreen(TFT_BLACK);
+  // ekran czysci drawScreen (wspolny styl ISS)
 
-  tft.fillRect(0, 0, 480, 32, TFT_RADIO_ORANGE);
-  tft.setTextColor(TFT_BLACK);
 
-  // brak hamburger menu na ekranie Propagation
 
-  tft.setTextSize(2);
-  tft.setCursor(35, 8);
-  tft.print((tftLanguage == TFT_LANG_EN) ? "PROPAGATION" : "PROPAGACJA");
 
   // Ikona WiFi w gĂłrnym prawym rogu
-  drawWifiSignalBars(445, 4);
   
   // Ikona baterii obok ikony WiFi
-  drawBatteryIcon(420, 4);
 
   // WyĹ‚Ä…czono - zegar tylko na gĂłrnym pasku
   /*
@@ -7997,14 +7932,7 @@ void drawSunSpots() {
   drawSunSpotsBody();
 
   // StrzaĹ‚ki nawigacyjne - duĹĽe, blisko krawÄ™dzi (takie same na wszystkich ekranach)
-  int arrowY = 290;
-  int arrowSize = 12;
-  tft.fillTriangle(15, arrowY, 15 + arrowSize, arrowY - arrowSize, 15 + arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
-  tft.fillTriangle(465, arrowY, 465 - arrowSize, arrowY - arrowSize, 465 - arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
-  tft.setTextColor(0x52AA);
   tft.setTextSize(1);
-  tft.setCursor(195, 286);
-  tft.print("SWITCH SCREEN");
 }
 
 void updateScreen4Clock() {
@@ -8242,19 +8170,14 @@ void updateScreen4Data() {
 }
 
 void drawBandInfo() {
-  tft.fillScreen(TFT_BLACK);
+  // ekran czysci drawScreen (wspolny styl ISS)
 
   // NagĹ‚Ăłwek w kolorze ĹĽĂłĹ‚tym/zĹ‚otym na czarnym tle (jak na zdjÄ™ciu)
-  tft.setTextSize(2);
   tft.setTextColor(TFT_GOLD);
-  tft.setCursor(120, 10);
-  tft.print("SOLAR PROPAGATION INDEX");
 
   // Ikona WiFi w gĂłrnym prawym rogu
-  drawWifiSignalBars(445, 4);
   
   // Ikona baterii obok ikony WiFi
-  drawBatteryIcon(420, 4);
 
   // Linia pod nagĹ‚Ăłwkiem
   tft.drawLine(10, 35, 470, 35, TFT_DARKGREY);
@@ -8264,14 +8187,7 @@ void drawBandInfo() {
   drawBandInfoBody();
 
   // StrzaĹ‚ki nawigacyjne - duĹĽe, blisko krawÄ™dzi (takie same na wszystkich ekranach)
-  int arrowY = 290;
-  int arrowSize = 12;
-  tft.fillTriangle(15, arrowY, 15 + arrowSize, arrowY - arrowSize, 15 + arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
-  tft.fillTriangle(465, arrowY, 465 - arrowSize, arrowY - arrowSize, 465 - arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
-  tft.setTextColor(0x52AA);
   tft.setTextSize(1);
-  tft.setCursor(195, 286);
-  tft.print("SWITCH SCREEN");
 }
 
 bool fetchWeatherForecast(double lat, double lon);
@@ -9305,19 +9221,12 @@ void updateScreen5Data() {
 }
 
 void drawWeather() {
-  tft.fillScreen(TFT_BLACK);
+  // ekran czysci drawScreen (wspolny styl ISS)
 
-  tft.fillRect(0, 0, 480, 32, TFT_RADIO_ORANGE);
-  tft.setTextColor(TFT_BLACK);
 
-  drawHamburgerMenuButton3D(5, 7);
 
-  tft.setTextSize(2);
-  tft.setCursor(35, 8);
-  tft.print(tr(TR_WEATHER));
 
   // Ikona WiFi w gĂłrnym prawym rogu
-  drawWifiSignalBars(445, 4);
 
   // ZEGAR - rysowany osobno przez updateWeatherClock()
 
@@ -9326,20 +9235,12 @@ void drawWeather() {
 }
 
 void drawWeatherForecast() {
-  tft.fillScreen(TFT_BLACK);
+  // ekran czysci drawScreen (wspolny styl ISS)
 
-  tft.fillRect(0, 0, 480, 32, TFT_RADIO_ORANGE);
-  tft.setTextColor(TFT_BLACK);
 
-  drawHamburgerMenuButton3D(5, 7);
 
-  const char *detailHeader = (tftLanguage == TFT_LANG_EN) ? "Weather forecast" : "Prognoza pogody";
-  tft.setTextSize(2);
-  tft.setCursor(35, 8);
-  tft.print(detailHeader);
 
   // Ikona WiFi w gĂłrnym prawym rogu
-  drawWifiSignalBars(445, 4);
 
   // ZEGAR - rysowany osobno przez updateWeatherForecastClock()
 
@@ -10009,28 +9910,13 @@ void updateSystemInfo() {
 
 // Ekrany 6-10: Puste (tylko napis)
 void drawScreenEmpty(int screenNum) {
-  tft.setTextColor(TFT_BLACK, TFT_WHITE);
+  uiHeader((String(tr(TR_PAGE)) + " " + String(screenNum)).c_str(), true);
+  tft.setTextDatum(TC_DATUM);
   tft.setTextSize(3);
-  
-  String screenText = String(tr(TR_PAGE)) + " " + String(screenNum);
-  int textWidth = screenText.length() * 18;
-  int xPos = (480 - textWidth) / 2;
-  int yPos = 110; // WyĂ„Ä…Ă˘â‚¬Ĺźrodkowane w pionie
-  
-  tft.setCursor(xPos, yPos);
-  tft.print(screenText);
-
-  // StrzaĹ‚ki nawigacyjne - duĹĽe, blisko krawÄ™dzi (takie same na wszystkich ekranach)
-  int arrowY = 290;
-  int arrowSize = 12;
-  tft.fillTriangle(15, arrowY, 15 + arrowSize, arrowY - arrowSize, 15 + arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
-  tft.fillTriangle(465, arrowY, 465 - arrowSize, arrowY - arrowSize, 465 - arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
-  
-  // Opcjonalny opis miÄ™dzy strzaĹ‚kami (maĹ‚Ä… czcionkÄ…)
-  tft.setTextColor(0x52AA); // Ciemny szary
-  tft.setTextSize(1);
-  tft.setCursor(195, 286);
-  tft.print("SWITCH SCREEN");
+  tft.setTextColor(UI_COL_TEXT, UI_COL_BG);
+  tft.drawString(String(tr(TR_PAGE)) + " " + String(screenNum), 240, 140, 1);
+  tft.setTextDatum(TL_DATUM);
+  uiFooter();
 }
 
 // Rysuj strzaĹ‚ki nawigacyjne < >
@@ -19327,49 +19213,24 @@ static uint16_t getPskBandColor(int band) {
 
 // Rysowanie nagĹ‚Ăłwka (przezroczysty - na mapie)
 static void drawPskMapHeader() {
-  // Bez tĹ‚a - tekst bezpoĹ›rednio na mapie
-  tft.setTextSize(2);
-  // Czarna obwĂłdka dla kontrastu
-  tft.setTextColor(TFT_BLACK);
-  tft.setCursor(12, 10);
-  tft.print("PSKReporter MAP");
-  tft.setCursor(11, 9);
-  tft.print("PSKReporter MAP");
-  tft.setCursor(13, 11);
-  tft.print("PSKReporter MAP");
-  // GĹ‚Ăłwny tekst - biaĹ‚y
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(12, 10);
-  tft.print("PSKReporter MAP");
-  
-  // Status auto-odĹ›wieĹĽania
+  // Naglowek w stylu ISS (nakladka na mape).
+  uiHeader("PSKReporter MAP", true);
+
+  // Status auto-odswiezania
   tft.setTextSize(1);
-  // ObwĂłdka
-  tft.setTextColor(TFT_BLACK);
-  tft.setCursor(322, 12);
-  tft.print("AUTO:" + String(pskAutoRefreshMinutes > 0 ? String(pskAutoRefreshMinutes) + "min" : "OFF"));
-  tft.setCursor(321, 11);
-  tft.print("AUTO:" + String(pskAutoRefreshMinutes > 0 ? String(pskAutoRefreshMinutes) + "min" : "OFF"));
-  // Tekst
-  tft.setTextColor(TFT_YELLOW);
-  tft.setCursor(322, 12);
+  tft.setTextColor(UI_COL_WARN, UI_COL_BG);
+  tft.setCursor(322, 35);
   tft.print("AUTO:" + String(pskAutoRefreshMinutes > 0 ? String(pskAutoRefreshMinutes) + "min" : "OFF"));
 
   // Status danych: licznik spotow albo ostrzezenie o limicie zapytan PSKReporter.
   tft.setTextSize(1);
   if (pskRateLimited) {
-    tft.setTextColor(TFT_BLACK);
-    tft.setCursor(11, 29);
-    tft.print("LIMIT PSKReporter - poczekaj");
-    tft.setTextColor(TFT_RED);
-    tft.setCursor(12, 28);
+    tft.setTextColor(UI_COL_RED, UI_COL_BG);
+    tft.setCursor(12, 34);
     tft.print("LIMIT PSKReporter - poczekaj");
   } else if (pskSpotCount > 0) {
-    tft.setTextColor(TFT_BLACK);
-    tft.setCursor(11, 29);
-    tft.print("Spoty: " + String(pskSpotCount));
-    tft.setTextColor(TFT_GREEN);
-    tft.setCursor(12, 28);
+    tft.setTextColor(UI_COL_ACCENT, UI_COL_BG);
+    tft.setCursor(12, 34);
     tft.print("Spoty: " + String(pskSpotCount));
   }
 }

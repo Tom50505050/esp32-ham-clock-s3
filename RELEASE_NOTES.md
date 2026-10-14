@@ -1,3 +1,18 @@
+# ESP32-HAM-CLOCK v1.5 — wspolny styl "ISS TRACKER"
+
+## Zmiany w tym wydaniu
+
+- **TFT (wszystkie ekrany):** ujednolicony wyglad w stylu ekranu ISS TRACKER —
+  ciemna belka naglowka z teal linia, wysrodkowany tytul, hamburger i ikony
+  WiFi/baterii w jednym stylu, wspolna stopka z nawigacja.
+- Wprowadzono palete `UI_COL_*` oraz funkcje `uiHeader()`, `uiFooter()`,
+  `uiHamburger()`; `drawScreen()` rysuje naglowek/stopke dla wszystkich ekranow
+  poza pelnoekranowymi (Matrix, System Info, PSK, Radar, ISS).
+- Usunieto pomaranczowe belki naglowkow i duplikaty ikon z pojedynczych ekranow.
+- **APRS RADAR:** naglowek ISS wewnatrz sprite'a, zegar UTC po prawej.
+- **PSK MAP:** naglowek ISS jako nakladka na mape, status pod belka.
+- Zachowano wszystkie funkcje (nawigacja, menu, tabele, mapy, wykresy).
+
 # ESP32-HAM-CLOCK v1.2 — ESP32-S3 N16R8 + ILI9488 3.5"
 
 ## Zmiany w tym wydaniu
