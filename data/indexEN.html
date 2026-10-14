@@ -662,9 +662,23 @@
                     <div id="img-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
                 </div>
                 <div class="form-group" style="border-top:1px solid #2a3357;padding-top:12px;">
-                    <label>Welcome screen — upload directly as JPG / PNG / BMP (no conversion):</label>
+                    <label>Welcome screen — upload as JPG / PNG / BMP (with optional conversion):</label>
                     <input type="file" id="welcome-direct-file" accept=".png,.jpg,.jpeg,.bmp">
-                    <small>Replaces the <b>welcome screen</b> (the screen showing the program version and authors) with your image. The file goes to the device 1:1. 480×320 recommended. Firmware decodes JPG (TJpg), PNG (pngle) and BMP.</small>
+                    <small>Replaces the <b>welcome screen</b> (the screen showing the program version and authors) with your image. 480×320 recommended. Firmware decodes JPG (TJpg), PNG (pngle) and BMP.</small>
+                    <div style="margin-top:8px;">
+                        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+                            <input type="checkbox" id="welcome-direct-convert" checked style="width:auto;">
+                            Convert in the browser to 480×320 RGB565 (scales and shrinks the file). Uncheck to upload 1:1.
+                        </label>
+                    </div>
+                    <div class="form-group" id="welcome-direct-fit-wrap">
+                        <label>Fit (when conversion is on):</label>
+                        <select id="welcome-direct-fit">
+                            <option value="contain">Keep aspect ratio (black background, fully visible)</option>
+                            <option value="cover">Fill the screen (crop the excess, no distortion)</option>
+                            <option value="stretch">Stretch exactly to 480×320</option>
+                        </select>
+                    </div>
                     <div style="margin-top:8px;">
                         <button type="button" class="btn" id="welcome-direct-btn" style="background:#2a4a6a;">⬆️ Upload and set as welcome screen</button>
                     </div>
@@ -1382,24 +1396,40 @@
             btn.addEventListener('click', () => {
                 const file = fileInput.files && fileInput.files[0];
                 if (!file) { status.textContent = "Choose a JPG / PNG / BMP file first."; return; }
-                status.textContent = "Uploading and setting: " + file.name + "...";
+                const convert = document.getElementById('welcome-direct-convert');
+                const convertOn = !convert || convert.checked;
                 btn.disabled = true;
-                fetch('/upload_welcome', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/octet-stream',
-                        'X-Filename': file.name
-                    },
-                    body: file
-                })
-                    .then(r => {
-                        if (!r.ok) throw new Error('http ' + r.status);
-                        status.textContent = "Uploaded. Restart the device to see the new welcome screen.";
-                        btn.disabled = false;
-                        const pv = document.getElementById('welcome-preview');
-                        if (pv) pv.src = '/welcome_preview?t=' + Date.now();
+                const send = (blob, name) => {
+                    fetch('/upload_welcome', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/octet-stream',
+                            'X-Filename': name
+                        },
+                        body: blob
                     })
-                    .catch(() => { status.textContent = "Upload failed (format/network)."; btn.disabled = false; });
+                        .then(r => {
+                            if (!r.ok) throw new Error('http ' + r.status);
+                            status.textContent = "Uploaded. Restart the device to see the new welcome screen.";
+                            btn.disabled = false;
+                            const pv = document.getElementById('welcome-preview');
+                            if (pv) pv.src = '/welcome_preview?t=' + Date.now();
+                        })
+                        .catch(() => { status.textContent = "Upload failed (format/network)."; btn.disabled = false; });
+                };
+                if (convertOn) {
+                    status.textContent = "Converting " + file.name + " to 480x320 RGB565...";
+                    const fitSel = document.getElementById('welcome-direct-fit');
+                    const mode = fitSel ? fitSel.value : 'contain';
+                    convertImageToBmp565(file, mode, (blob) => {
+                        status.textContent = "Uploading (converted, " + (blob.size / 1024).toFixed(1) + " KB)...";
+                        const base = (file.name.replace(/\.[^.]+$/, '') || 'welcome');
+                        send(blob, base + '_480x320.bmp');
+                    }, () => { status.textContent = "Cannot read this image file."; btn.disabled = false; });
+                } else {
+                    status.textContent = "Uploading 1:1: " + file.name + "...";
+                    send(file, file.name);
+                }
             });
         };
 
@@ -1473,6 +1503,20 @@
                 o += rowSize;
             }
             return new Blob([buf], { type: 'image/bmp' });
+        };
+
+        // Convert a File to a ready BMP 16-bit RGB565 - used by the direct
+        // welcome-screen upload when conversion is enabled.
+        const convertImageToBmp565 = (file, mode, onDone, onError) => {
+            const url = URL.createObjectURL(file);
+            const im = new Image();
+            im.onload = () => {
+                const rgba = drawFittedToCanvas(im, mode);
+                URL.revokeObjectURL(url);
+                onDone(buildBmp565(rgba));
+            };
+            im.onerror = () => { URL.revokeObjectURL(url); if (onError) onError(); };
+            im.src = url;
         };
 
         const runImageConversion = () => {

@@ -937,6 +937,33 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Nowy ekran powitalny widac po restarcie (rysuje sie tylko przy starcie).
 - Publish: `/workspace/share/flash/littlefs.bin` + `esp32-ham-clock-s3.zip`.
 
+### Ekran powitalny z KONWERSJA + starszy styl zegara (14.10.2026)
+- Upload ekranu powitalnego ma teraz **mozliwosc konwersji** (domyslnie WLACZONA):
+  checkbox `welcome-direct-convert` + select `welcome-direct-fit`
+  (contain/cover/stretch). Gdy wlaczona, plik jest skalowany w przegladarce do
+  480x320 i pakowany do BMP RGB565 (`convertImageToBmp565` -> `buildBmp565`),
+  potem RAW na `/upload_welcome`. Odznaczona => plik leci 1:1 (bez zmian rozmiaru).
+- `convertImageToBmp565(file, mode, onDone, onError)` - wspolny helper (PL+EN),
+  korzysta z `drawFittedToCanvas` i `buildBmp565`.
+- **Starszy styl ekranu zegara** (v1.4.3): przelacznik `screen1ClockStyle`
+  (0 = nowy uklad paneli, 1 = stara wersja). Persystencja NVS: `screen1_style`.
+  - `drawHamClock()` na poczatku: `if (screen1ClockStyle == 1) { drawHamClockClassic(); return; }`
+  - `drawHamClockClassic()`: pomaranczowy naglowek (`updateScreen1Header`: logo ESP32
+    w czarnej obwodce + zegar HH:MM lewy gorny rog + paski WiFi + bateria), ramka
+    `drawRoundRect(30,45,420,220)` ciemnoszara, callsign (font 5, kolor `callsignColor`),
+    "OPERATOR STATION", duzy zegar cyfrowy (font 7), etykieta UTC/Czas Lokalny, data
+    (font VLW Inter 20 albo font 3 ASCII), imieniny (`getPolishNameDay`, tylko PL),
+    adres IP na dolnym pasku, strzalki nawigacyjne. Bez `uiHeader`/`uiFooter`.
+  - `updateScreen1ClockClassic()` odswieza duzy zegar co sekunde (bez migotania,
+    `setTextPadding`). Petla glowna wybiera klasyczne update gdy `screen1ClockStyle==1`.
+  - Dotyk: w klasycznym stylu menu czasu otwiera klikniecie w prawy gorny rog
+    (`x>285 && y<35`); w nowym - przytrzymanie na tarczy. Obszar znaku
+    (`callsignHitX/Y/W/H`) ustawiany w `drawHamClockClassic` (przytrzymanie = kolor znaku).
+  - `drawScreen()`: dla klasycznego zegara nie rysuje `uiHeader`/`uiFooter`/`drawHamClockIp`.
+  - Menu "TIME MODE" (klik w rogu) ma dodatkowe kafelki "WYGLAD ZEGARA": NOWY / STARY.
+- Podglad starszego ukladu: `/workspace/share/hamclock-classic-preview.png`.
+  Build oba env: SUCCESS.
+
 
 
 

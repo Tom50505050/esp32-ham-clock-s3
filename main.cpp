@@ -87,6 +87,7 @@ String formatDistanceOrCountry(const DXSpot &spot, size_t maxLen);
 void drawWelcomeScreenYellow();
 void drawSplashScreen();
 void drawHamClock();
+void drawHamClockClassic();
 void drawHamClockIp();
 void drawDxCluster();
 void drawSunSpots();
@@ -766,6 +767,9 @@ enum Screen1TimeMode {
   SCREEN1_TIME_LOCAL = 1
 };
 uint8_t screen1TimeMode = SCREEN1_TIME_UTC;
+// Styl ekranu 1 (zegara): 0 = nowy uklad (panele: globus/zegar/widmo),
+// 1 = starsza wersja (callsign + duzy zegar cyfrowy + data + imieniny).
+uint8_t screen1ClockStyle = 0;
 
 enum TftLang : uint8_t {
   TFT_LANG_PL = 0,
@@ -2682,7 +2686,10 @@ void drawScreen(ScreenType screenNum) {
                              screenNum == SCREEN_ISS_PASS_TRACKING);
   if (!issFullBleed) {
     switch (screenNum) {
-      case SCREEN_HAM_CLOCK:        uiHeader("ESP32-HAM-CLOCK", false); uiHeaderClock(); screen1HeaderNeedsRedraw = false; break;
+      case SCREEN_HAM_CLOCK:
+        if (screen1ClockStyle == 1) { screen1HeaderNeedsRedraw = true; }
+        else { uiHeader("ESP32-HAM-CLOCK", false); uiHeaderClock(); screen1HeaderNeedsRedraw = false; }
+        break;
       case SCREEN_DX_CLUSTER:       uiHeader("DXSPOTS.com", true); break;
       case SCREEN_POTA_CLUSTER:     uiHeader("POTA.app", true); break;
       case SCREEN_HAMALERT_CLUSTER: uiHeader("HAMALERT.org", true); break;
@@ -2746,10 +2753,11 @@ void drawScreen(ScreenType screenNum) {
       break;
   }
 
-  if (!issFullBleed && screenNum != SCREEN_OFF) {
+  const bool classicClock = (screenNum == SCREEN_HAM_CLOCK && screen1ClockStyle == 1);
+  if (!issFullBleed && screenNum != SCREEN_OFF && !classicClock) {
     uiFooter();
   }
-  if (screenNum == SCREEN_HAM_CLOCK) {
+  if (screenNum == SCREEN_HAM_CLOCK && !classicClock) {
     drawHamClockIp();  // IP nad "SWITCH SCREEN" (po stopce)
   }
 }
@@ -3416,6 +3424,55 @@ void updateScreen1Header() {
   screen1HeaderNeedsRedraw = false;
 }
 
+// Naglowek w stylu starszej wersji (v1.4.3): pomaranczowa belka, logo
+// "ESP32" w czarnej obwodce + "-HAM-CLOCK", zegar HH:MM, paski WiFi i bateria.
+static void updateScreen1HeaderClassic() {
+  if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
+    return;
+  }
+  if (!screen1HeaderNeedsRedraw) {
+    return;
+  }
+
+  const int headerH = 40;
+  const int screenW = 480;
+  tft.fillRect(0, 0, screenW, headerH, TFT_RADIO_ORANGE);
+  tft.drawFastHLine(0, headerH - 1, screenW, 0x8410);
+
+  String logoPart1 = "ESP32";
+  String logoPart2 = "-HAM-CLOCK";
+  tft.setTextSize(2);
+  int part1W = tft.textWidth(logoPart1);
+  int part2W = tft.textWidth(logoPart2);
+  int startX = (screenW - (part1W + part2W)) / 2;
+  int textY = 12;
+  tft.fillRect(startX - 6, textY - 3, part1W + 12, 22, TFT_BLACK);
+  tft.setTextColor(TFT_RADIO_ORANGE, TFT_BLACK);
+  tft.setCursor(startX, textY);
+  tft.print(logoPart1);
+  tft.setTextColor(TFT_BLACK, TFT_RADIO_ORANGE);
+  tft.setCursor(startX + part1W, textY);
+  tft.print(logoPart2);
+
+  drawWifiSignalBars(screenW - 45, 8);
+  drawBatteryIcon(screenW - 70, 8);
+
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 1)) {
+    char timeBuffer[6];
+    strftime(timeBuffer, 6, "%H:%M", &timeinfo);
+    String timeStr = String(timeBuffer);
+    tft.setTextSize(2);
+    int timeX = 10, timeY = 12;
+    tft.fillRect(timeX - 2, timeY - 2, tft.textWidth(timeStr) + 4, 20, TFT_RADIO_ORANGE);
+    tft.setTextColor(TFT_BLACK, TFT_RADIO_ORANGE);
+    tft.setCursor(timeX, timeY);
+    tft.print(timeStr);
+  }
+
+  screen1HeaderNeedsRedraw = false;
+}
+
 // ================= EKRAN 1: HAM CLOCK =================
 // Styl wg wzorca: czarne tlo, cyjanowy naglowek wysrodkowany z linia,
 // trzy panele (globus / zegar analogowy / widmo+wodospad 20 m) oraz dolna
@@ -3541,7 +3598,167 @@ static void hamClockDrawHands(const struct tm &t) {
   tft.fillCircle(cx, cy, 2, HC_YELLOW);
 }
 
+// ================= EKRAN 1: STARSZA WERSJA (v1.4.3) =================
+// Klasyczny uklad: pomaranczowy naglowek z logo/klockiem/WiFi/bateria,
+// ramka ze znakiem + duzy zegar cyfrowy + data + imieniny, adres IP i strzalki.
+void drawHamClockClassic() {
+  tft.fillScreen(TFT_BLACK);
+  screen1HeaderNeedsRedraw = true;
+
+  const int screenW = 480;
+  const int screenH = 320;
+
+  updateScreen1HeaderClassic();
+
+  // Ramka wokol znaku, zegara i daty.
+  int clockFrameX = 30;
+  int clockFrameW = 420;
+  int clockFrameY = 45;
+  int clockFrameH = 220;
+  tft.drawRoundRect(clockFrameX, clockFrameY, clockFrameW, clockFrameH, 10, TFT_DARKGREY);
+
+  // Znak (callsign) - wysrodkowany w ramce.
+  tft.setTextColor(callsignColor);
+  tft.setTextSize(5);
+  String callsign = (userCallsign.length() > 0) ? userCallsign : String(DEFAULT_CALLSIGN);
+  callsign.toUpperCase();
+  int callWidth = tft.textWidth(callsign);
+  int callX = (screenW - callWidth) / 2;
+  int callY = 55;
+  tft.setCursor(max(10, callX), callY);
+  tft.print(callsign);
+  callsignHitX = max(10, callX) - 10;
+  callsignHitY = callY - 5;
+  callsignHitW = callWidth + 20;
+  callsignHitH = 50;
+
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_RADIO_ORANGE, TFT_BLACK);
+  String opText = "OPERATOR STATION";
+  tft.setCursor((screenW - tft.textWidth(opText)) / 2, callY + 40);
+  tft.print(opText);
+
+  // Duzy zegar cyfrowy.
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(7);
+  String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
+                     ? getTimezoneTimeString("%H:%M:%S", 9)
+                     : getUtcTimeString();
+  int timeY = 130;
+  tft.setCursor(max(10, (screenW - tft.textWidth(timeStr)) / 2), timeY);
+  tft.print(timeStr);
+
+  tft.setTextSize(1);
+  const char *timeLabel = "UTC";
+  if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
+    timeLabel = (tftLanguage == TFT_LANG_EN) ? "Local Time" : "Czas Lokalny";
+  }
+  tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+  tft.setCursor((screenW - tft.textWidth(timeLabel)) / 2, timeY + 66);
+  tft.print(timeLabel);
+
+  // Data (pelna, z polskimi znakami przez font VLW).
+  String dateText;
+  struct tm timeinfo;
+  bool timeValid = (screen1TimeMode == SCREEN1_TIME_LOCAL)
+                     ? getTimeWithTimezone(&timeinfo)
+                     : getLocalTime(&timeinfo, 1);
+  if (!timeValid || timeinfo.tm_year < 125) {
+    dateText = "...";
+  } else if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
+    dateText = (tftLanguage == TFT_LANG_EN) ? getEnglishDateStringFullWithTimezone()
+                                            : getPolishDateStringFullWithTimezone();
+  } else {
+    dateText = (tftLanguage == TFT_LANG_EN) ? getEnglishDateStringFull()
+                                            : getPolishDateStringFull();
+  }
+
+  int dateY = timeY + 84;
+  if (littleFsReady && LittleFS.exists(ROBOTO_FONT20_FILE) && ESP.getFreeHeap() > 80000) {
+    tft.loadFont(ROBOTO_FONT20_NAME, LittleFS);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor(max(10, (screenW - tft.textWidth(dateText)) / 2), dateY);
+    tft.print(dateText);
+    tft.unloadFont();
+  } else {
+    tft.setTextSize(3);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    String ascii = sanitizePolishToAscii(dateText);
+    tft.setCursor(max(10, (screenW - tft.textWidth(ascii)) / 2), dateY);
+    tft.print(ascii);
+  }
+
+  // Imieniny (tylko PL).
+  if (tftLanguage != TFT_LANG_EN) {
+    String nameDayText = getPolishNameDay();
+    if (nameDayText.length() > 0) {
+      int nameDayY = dateY + 30;
+      if (littleFsReady && LittleFS.exists(ROBOTO_FONT12_FILE) && ESP.getFreeHeap() > 80000) {
+        tft.loadFont(ROBOTO_FONT12_NAME, LittleFS);
+        tft.setTextColor(TFT_RADIO_ORANGE, TFT_BLACK);
+        tft.setCursor(max(10, (screenW - tft.textWidth(nameDayText)) / 2), nameDayY);
+        tft.print(nameDayText);
+        tft.unloadFont();
+      } else {
+        tft.setTextSize(2);
+        tft.setTextColor(TFT_RADIO_ORANGE, TFT_BLACK);
+        String ascii = sanitizePolishToAscii(nameDayText);
+        int x = max(10, (screenW - tft.textWidth(ascii)) / 2);
+        tft.setCursor(x, nameDayY);
+        tft.print(ascii);
+      }
+    }
+  }
+
+  // Adres IP (dolny pasek).
+  IPAddress ip;
+  bool connected = false;
+  if (wifiConnected && WiFi.status() == WL_CONNECTED) {
+    ip = WiFi.localIP();
+    connected = true;
+  } else if (WiFi.getMode() & WIFI_AP) {
+    ip = WiFi.softAPIP();
+    connected = true;
+  }
+  tft.setTextSize(2);
+  String ipStr = connected ? ip.toString() : String("NO CONNECTION");
+  tft.setTextColor(connected ? TFT_LIGHTGREY : TFT_RED, TFT_BLACK);
+  tft.setCursor((screenW - tft.textWidth(ipStr)) / 2, screenH - 20);
+  tft.print(ipStr);
+
+  // Strzalki nawigacyjne.
+  int arrowY = screenH - 30;
+  int arrowSize = 12;
+  tft.fillTriangle(15, arrowY, 15 + arrowSize, arrowY - arrowSize, 15 + arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
+  tft.fillTriangle(screenW - 15, arrowY, screenW - 15 - arrowSize, arrowY - arrowSize, screenW - 15 - arrowSize, arrowY + arrowSize, TFT_RADIO_ORANGE);
+
+#ifdef BATTERY_MONITORING_ENABLED
+  drawBatteryQuickUpdate(true);
+#endif
+}
+
+// Aktualizacja duzego zegara cyfrowego (styl klasyczny).
+static void updateScreen1ClockClassic() {
+  if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
+    return;
+  }
+  const int screenW = 480;
+  const int timeY = 130;
+  String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
+                     ? getTimezoneTimeString("%H:%M:%S", 9)
+                     : getUtcTimeString();
+  int timeX = (screenW - timeStr.length() * 42) / 2;
+  if (timeX < 10) timeX = 10;
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(7);
+  tft.setTextPadding(8 * 42 + 10);
+  tft.setCursor(timeX, timeY);
+  tft.print(timeStr);
+  tft.setTextPadding(0);
+}
+
 void drawHamClock() {
+  if (screen1ClockStyle == 1) { drawHamClockClassic(); return; }
   // 1. Naglowek - cyjanowy, wysrodkowany, z linia pod spodem.
   tft.setTextDatum(TC_DATUM);
   tft.setTextColor(HC_CYAN, HC_BG);
@@ -5448,12 +5665,21 @@ void handleTouchNavigation() {
       }
     }
     if (currentScreen == SCREEN_HAM_CLOCK) {
-      // Przytrzymanie na tarczy analogowego zegara otwiera menu czasu/opcji.
-      int dx = (int)x - HC_CLOCK_CX, dy = (int)y - HC_CLOCK_CY;
-      if (dx * dx + dy * dy <= HC_CLOCK_R * HC_CLOCK_R) {
-        inMenu = true;
-        drawHamClockTimeMenu();
-        return;
+      if (screen1ClockStyle == 1) {
+        // Styl klasyczny: menu czasu otwiera sie kliknieciem w prawy gorny rog.
+        if (x > 285 && y < 35) {
+          inMenu = true;
+          drawHamClockTimeMenu();
+          return;
+        }
+      } else {
+        // Nowy uklad: przytrzymanie na tarczy analogowego zegara.
+        int dx = (int)x - HC_CLOCK_CX, dy = (int)y - HC_CLOCK_CY;
+        if (dx * dx + dy * dy <= HC_CLOCK_R * HC_CLOCK_R) {
+          inMenu = true;
+          drawHamClockTimeMenu();
+          return;
+        }
       }
     }
     if (currentScreen == SCREEN_WEATHER_DSP || currentScreen == SCREEN_WEATHER_FORECAST) {
@@ -6642,6 +6868,15 @@ void drawHamClockTimeMenu() {
   drawFilterTile(startX, tileY, tileW, tileH, "UTC", screen1TimeMode == SCREEN1_TIME_UTC);
   drawFilterTile(startX + tileW + gap, tileY, tileW, tileH, "LOCAL", screen1TimeMode == SCREEN1_TIME_LOCAL);
 
+  // Wybor wygladu ekranu zegara: nowy uklad / starsza wersja.
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setTextSize(1);
+  tft.setCursor(startX, 104);
+  tft.print((tftLanguage == TFT_LANG_EN) ? "CLOCK STYLE" : "WYGLAD ZEGARA");
+  const int styleY = 120;
+  drawFilterTile(startX, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "NEW" : "NOWY", screen1ClockStyle == 0);
+  drawFilterTile(startX + tileW + gap, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "OLD" : "STARY", screen1ClockStyle == 1);
+
   const int closeW = 100;
   const int closeH = 26;
   const int closeX = (480 - closeW) / 2;
@@ -6726,6 +6961,21 @@ void handleScreen1MenuTouch(uint16_t x, uint16_t y) {
   }
   if (isPointInRect(x, y, startX + tileW + gap, tileY, tileW, tileH)) {
     screen1TimeMode = SCREEN1_TIME_LOCAL;
+    savePreferences();
+    drawHamClockTimeMenu();
+    return;
+  }
+
+  // Wybor wygladu zegara.
+  const int styleY = 120;
+  if (isPointInRect(x, y, startX, styleY, tileW, tileH)) {
+    screen1ClockStyle = 0;
+    savePreferences();
+    drawHamClockTimeMenu();
+    return;
+  }
+  if (isPointInRect(x, y, startX + tileW + gap, styleY, tileW, tileH)) {
+    screen1ClockStyle = 1;
     savePreferences();
     drawHamClockTimeMenu();
     return;
@@ -16687,6 +16937,8 @@ void loadPreferences() {
 
   screen1TimeMode = (uint8_t)preferences->getInt("screen1_time", SCREEN1_TIME_UTC);
   if (screen1TimeMode > SCREEN1_TIME_LOCAL) screen1TimeMode = SCREEN1_TIME_UTC;
+  screen1ClockStyle = (uint8_t)preferences->getInt("screen1_style", 0);
+  if (screen1ClockStyle > 1) screen1ClockStyle = 0;
   
   // Konfiguracja wygaszacza ekranu (Matrix)
   screenSaverEnabled = preferences->getBool("ss_enabled", false);
@@ -16811,6 +17063,7 @@ void savePreferences() {
   preferences->putUChar("tft_tbl_size", dxTableSizeMode);
   preferences->putInt("menu_hue", menuThemeHue);
   preferences->putInt("screen1_time", screen1TimeMode);
+  preferences->putInt("screen1_style", screen1ClockStyle);
   preferences->putBool("tft_autosw", tftAutoSwitchEnabled);
   preferences->putUInt("callsign_color", callsignColor);
   preferences->putInt("tft_sw_sec", tftAutoSwitchTimeSec);
@@ -19632,13 +19885,18 @@ void uiTaskLoop(void *parameter) {
 
     if (!restartRequested) {
       if (tftInitialized && currentScreen == SCREEN_HAM_CLOCK && !inMenu && !aprsAlertScreenActive) {
-        if (now - lastScreen1UpdateMs > 1000) {
-          updateScreen1Clock();
-          updateScreen1HeaderClock();
-          lastScreen1UpdateMs = now;
+        if (screen1ClockStyle == 1) {
+          updateScreen1ClockClassic();
+          updateScreen1HeaderClassic();
+        } else {
+          if (now - lastScreen1UpdateMs > 1000) {
+            updateScreen1Clock();
+            updateScreen1HeaderClock();
+            lastScreen1UpdateMs = now;
+          }
+          updateScreen1Header();
+          updateScreen1Date();
         }
-        updateScreen1Header();
-        updateScreen1Date();
       }
 
       if (tftInitialized && currentScreen == SCREEN_DX_CLUSTER && !inMenu && !aprsAlertScreenActive && !qrzPopupActive) {
