@@ -3403,10 +3403,11 @@ void updateScreen1Header() {
 //   prawy  - analizator widma + wodospad dla pasma 20 m
 //   dol    - ramka z danymi projektu (typ/wersja/autor/baza/licencja/kontakt)
 static const int HC_FRAME_X = 5,  HC_FRAME_Y = 29, HC_FRAME_W = 470, HC_FRAME_H = 241;
-static const int HC_CLOCK_CX = 235, HC_CLOCK_CY = 114, HC_CLOCK_R = 72;
+static const int HC_CLOCK_CX = 236, HC_CLOCK_CY = 118, HC_CLOCK_R = 62;
+static const int HC_CLOCK_PANEL_X = 150, HC_CLOCK_PANEL_Y = 40, HC_CLOCK_PANEL_W = 172, HC_CLOCK_PANEL_H = 176;
 static const int HC_GLOBE_CX = 75,  HC_GLOBE_CY = 114, HC_GLOBE_R = 48;
 static const int HC_GLOBE_X = 15,   HC_GLOBE_Y = 40,  HC_GLOBE_W = 120, HC_GLOBE_H = 176;
-static const int HC_SPEC_X = 320,   HC_SPEC_Y = 116,  HC_SPEC_W = 146, HC_SPEC_H = 72;
+static const int HC_SPEC_X = 332,   HC_SPEC_Y = 116,  HC_SPEC_W = 134, HC_SPEC_H = 72;
 static const int HC_SPEC_PANEL_Y = 40, HC_SPEC_PANEL_H = 176;
 static const int HC_SPEC_BAR_Y = 60, HC_SPEC_BAR_H = 52;
 static const int HC_INFO_X = 15, HC_INFO_Y = 222, HC_INFO_W = 450, HC_INFO_H = 46;
@@ -3414,15 +3415,44 @@ static const int HC_INFO_X = 15, HC_INFO_Y = 222, HC_INFO_W = 450, HC_INFO_H = 4
 static const uint16_t HC_FACE_BG  = 0x0010;  // #001020 granat tarczy
 static const uint16_t HC_METAL    = 0xC618;  // srebrny
 static const uint16_t HC_METAL_DK = 0x7BEF;  // ciemny metal
+static const uint16_t HC_PANEL_BG = 0x0841;  // #080810 tlo paneli
+static const uint16_t HC_BEZEL_LT = 0xE71C;  // jasna krawedz fazowania
+static const uint16_t HC_BEZEL_DK = 0x39E7;  // ciemna krawedz fazowania
+static const uint16_t HC_CYAN     = 0x07FF;  // akcent cyjanowy
+static const uint16_t HC_GOLD     = 0xFEA0;  // zloty akcent
+static const uint16_t HC_PLATE    = 0x8C71;  // szczotkowane aluminium (plyta czolowa)
+static const uint16_t HC_INK      = 0x0008;  // ciemny granat tekstu na plycie
 
 static uint16_t hamClockWf[HC_SPEC_H][HC_SPEC_W];
 static bool hamClockWfInit = false;
 
+static uint16_t hamClockGradColor(int y) {
+  uint8_t b = (uint8_t)(8 + (y * 22) / 320);
+  return rgb565(0, 0, b);
+}
+
+// Pionowy gradient tla (gleboki granat) w obszarze ponizej naglowka.
+static void hamClockBg() {
+  for (int y = UI_HEADER_H; y < 320; y++)
+    tft.drawFastHLine(0, y, 480, hamClockGradColor(y));
+}
+
+// Fazowana (wypukla) ramka panelu: ciemna dolna/prawa krawedz + jasna gorna/lewa.
+static void hamClockBevel(int x, int y, int w, int h) {
+  tft.drawRoundRect(x, y, w, h, 6, HC_BEZEL_DK);
+  tft.drawFastHLine(x + 4, y + 1, w - 8, HC_BEZEL_LT);
+  tft.drawFastVLine(x + 1, y + 4, h - 8, HC_BEZEL_LT);
+  tft.drawFastHLine(x + 4, y + h - 2, w - 8, HC_BEZEL_DK);
+  tft.drawFastVLine(x + w - 2, y + 4, h - 8, HC_BEZEL_DK);
+}
+
 static void hamClockScrew(int cx, int cy) {
-  tft.fillCircle(cx, cy, 6, HC_METAL_DK);
-  tft.fillCircle(cx, cy, 5, HC_METAL);
-  tft.drawCircle(cx, cy, 5, HC_METAL_DK);
+  tft.fillCircle(cx, cy, 7, HC_METAL_DK);
+  tft.fillCircle(cx, cy, 6, HC_METAL);
+  tft.fillCircle(cx - 1, cy - 1, 5, lerpColor565(HC_METAL, TFT_WHITE, 90));
+  tft.drawCircle(cx, cy, 6, HC_METAL_DK);
   tft.drawLine(cx - 4, cy - 4, cx + 4, cy + 4, HC_METAL_DK);
+  tft.drawLine(cx - 4, cy - 3, cx + 3, cy + 4, lerpColor565(HC_METAL, TFT_WHITE, 120));
 }
 
 static uint8_t hamClockNoise(int bin, uint32_t t) {
@@ -3503,20 +3533,34 @@ static void hamClockDrawHands(const struct tm &t) {
 }
 
 void drawHamClock() {
-  // 1. Ramka obudowy + sruby w rogach.
-  tft.drawRoundRect(HC_FRAME_X, HC_FRAME_Y, HC_FRAME_W, HC_FRAME_H, 12, HC_METAL_DK);
-  tft.drawRoundRect(HC_FRAME_X + 1, HC_FRAME_Y + 1, HC_FRAME_W - 2, HC_FRAME_H - 2, 11, UI_COL_BORDER);
-  hamClockScrew(14, 38);
-  hamClockScrew(466, 38);
-  hamClockScrew(14, 261);
-  hamClockScrew(466, 261);
+  // 1. Ramka obudowy: gradient tla, szczotkowane aluminium, podwojna obwodka + sruby.
+  hamClockBg();
+  for (int y = HC_FRAME_Y; y < HC_FRAME_Y + HC_FRAME_H; y++) {
+    uint8_t t = (uint8_t)((y - HC_FRAME_Y) * 120 / HC_FRAME_H);
+    tft.drawFastHLine(HC_FRAME_X, y, HC_FRAME_W,
+                      lerpColor565(HC_PLATE, lerpColor565(HC_PLATE, TFT_WHITE, 90), t));
+  }
+  tft.drawRoundRect(HC_FRAME_X, HC_FRAME_Y, HC_FRAME_W, HC_FRAME_H, 12, HC_BEZEL_DK);
+  tft.drawRoundRect(HC_FRAME_X + 1, HC_FRAME_Y + 1, HC_FRAME_W - 2, HC_FRAME_H - 2, 11, HC_BEZEL_LT);
+  tft.drawRoundRect(HC_FRAME_X + 3, HC_FRAME_Y + 3, HC_FRAME_W - 6, HC_FRAME_H - 6, 9, HC_BEZEL_DK);
+  for (int i = 0; i < HC_FRAME_W - 8; i += 3) {
+    uint8_t s = (i % 6 == 0) ? 60 : 20;
+    tft.drawPixel(HC_FRAME_X + 4 + i, HC_FRAME_Y + 5, lerpColor565(HC_PLATE, TFT_WHITE, s));
+    tft.drawPixel(HC_FRAME_X + 4 + i, HC_FRAME_Y + HC_FRAME_H - 6, lerpColor565(HC_PLATE, TFT_BLACK, s));
+  }
+  hamClockScrew(16, 42);
+  hamClockScrew(464, 42);
+  hamClockScrew(16, 257);
+  hamClockScrew(464, 257);
 
   // 2. Lewy panel - globus / sledzenie satelity.
   tft.setTextDatum(TL_DATUM);
-  tft.drawRoundRect(HC_GLOBE_X, HC_GLOBE_Y, HC_GLOBE_W, HC_GLOBE_H, 6, UI_COL_BORDER);
+  tft.fillRoundRect(HC_GLOBE_X, HC_GLOBE_Y, HC_GLOBE_W, HC_GLOBE_H, 6, HC_PANEL_BG);
+  hamClockBevel(HC_GLOBE_X, HC_GLOBE_Y, HC_GLOBE_W, HC_GLOBE_H);
+  tft.fillRoundRect(HC_GLOBE_X + 1, HC_GLOBE_Y + 1, HC_GLOBE_W - 2, 13, 5, HC_FACE_BG);
   tft.setTextSize(1);
-  tft.setTextColor(UI_COL_ACCENT, TFT_BLACK);
-  tft.setCursor(HC_GLOBE_X + 4, HC_GLOBE_Y + 3);
+  tft.setTextColor(HC_CYAN, HC_FACE_BG);
+  tft.setCursor(HC_GLOBE_X + 5, HC_GLOBE_Y + 3);
   tft.print("GLOBE / SAT");
 
   tft.fillCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R, HC_FACE_BG);
@@ -3530,7 +3574,8 @@ void drawHamClock() {
     int ww = (int)sqrtf((float)(HC_GLOBE_R * HC_GLOBE_R - dy * dy));
     tft.drawLine(HC_GLOBE_CX - ww, HC_GLOBE_CY + dy, HC_GLOBE_CX + ww, HC_GLOBE_CY + dy, UI_COL_BORDER);
   }
-  tft.drawCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R, UI_COL_ACCENT);
+  tft.drawCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R, HC_CYAN);
+  tft.drawCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R - 1, lerpColor565(HC_CYAN, TFT_BLACK, 150));
 
   if (userLatLonValid) {
     hamClockGlobeMarker(userLat, userLon, TFT_YELLOW);
@@ -3544,49 +3589,54 @@ void drawHamClock() {
   char issBuf[16];
   snprintf(issBuf, sizeof(issBuf), "%s%.1f %s%.1f",
            (issLat < 0 ? "-" : ""), fabs(issLat), (issLng < 0 ? "-" : ""), fabs(issLng));
-  tft.setTextColor(UI_COL_DIM, TFT_BLACK);
+  tft.setTextColor(UI_COL_DIM, HC_PANEL_BG);
   tft.setCursor(HC_GLOBE_X + 4, HC_GLOBE_Y + 146);
   tft.print("ISS:");
-  tft.setTextColor(UI_COL_ACCENT2, TFT_BLACK);
+  tft.setTextColor(HC_CYAN, HC_PANEL_BG);
   tft.setCursor(HC_GLOBE_X + 30, HC_GLOBE_Y + 146);
   tft.print(issBuf);
-  tft.setTextColor(UI_COL_DIM, TFT_BLACK);
+  tft.setTextColor(UI_COL_DIM, HC_PANEL_BG);
   tft.setCursor(HC_GLOBE_X + 4, HC_GLOBE_Y + 158);
   tft.print("LOC:");
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setTextColor(TFT_YELLOW, HC_PANEL_BG);
   tft.setCursor(HC_GLOBE_X + 30, HC_GLOBE_Y + 158);
   tft.print(userLocator.length() > 0 ? userLocator : String("--"));
 
-  // 3. Srodkowy panel - analogowa tarcza zegara.
+  // 3. Srodkowy panel - analogowa tarcza zegara (metaliczna, z fazowaniem).
   const int cx = HC_CLOCK_CX, cy = HC_CLOCK_CY, r = HC_CLOCK_R;
-  tft.fillCircle(cx, cy, r + 8, HC_METAL_DK);
-  tft.drawCircle(cx, cy, r + 8, HC_METAL);
-  tft.drawCircle(cx, cy, r + 6, UI_COL_BORDER);
+  tft.fillRoundRect(HC_CLOCK_PANEL_X, HC_CLOCK_PANEL_Y, HC_CLOCK_PANEL_W, HC_CLOCK_PANEL_H, 6, HC_PANEL_BG);
+  hamClockBevel(HC_CLOCK_PANEL_X, HC_CLOCK_PANEL_Y, HC_CLOCK_PANEL_W, HC_CLOCK_PANEL_H);
+  for (int i = 8; i >= 0; i--)
+    tft.drawCircle(cx, cy, r + 6 + i, lerpColor565(HC_METAL_DK, TFT_BLACK, (uint8_t)(190 - i * 20)));
+  tft.fillCircle(cx, cy, r + 5, HC_METAL);
+  tft.fillCircle(cx, cy, r + 4, lerpColor565(HC_METAL, TFT_WHITE, 40));
+  tft.drawCircle(cx, cy, r + 3, HC_METAL_DK);
   tft.fillCircle(cx, cy, r, HC_FACE_BG);
-  tft.drawCircle(cx, cy, r, HC_METAL_DK);
+  tft.drawCircle(cx, cy, r - 2, lerpColor565(HC_CYAN, TFT_BLACK, 170));
+  tft.drawCircle(cx, cy, r - 3, lerpColor565(HC_CYAN, TFT_BLACK, 210));
 
   const char *nums[12] = {"12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"};
   for (int i = 0; i < 12; i++) {
     float a = (i * 30 - 90) * PI / 180.0f;
-    int nx = cx + (int)((r - 15) * cosf(a));
-    int ny = cy + (int)((r - 15) * sinf(a));
+    int nx = cx + (int)((r - 14) * cosf(a));
+    int ny = cy + (int)((r - 14) * sinf(a));
     tft.setTextSize(2);
-    tft.setTextColor(HC_METAL, HC_FACE_BG);
+    tft.setTextColor((i % 3 == 0) ? TFT_WHITE : HC_METAL, HC_FACE_BG);
     tft.setCursor(nx - tft.textWidth(nums[i]) / 2, ny - 8);
     tft.print(nums[i]);
   }
   for (int i = 0; i < 60; i++) {
     if (i % 5 == 0) continue;
     float a = i * 6 * PI / 180.0f;
-    int x1 = cx + (int)((r - 5) * cosf(a));
-    int y1 = cy + (int)((r - 5) * sinf(a));
-    int x2 = cx + (int)((r - 10) * cosf(a));
-    int y2 = cy + (int)((r - 10) * sinf(a));
+    int x1 = cx + (int)((r - 4) * cosf(a));
+    int y1 = cy + (int)((r - 4) * sinf(a));
+    int x2 = cx + (int)((r - 9) * cosf(a));
+    int y2 = cy + (int)((r - 9) * sinf(a));
     tft.drawLine(x1, y1, x2, y2, UI_COL_BORDER);
   }
   tft.setTextSize(1);
-  tft.setTextColor(UI_COL_ACCENT, HC_FACE_BG);
-  tft.setCursor(cx - 20, cy - r + 13);
+  tft.setTextColor(HC_GOLD, HC_FACE_BG);
+  tft.setCursor(cx - 20, cy - r + 12);
   tft.print("HAM RADIO");
 
   struct tm ti;
@@ -3601,32 +3651,36 @@ void drawHamClock() {
     snprintf(dateStr, sizeof(dateStr), "----------");
   }
   tft.setTextSize(2);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, HC_PANEL_BG);
   tft.setCursor(cx - tft.textWidth(dateStr) / 2, cy + r + 10);
   tft.print(dateStr);
   const char *tlabel = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                          ? ((tftLanguage == TFT_LANG_EN) ? "LOCAL" : "LOKALNY")
                          : "UTC";
   tft.setTextSize(1);
-  tft.setTextColor(UI_COL_ACCENT, TFT_BLACK);
+  tft.setTextColor(HC_CYAN, HC_PANEL_BG);
   tft.setCursor(cx - tft.textWidth(tlabel) / 2, cy + r + 28);
   tft.print(tlabel);
 
   // 4. Prawy panel - analizator widma + wodospad (20 m).
-  tft.drawRoundRect(HC_SPEC_X, HC_SPEC_PANEL_Y, HC_SPEC_W, HC_SPEC_PANEL_H, 6, UI_COL_BORDER);
-  tft.setTextColor(UI_COL_ACCENT, TFT_BLACK);
-  tft.setCursor(HC_SPEC_X + 4, HC_SPEC_PANEL_Y + 3);
+  tft.fillRoundRect(HC_SPEC_X, HC_SPEC_PANEL_Y, HC_SPEC_W, HC_SPEC_PANEL_H, 6, HC_PANEL_BG);
+  hamClockBevel(HC_SPEC_X, HC_SPEC_PANEL_Y, HC_SPEC_W, HC_SPEC_PANEL_H);
+  tft.fillRoundRect(HC_SPEC_X + 1, HC_SPEC_PANEL_Y + 1, HC_SPEC_W - 2, 13, 5, UI_COL_CARD);
+  tft.setTextColor(HC_CYAN, UI_COL_CARD);
+  tft.setCursor(HC_SPEC_X + 5, HC_SPEC_PANEL_Y + 3);
   tft.print("20m SPECTRUM");
 
   uint32_t tick = millis() / 250;
   tft.fillRect(HC_SPEC_X, HC_SPEC_BAR_Y, HC_SPEC_W, HC_SPEC_BAR_H, HC_FACE_BG);
+  for (int gy = 0; gy < HC_SPEC_BAR_H; gy += 13)
+    tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + gy, HC_SPEC_W, lerpColor565(HC_FACE_BG, HC_CYAN, 30));
   for (int i = 0; i < HC_SPEC_W; i++) {
     uint8_t a = hamClockSpectrumAmp(i, tick);
     int h = (int)((uint32_t)a * HC_SPEC_BAR_H / 100);
     if (h < 1) h = 1;
     tft.drawFastVLine(HC_SPEC_X + i, HC_SPEC_BAR_Y + HC_SPEC_BAR_H - h, h, hamClockSpecColor(a));
   }
-  tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + HC_SPEC_BAR_H, HC_SPEC_W, UI_COL_BORDER);
+  tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + HC_SPEC_BAR_H, HC_SPEC_W, HC_BEZEL_LT);
 
   if (!hamClockWfInit) {
     for (int yy = 0; yy < HC_SPEC_H; yy++)
@@ -3642,22 +3696,24 @@ void drawHamClock() {
   }
   for (int yy = 0; yy < HC_SPEC_H; yy++)
     tft.pushImage(HC_SPEC_X, HC_SPEC_Y + yy, HC_SPEC_W, 1, hamClockWf[yy]);
+  tft.drawRect(HC_SPEC_X - 1, HC_SPEC_Y - 1, HC_SPEC_W + 2, HC_SPEC_H + 2, HC_BEZEL_DK);
 
-  tft.setTextColor(UI_COL_DIM, TFT_BLACK);
+  tft.setTextColor(UI_COL_DIM, HC_PANEL_BG);
   tft.setCursor(HC_SPEC_X + 2, HC_SPEC_Y + HC_SPEC_H + 3);
   tft.print("14.000");
   tft.setCursor(HC_SPEC_X + HC_SPEC_W - 30, HC_SPEC_Y + HC_SPEC_H + 3);
   tft.print("14.35");
 
   // 5. Dolna ramka z danymi projektu.
-  tft.drawRoundRect(HC_INFO_X, HC_INFO_Y, HC_INFO_W, HC_INFO_H, 6, UI_COL_BORDER);
+  tft.fillRoundRect(HC_INFO_X, HC_INFO_Y, HC_INFO_W, HC_INFO_H, 6, HC_PANEL_BG);
+  hamClockBevel(HC_INFO_X, HC_INFO_Y, HC_INFO_W, HC_INFO_H);
   const int LX = HC_INFO_X + 6, RX = HC_INFO_X + 232;
   auto kv = [](int x, int y, const char *k, const char *v) {
     tft.setTextSize(1);
-    tft.setTextColor(UI_COL_DIM, TFT_BLACK);
+    tft.setTextColor(HC_CYAN, HC_PANEL_BG);
     tft.setCursor(x, y);
     tft.print(k);
-    tft.setTextColor(UI_COL_TEXT, TFT_BLACK);
+    tft.setTextColor(UI_COL_TEXT, HC_PANEL_BG);
     tft.setCursor(x + tft.textWidth(k) + 2, y);
     tft.print(v);
   };
@@ -3761,7 +3817,7 @@ void updateScreen1Date() {
   snprintf(dateStr, sizeof(dateStr), "%04d-%02d-%02d",
            timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
   tft.setTextSize(2);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, HC_PANEL_BG);
   tft.setCursor(HC_CLOCK_CX - tft.textWidth(dateStr) / 2, HC_CLOCK_CY + HC_CLOCK_R + 10);
   tft.print(dateStr);
 }

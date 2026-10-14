@@ -889,3 +889,15 @@ Build: `pio run -e esp32-s3-n16r8 -e esp32-s3-n16r8-notouch` -> SUCCESS.
   wiec obszar przytrzymania znaku jest zerowany (`callsignHitW/H = 0`).
 - Podglad ukladu: `/workspace/share/hamclock-preview.png`. Build oba env: SUCCESS.
 
+### Styl nowoczesny (14.10.2026)
+- Tlo: pionowy gradient granatu (`hamClockBg`, ponizej naglowka, zeby nie zamalowac go).
+- Obudowa: szczotkowane aluminium (`HC_PLATE` 0x8C71) z gradientem + podwojna obwodka
+  (fazowanie `HC_BEZEL_LT/DK`) + sruby z polyskiem (`hamClockScrew`).
+- Panele (globus / zegar / widmo / info): ciemne tlo `HC_PANEL_BG`, fazowana ramka
+  (`hamClockBevel`), pasek tytulu w `HC_FACE_BG`, akcent cyjanowy `HC_CYAN` (0x07FF).
+- Zegar: wlasny panel (150,40 172x176), tarcza R=62 z metaliczna obwodka i cyjanowym
+  pierscieniem; cyfry 12/3/6/9 na bialo. Data/etykieta na tle panelu.
+- Tekst na plycie: `HC_INK`/`HC_CYAN` na `HC_PANEL_BG` (kontrola tla przy kazdym print,
+  bo tekst nie jest juz rysowany na czerni).
+
+
