@@ -866,3 +866,26 @@ Build: `pio run -e esp32-s3-n16r8 -e esp32-s3-n16r8-notouch` -> SUCCESS.
   na srodku, podpis "HAM RADIO - AMATEUR RADIO STATION", stopka (version/autor/base/
   license/email) w 5 liniach (size 2). Kolory z palety UI_COL_* (spojne z reszta UI).
 - Podglad ukladu: `/workspace/share/welcome-preview.png` (render symulujacy ekran).
+
+## EKRAN 1 (HAM CLOCK) - nowy uklad wg opisu obudowy (14.10.2026)
+- `drawHamClock()` przepisane. Layout 480x320 (naglowek 0-25 + stopka od 296):
+  - **Ramka obudowy**: `drawRoundRect` (srebrny/ciemny metal) 5,29 470x241 + 4 sruby
+    (`hamClockScrew`) w rogach (14,38)(466,38)(14,261)(466,261).
+  - **Lewy panel GLOBE / SAT** (15,40 120x176): globus (siatka poludnikow/rownoleznikow),
+    zolty marker domowego lokatora (`userLatLonValid`/`userLocator`) + czerwony marker ISS
+    (`issLat`/`issLng`), pod spodem ISS: lat/lon i LOC.
+  - **Srodkowa tarcza analogowa** (`HC_CLOCK_CX/CY/R`=235/114/72): ciemne granatowe tlo,
+    cyfry 1..12, kreski minutowe, wskazowki H/M/S (`hamClockDrawHands`), medalion, data
+    `RRRR-MM-DD` i etykieta UTC/LOCAL pod tarcza.
+  - **Prawy panel 20m SPECTRUM** (320,40 146x176): analizator widma (paski, piki przy
+    14.060 CW / 14.074 FT8 / 14.090 FT4 / 14.200 SSB) + wodospad (`pushImage` wierszami,
+    bufor `hamClockWf[72][146]` = 21 kB), podpisy 14.000/14.35.
+  - **Dolna ramka** (15,222 450x46): Typ / Wersja / Autor / Baza / Licencja / Kontakt.
+- Aktualizacje: `updateScreen1Clock()` przerysowuje wskazowki + paski + nowy wiersz
+  wodospadu; `updateScreen1Date()` tylko date (bez czyszczenia). `updateScreen1HeaderClock()`
+  to teraz no-op (brak zegara w naglowku - jest analogowy).
+- Dotyk: przytrzymanie na tarczy zegara (`dx^2+dy^2 <= R^2`) otwiera menu czasu/opcji
+  (wczesniej: prawy gorny rog). Znak wywolawczy nie jest juz rysowany na tym ekranie,
+  wiec obszar przytrzymania znaku jest zerowany (`callsignHitW/H = 0`).
+- Podglad ukladu: `/workspace/share/hamclock-preview.png`. Build oba env: SUCCESS.
+

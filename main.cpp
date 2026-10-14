@@ -3350,10 +3350,8 @@ void drawBatteryIcon(int x, int y, int percentage = -1) {
 }
 
 void updateScreen1HeaderClock() {
-  if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
-    return;
-  }
-  uiHeaderClock();
+  // Nowy uklad HAM CLOCK: zegar jest analogowy na tarczy, brak zegara w naglowku.
+  return;
 }
 
 void updateDxClusterClock() {
@@ -3398,154 +3396,282 @@ void updateScreen1Header() {
   screen1HeaderNeedsRedraw = false;
 }
 
+// ================= EKRAN 1: HAM CLOCK - nowy layout =================
+// Ramka obudowy (zaokraglona, sruby w rogach) + trzy panele:
+//   lewy   - globus / sledzenie satelity (ISS + lokator domowy)
+//   srodek - analogowa tarcza zegara (ciemna, cyfry + wskazowki)
+//   prawy  - analizator widma + wodospad dla pasma 20 m
+//   dol    - ramka z danymi projektu (typ/wersja/autor/baza/licencja/kontakt)
+static const int HC_FRAME_X = 5,  HC_FRAME_Y = 29, HC_FRAME_W = 470, HC_FRAME_H = 241;
+static const int HC_CLOCK_CX = 235, HC_CLOCK_CY = 114, HC_CLOCK_R = 72;
+static const int HC_GLOBE_CX = 75,  HC_GLOBE_CY = 114, HC_GLOBE_R = 48;
+static const int HC_GLOBE_X = 15,   HC_GLOBE_Y = 40,  HC_GLOBE_W = 120, HC_GLOBE_H = 176;
+static const int HC_SPEC_X = 320,   HC_SPEC_Y = 116,  HC_SPEC_W = 146, HC_SPEC_H = 72;
+static const int HC_SPEC_PANEL_Y = 40, HC_SPEC_PANEL_H = 176;
+static const int HC_SPEC_BAR_Y = 60, HC_SPEC_BAR_H = 52;
+static const int HC_INFO_X = 15, HC_INFO_Y = 222, HC_INFO_W = 450, HC_INFO_H = 46;
+
+static const uint16_t HC_FACE_BG  = 0x0010;  // #001020 granat tarczy
+static const uint16_t HC_METAL    = 0xC618;  // srebrny
+static const uint16_t HC_METAL_DK = 0x7BEF;  // ciemny metal
+
+static uint16_t hamClockWf[HC_SPEC_H][HC_SPEC_W];
+static bool hamClockWfInit = false;
+
+static void hamClockScrew(int cx, int cy) {
+  tft.fillCircle(cx, cy, 6, HC_METAL_DK);
+  tft.fillCircle(cx, cy, 5, HC_METAL);
+  tft.drawCircle(cx, cy, 5, HC_METAL_DK);
+  tft.drawLine(cx - 4, cy - 4, cx + 4, cy + 4, HC_METAL_DK);
+}
+
+static uint8_t hamClockNoise(int bin, uint32_t t) {
+  uint32_t v = (uint32_t)bin * 2654435761u + (t & 0xFFFFu) * 40503u;
+  v ^= v >> 15; v *= 2246822519u; v ^= v >> 13;
+  return (uint8_t)((v >> 8) & 0x3F);
+}
+
+// Amplituda 0..100 dla bitu widma. Piki przy aktywnych czestotliwosciach
+// pasma 20 m (CW 14.060, FT8 14.074, FT4 14.090, SSB 14.200), powolny dryf.
+static uint8_t hamClockSpectrumAmp(int bin, uint32_t t) {
+  const float peaks[4] = {14.060f, 14.074f, 14.090f, 14.200f};
+  float freq = 14.000f + (bin / (float)(HC_SPEC_W - 1)) * 0.350f;
+  int amp = hamClockNoise(bin, t) / 2;
+  for (int p = 0; p < 4; p++) {
+    float drift = 0.004f * sinf((float)t / 40.0f + p * 1.7f);
+    float d = freq - (peaks[p] + drift);
+    amp += (int)(expf(-(d * d) / 0.0032f) * (68 - p * 9));
+  }
+  if (amp > 100) amp = 100;
+  if (amp < 3) amp = 3;
+  return (uint8_t)amp;
+}
+
+static uint16_t hamClockSpecColor(uint8_t a) {
+  if (a < 50) return rgb565(0, (uint8_t)(120 + a), 60);
+  if (a < 80) return rgb565((uint8_t)((a - 50) * 8), 220, 40);
+  return rgb565(255, (uint8_t)(220 - (a - 80) * 8), 40);
+}
+
+static uint16_t hamClockWfColor(uint8_t a) {
+  int r = (a > 60) ? (a - 60) * 4 : 0;
+  int g = a * 2;
+  int b = (a < 40) ? (120 - a * 2) : 0;
+  if (r > 255) r = 255;
+  if (g > 255) g = 255;
+  if (b < 0) b = 0;
+  return rgb565((uint8_t)r, (uint8_t)g, (uint8_t)b);
+}
+
+// Rzutuje lat/lon na tarcze globusa (rownoodleglosciowo, przyciete do kola).
+static void hamClockGlobeMarker(double lat, double lon, uint16_t col) {
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+  int x = HC_GLOBE_CX + (int)((lon / 180.0) * HC_GLOBE_R * 0.92);
+  int y = HC_GLOBE_CY - (int)((lat / 90.0) * HC_GLOBE_R * 0.92);
+  int dx = x - HC_GLOBE_CX, dy = y - HC_GLOBE_CY;
+  int lim = HC_GLOBE_R - 3; lim *= lim;
+  if (dx * dx + dy * dy > lim) return;
+  tft.fillCircle(x, y, 3, col);
+}
+
+// Wskazowki zegara + medalion srodka (bez tarczy) - do czestych aktualizacji.
+static void hamClockDrawHands(const struct tm &t) {
+  const int cx = HC_CLOCK_CX, cy = HC_CLOCK_CY, r = HC_CLOCK_R;
+  float hAng = ((t.tm_hour % 12) * 30 + t.tm_min * 0.5 - 90) * PI / 180.0f;
+  float mAng = (t.tm_min * 6 - 90) * PI / 180.0f;
+  float sAng = (t.tm_sec * 6 - 90) * PI / 180.0f;
+
+  int hx = cx + (int)(r * 0.50 * cosf(hAng));
+  int hy = cy + (int)(r * 0.50 * sinf(hAng));
+  tft.drawLine(cx, cy, hx, hy, TFT_WHITE);
+  tft.drawLine(cx + 1, cy, hx + 1, hy, TFT_WHITE);
+  tft.drawLine(cx, cy + 1, hx, hy + 1, TFT_WHITE);
+
+  int mx = cx + (int)(r * 0.74 * cosf(mAng));
+  int my = cy + (int)(r * 0.74 * sinf(mAng));
+  tft.drawLine(cx, cy, mx, my, HC_METAL);
+  tft.drawLine(cx + 1, cy, mx + 1, my, HC_METAL);
+  tft.drawLine(cx, cy + 1, mx, my + 1, HC_METAL);
+
+  int sx = cx + (int)(r * 0.88 * cosf(sAng));
+  int sy = cy + (int)(r * 0.88 * sinf(sAng));
+  tft.drawLine(cx, cy, sx, sy, TFT_RED);
+
+  tft.fillCircle(cx, cy, 6, HC_METAL);
+  tft.fillCircle(cx, cy, 4, HC_FACE_BG);
+  tft.fillCircle(cx, cy, 2, TFT_RED);
+}
+
 void drawHamClock() {
-  // Ciemne tĹ‚o - profesjonalny wyglÄ…d i mniejsze zmÄ™czenie oczu
-  // ekran czysci drawScreen (wspolny styl ISS)
-  // naglowek rysuje drawScreen (wspolny styl ISS)
-  
-  const int screenW = 480;
-  const int screenH = 320;
-  
-  // 1. NAGĹĂ“WEK - PomaraĹ„czowa belka z wyĹ›rodkowanym napisem i ikonÄ… WiFi
-  // naglowek rysuje drawScreen (wspolny styl ISS)
+  // 1. Ramka obudowy + sruby w rogach.
+  tft.drawRoundRect(HC_FRAME_X, HC_FRAME_Y, HC_FRAME_W, HC_FRAME_H, 12, HC_METAL_DK);
+  tft.drawRoundRect(HC_FRAME_X + 1, HC_FRAME_Y + 1, HC_FRAME_W - 2, HC_FRAME_H - 2, 11, UI_COL_BORDER);
+  hamClockScrew(14, 38);
+  hamClockScrew(466, 38);
+  hamClockScrew(14, 261);
+  hamClockScrew(466, 261);
 
-  // 2. RAMKA WOKĂ“Ĺ ZNAKU, ZEGARA I DATY - powiÄ™kszona
-  int clockFrameX = 30;     // OdstÄ™p od lewej
-  int clockFrameW = 420;    // SzerokoĹ›Ä‡ ramki (szersza)
-  int clockFrameY = 37;     // GĂłra ramki
-  int clockFrameH = 220;    // WysokoĹ›Ä‡ ramki (powiÄ™kszona dla wiÄ™kszego zegara i imienin)
-  tft.drawRoundRect(clockFrameX, clockFrameY, clockFrameW, clockFrameH, 10, UI_COL_ACCENT2);
-
-  // 3. CALLSIGN - WyĹ›rodkowany w ramce (dokĹ‚adne obliczenia)
-  tft.setTextColor(callsignColor);
-  tft.setTextSize(5);
-  String callsign = (userCallsign.length() > 0) ? userCallsign : DEFAULT_CALLSIGN;
-  callsign.toUpperCase();
-  int callWidth = tft.textWidth(callsign);
-  int callX = (screenW - callWidth) / 2;
-  int callY = 47;
-  tft.setCursor(max(10, callX), callY);
-  tft.print(callsign);
-  // Zapamietaj obszar znaku - sluzy do wykrycia przytrzymania palca na znaku.
-  callsignHitX = max(10, callX) - 10;
-  callsignHitY = callY - 5;
-  callsignHitW = callWidth + 20;
-  callsignHitH = 50;
-
-  // Napis "OPERATOR STATION" - pod callsign (wyĹ›rodkowany)
+  // 2. Lewy panel - globus / sledzenie satelity.
+  tft.setTextDatum(TL_DATUM);
+  tft.drawRoundRect(HC_GLOBE_X, HC_GLOBE_Y, HC_GLOBE_W, HC_GLOBE_H, 6, UI_COL_BORDER);
   tft.setTextSize(1);
-  tft.setTextColor(TFT_RADIO_ORANGE);
-  String opText = "OPERATOR STATION";
-  int opWidth = tft.textWidth(opText);
-  int opX = (screenW - opWidth) / 2;
-  tft.setCursor(opX, callY + 40);
-  tft.print(opText);
+  tft.setTextColor(UI_COL_ACCENT, TFT_BLACK);
+  tft.setCursor(HC_GLOBE_X + 4, HC_GLOBE_Y + 3);
+  tft.print("GLOBE / SAT");
 
-  // 4. ZEGAR - DokĹ‚adnie wyĹ›rodkowany
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(7);
-  String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
-                     ? getTimezoneTimeString("%H:%M:%S", 9)
-                     : getUtcTimeString();
-  int timeWidth = tft.textWidth(timeStr);
-  int timeX = (screenW - timeWidth) / 2;
-  int timeY = 122;
-  tft.setCursor(max(10, timeX), timeY);
-  tft.print(timeStr);
+  tft.fillCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R, HC_FACE_BG);
+  for (int lon = -120; lon <= 120; lon += 60) {
+    int dx = (int)((lon / 180.0) * HC_GLOBE_R);
+    int hh = (int)sqrtf((float)(HC_GLOBE_R * HC_GLOBE_R - dx * dx));
+    tft.drawLine(HC_GLOBE_CX + dx, HC_GLOBE_CY - hh, HC_GLOBE_CX + dx, HC_GLOBE_CY + hh, UI_COL_BORDER);
+  }
+  for (int lat = -60; lat <= 60; lat += 30) {
+    int dy = (int)((lat / 90.0) * HC_GLOBE_R);
+    int ww = (int)sqrtf((float)(HC_GLOBE_R * HC_GLOBE_R - dy * dy));
+    tft.drawLine(HC_GLOBE_CX - ww, HC_GLOBE_CY + dy, HC_GLOBE_CX + ww, HC_GLOBE_CY + dy, UI_COL_BORDER);
+  }
+  tft.drawCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R, UI_COL_ACCENT);
 
-  // Etykieta czasu (UTC/Local)
+  if (userLatLonValid) {
+    hamClockGlobeMarker(userLat, userLon, TFT_YELLOW);
+  } else if (userLocator.length() >= 4) {
+    double la, lo;
+    locatorToLatLon(userLocator, la, lo);
+    hamClockGlobeMarker(la, lo, TFT_YELLOW);
+  }
+  hamClockGlobeMarker(issLat, issLng, TFT_RED);
+
+  char issBuf[16];
+  snprintf(issBuf, sizeof(issBuf), "%s%.1f %s%.1f",
+           (issLat < 0 ? "-" : ""), fabs(issLat), (issLng < 0 ? "-" : ""), fabs(issLng));
+  tft.setTextColor(UI_COL_DIM, TFT_BLACK);
+  tft.setCursor(HC_GLOBE_X + 4, HC_GLOBE_Y + 146);
+  tft.print("ISS:");
+  tft.setTextColor(UI_COL_ACCENT2, TFT_BLACK);
+  tft.setCursor(HC_GLOBE_X + 30, HC_GLOBE_Y + 146);
+  tft.print(issBuf);
+  tft.setTextColor(UI_COL_DIM, TFT_BLACK);
+  tft.setCursor(HC_GLOBE_X + 4, HC_GLOBE_Y + 158);
+  tft.print("LOC:");
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setCursor(HC_GLOBE_X + 30, HC_GLOBE_Y + 158);
+  tft.print(userLocator.length() > 0 ? userLocator : String("--"));
+
+  // 3. Srodkowy panel - analogowa tarcza zegara.
+  const int cx = HC_CLOCK_CX, cy = HC_CLOCK_CY, r = HC_CLOCK_R;
+  tft.fillCircle(cx, cy, r + 8, HC_METAL_DK);
+  tft.drawCircle(cx, cy, r + 8, HC_METAL);
+  tft.drawCircle(cx, cy, r + 6, UI_COL_BORDER);
+  tft.fillCircle(cx, cy, r, HC_FACE_BG);
+  tft.drawCircle(cx, cy, r, HC_METAL_DK);
+
+  const char *nums[12] = {"12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"};
+  for (int i = 0; i < 12; i++) {
+    float a = (i * 30 - 90) * PI / 180.0f;
+    int nx = cx + (int)((r - 15) * cosf(a));
+    int ny = cy + (int)((r - 15) * sinf(a));
+    tft.setTextSize(2);
+    tft.setTextColor(HC_METAL, HC_FACE_BG);
+    tft.setCursor(nx - tft.textWidth(nums[i]) / 2, ny - 8);
+    tft.print(nums[i]);
+  }
+  for (int i = 0; i < 60; i++) {
+    if (i % 5 == 0) continue;
+    float a = i * 6 * PI / 180.0f;
+    int x1 = cx + (int)((r - 5) * cosf(a));
+    int y1 = cy + (int)((r - 5) * sinf(a));
+    int x2 = cx + (int)((r - 10) * cosf(a));
+    int y2 = cy + (int)((r - 10) * sinf(a));
+    tft.drawLine(x1, y1, x2, y2, UI_COL_BORDER);
+  }
   tft.setTextSize(1);
-  const char *timeLabel = "UTC";
-  if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
-    timeLabel = (tftLanguage == TFT_LANG_EN) ? "Local Time" : "Czas Lokalny";
-  }
-  int labelWidth = tft.textWidth(timeLabel);
-  int labelX = (screenW - labelWidth) / 2;
-  tft.setTextColor(TFT_LIGHTGREY);
-  tft.setCursor(labelX, timeY + 66);
-  tft.print(timeLabel);
+  tft.setTextColor(UI_COL_ACCENT, HC_FACE_BG);
+  tft.setCursor(cx - 20, cy - r + 13);
+  tft.print("HAM RADIO");
 
-  // 5. DATA - DokĹ‚adnie wyĹ›rodkowana
-  String dateText;
-  {
-    struct tm timeinfo;
-    bool timeValid = false;
-    if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
-      timeValid = getTimeWithTimezone(&timeinfo);
-    } else {
-      timeValid = getLocalTime(&timeinfo, 1);
-    }
-    if (!timeValid || timeinfo.tm_year < 125) {
-      dateText = "...";
-    } else if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
-      dateText = (tftLanguage == TFT_LANG_EN)
-                   ? getEnglishDateStringFullWithTimezone()
-                   : getPolishDateStringFullWithTimezone();
-    } else {
-      dateText = (tftLanguage == TFT_LANG_EN)
-                   ? getEnglishDateStringFull()
-                   : getPolishDateStringFull();
-    }
-  }
-  
-  // Data - uĹĽywamy fontu VLW jeĹ›li dostÄ™pny, inaczej standardowy
-  int dateY = timeY + 84;  // Pozycja Y daty - uĹĽywana teĹĽ w imieninach
-  if (littleFsReady && LittleFS.exists(ROBOTO_FONT20_FILE) && ESP.getFreeHeap() > 80000) {
-    tft.loadFont(ROBOTO_FONT20_NAME, LittleFS);
-    tft.setTextColor(TFT_WHITE);
-    int dateWidth = tft.textWidth(dateText);
-    int dateX = (screenW - dateWidth) / 2;
-    tft.setCursor(max(10, dateX), dateY);
-    tft.print(dateText);
-    tft.unloadFont();
+  struct tm ti;
+  bool ok = (screen1TimeMode == SCREEN1_TIME_LOCAL) ? getTimeWithTimezone(&ti) : getLocalTime(&ti, 1);
+  if (!ok) { ti.tm_hour = 0; ti.tm_min = 0; ti.tm_sec = 0; ti.tm_year = 0; }
+  hamClockDrawHands(ti);
+
+  char dateStr[24];
+  if (ok && ti.tm_year >= 125) {
+    snprintf(dateStr, sizeof(dateStr), "%04d-%02d-%02d", ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday);
   } else {
-    tft.setTextSize(3);
-    tft.setTextColor(TFT_WHITE);
-    int dateWidth = tft.textWidth(sanitizePolishToAscii(dateText));
-    int dateX = (screenW - dateWidth) / 2;
-    tft.setCursor(max(10, dateX), dateY);
-    tft.print(sanitizePolishToAscii(dateText));
+    snprintf(dateStr, sizeof(dateStr), "----------");
   }
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setCursor(cx - tft.textWidth(dateStr) / 2, cy + r + 10);
+  tft.print(dateStr);
+  const char *tlabel = (screen1TimeMode == SCREEN1_TIME_LOCAL)
+                         ? ((tftLanguage == TFT_LANG_EN) ? "LOCAL" : "LOKALNY")
+                         : "UTC";
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_ACCENT, TFT_BLACK);
+  tft.setCursor(cx - tft.textWidth(tlabel) / 2, cy + r + 28);
+  tft.print(tlabel);
 
-  // 6. IMIENINY - pod datÄ… (tylko dla jÄ™zyka polskiego lub domyĹ›lnie)
-  if (tftLanguage != TFT_LANG_EN) {
-    String nameDayText = getPolishNameDay();
-    if (nameDayText.length() > 0) {
-      int nameDayY = dateY + 30;  // Pozycja pod datÄ…
-      
-      // UĹĽywamy fontu VLW jeĹ›li dostÄ™pny (obsĹ‚uguje polskie znaki)
-      if (littleFsReady && LittleFS.exists(ROBOTO_FONT12_FILE) && ESP.getFreeHeap() > 80000) {
-        tft.loadFont(ROBOTO_FONT12_NAME, LittleFS);
-        tft.setTextColor(TFT_RADIO_ORANGE);
-        int nameDayWidth = tft.textWidth(nameDayText);
-        int nameDayX = (screenW - nameDayWidth) / 2;
-        if (nameDayX < 10) nameDayX = 10;
-        tft.setCursor(nameDayX, nameDayY);
-        tft.print(nameDayText);
-        tft.unloadFont();
-      } else {
-        // Fallback - standardowe fonty bez polskich znakĂłw
-        tft.setTextSize(2);
-        tft.setTextColor(TFT_RADIO_ORANGE);
-        String nameDayAscii = sanitizePolishToAscii(nameDayText);
-        int nameDayWidth = nameDayAscii.length() * 12;
-        int nameDayX = (screenW - nameDayWidth) / 2;
-        if (nameDayX < 10) {
-          tft.setTextSize(1);
-          nameDayWidth = nameDayAscii.length() * 6;
-          nameDayX = (screenW - nameDayWidth) / 2;
-        }
-        if (nameDayX < 10) nameDayX = 10;
-        tft.setCursor(nameDayX, nameDayY);
-        tft.print(nameDayAscii);
-      }
-    }
+  // 4. Prawy panel - analizator widma + wodospad (20 m).
+  tft.drawRoundRect(HC_SPEC_X, HC_SPEC_PANEL_Y, HC_SPEC_W, HC_SPEC_PANEL_H, 6, UI_COL_BORDER);
+  tft.setTextColor(UI_COL_ACCENT, TFT_BLACK);
+  tft.setCursor(HC_SPEC_X + 4, HC_SPEC_PANEL_Y + 3);
+  tft.print("20m SPECTRUM");
+
+  uint32_t tick = millis() / 250;
+  tft.fillRect(HC_SPEC_X, HC_SPEC_BAR_Y, HC_SPEC_W, HC_SPEC_BAR_H, HC_FACE_BG);
+  for (int i = 0; i < HC_SPEC_W; i++) {
+    uint8_t a = hamClockSpectrumAmp(i, tick);
+    int h = (int)((uint32_t)a * HC_SPEC_BAR_H / 100);
+    if (h < 1) h = 1;
+    tft.drawFastVLine(HC_SPEC_X + i, HC_SPEC_BAR_Y + HC_SPEC_BAR_H - h, h, hamClockSpecColor(a));
   }
+  tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + HC_SPEC_BAR_H, HC_SPEC_W, UI_COL_BORDER);
 
-  // 7. DOLNY PASEK - Adres IP: rysuje go drawHamClockIp() wolane po uiFooter()
-  // w drawScreen (stopka czysci pas od y=296, wiec kolejnosc ma znaczenie).
+  if (!hamClockWfInit) {
+    for (int yy = 0; yy < HC_SPEC_H; yy++)
+      for (int xx = 0; xx < HC_SPEC_W; xx++)
+        hamClockWf[yy][xx] = hamClockWfColor(hamClockSpectrumAmp(xx, tick));
+    hamClockWfInit = true;
+  } else {
+    for (int yy = 0; yy < HC_SPEC_H - 1; yy++)
+      for (int xx = 0; xx < HC_SPEC_W; xx++)
+        hamClockWf[yy][xx] = hamClockWf[yy + 1][xx];
+    for (int xx = 0; xx < HC_SPEC_W; xx++)
+      hamClockWf[HC_SPEC_H - 1][xx] = hamClockWfColor(hamClockSpectrumAmp(xx, tick));
+  }
+  for (int yy = 0; yy < HC_SPEC_H; yy++)
+    tft.pushImage(HC_SPEC_X, HC_SPEC_Y + yy, HC_SPEC_W, 1, hamClockWf[yy]);
 
-  // 8. IKONA BATERII - od razu przy starcie (skipScreenCheck = true)
+  tft.setTextColor(UI_COL_DIM, TFT_BLACK);
+  tft.setCursor(HC_SPEC_X + 2, HC_SPEC_Y + HC_SPEC_H + 3);
+  tft.print("14.000");
+  tft.setCursor(HC_SPEC_X + HC_SPEC_W - 30, HC_SPEC_Y + HC_SPEC_H + 3);
+  tft.print("14.35");
+
+  // 5. Dolna ramka z danymi projektu.
+  tft.drawRoundRect(HC_INFO_X, HC_INFO_Y, HC_INFO_W, HC_INFO_H, 6, UI_COL_BORDER);
+  const int LX = HC_INFO_X + 6, RX = HC_INFO_X + 232;
+  auto kv = [](int x, int y, const char *k, const char *v) {
+    tft.setTextSize(1);
+    tft.setTextColor(UI_COL_DIM, TFT_BLACK);
+    tft.setCursor(x, y);
+    tft.print(k);
+    tft.setTextColor(UI_COL_TEXT, TFT_BLACK);
+    tft.setCursor(x + tft.textWidth(k) + 2, y);
+    tft.print(v);
+  };
+  kv(LX, HC_INFO_Y + 5,  "Typ: ",      "HAM RADIO - AMATEUR RADIO STATION");
+  kv(RX, HC_INFO_Y + 5,  "Wersja: ",   "version v1.2");
+  kv(LX, HC_INFO_Y + 18, "Autor: ",    "Tomasz SP9TNV");
+  kv(RX, HC_INFO_Y + 18, "Baza: ",     "Konrad SP3KON");
+  kv(LX, HC_INFO_Y + 31, "Licencja: ", "MIT");
+  kv(RX, HC_INFO_Y + 31, "Kontakt: ",  "SP9TNV@gmail.com");
+
+  // Znak nie jest juz wyswietlany na tym ekranie - wylacz obszar przytrzymania.
+  callsignHitW = 0;
+  callsignHitH = 0;
+
 #ifdef BATTERY_MONITORING_ENABLED
   drawBatteryQuickUpdate(true);
 #endif
@@ -3583,28 +3709,27 @@ void updateScreen1Clock() {
     return;
   }
 
-  const int screenW = 480;
-  const int timeY = 122;  // Zaktualizowana pozycja Y dla wiÄ™kszego zegara
+  struct tm ti;
+  bool ok = (screen1TimeMode == SCREEN1_TIME_LOCAL) ? getTimeWithTimezone(&ti) : getLocalTime(&ti, 1);
+  if (!ok) return;
+  hamClockDrawHands(ti);
 
-  String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
-                     ? getTimezoneTimeString("%H:%M:%S", 9)
-                     : getUtcTimeString();
-  
-  // WyĹ›rodkowanie na caĹ‚ym ekranie, TextSize 7 (powiÄ™kszony)
-  int timeWidth = timeStr.length() * 42;  // ~42px na znak przy TextSize 7
-  int timeX = (screenW - timeWidth) / 2;
-  if (timeX < 10) timeX = 10;
-  
-  // StaĹ‚a szerokoĹ›Ä‡ paddingu dla stabilnego czyszczenia (max 8 znakĂłw * 42px)
-  const int fixedPaddingWidth = 8 * 42 + 10; // 336 + 10 margin
-  
-  // Narysuj zegar z tĹ‚em (bez czyszczenia - eliminuje migotanie)
-  tft.setTextColor(TFT_WHITE, TFT_BLACK); // Tekst z tĹ‚em
-  tft.setTextSize(7);  // POWIÄKSZONY zegar
-  tft.setTextPadding(fixedPaddingWidth); // StaĹ‚y padding dla stabilnoĹ›ci
-  tft.setCursor(timeX, timeY);
-  tft.print(timeStr);
-  tft.setTextPadding(0); // Reset
+  // Analizator widma - odswiez paski i dopisz nowy wiersz wodospadu.
+  uint32_t tick = millis() / 250;
+  tft.fillRect(HC_SPEC_X, HC_SPEC_BAR_Y, HC_SPEC_W, HC_SPEC_BAR_H, HC_FACE_BG);
+  for (int i = 0; i < HC_SPEC_W; i++) {
+    uint8_t a = hamClockSpectrumAmp(i, tick);
+    int h = (int)((uint32_t)a * HC_SPEC_BAR_H / 100);
+    if (h < 1) h = 1;
+    tft.drawFastVLine(HC_SPEC_X + i, HC_SPEC_BAR_Y + HC_SPEC_BAR_H - h, h, hamClockSpecColor(a));
+  }
+  for (int yy = 0; yy < HC_SPEC_H - 1; yy++)
+    for (int xx = 0; xx < HC_SPEC_W; xx++)
+      hamClockWf[yy][xx] = hamClockWf[yy + 1][xx];
+  for (int xx = 0; xx < HC_SPEC_W; xx++)
+    hamClockWf[HC_SPEC_H - 1][xx] = hamClockWfColor(hamClockSpectrumAmp(xx, tick));
+  for (int yy = 0; yy < HC_SPEC_H; yy++)
+    tft.pushImage(HC_SPEC_X, HC_SPEC_Y + yy, HC_SPEC_W, 1, hamClockWf[yy]);
 }
 
 void updateScreen1Date() {
@@ -3613,12 +3738,9 @@ void updateScreen1Date() {
   }
 
   struct tm timeinfo;
-  bool gotTime = false;
-  if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
-    gotTime = getTimeWithTimezone(&timeinfo);
-  } else {
-    gotTime = getLocalTime(&timeinfo, 1);
-  }
+  bool gotTime = (screen1TimeMode == SCREEN1_TIME_LOCAL)
+                   ? getTimeWithTimezone(&timeinfo)
+                   : getLocalTime(&timeinfo, 1);
   if (!gotTime || timeinfo.tm_year < 125) {
     return;
   }
@@ -3635,17 +3757,13 @@ void updateScreen1Date() {
   lastMonth = timeinfo.tm_mon;
   lastYear = timeinfo.tm_year;
 
-  String dateText;
-  if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
-    dateText = (tftLanguage == TFT_LANG_EN)
-                 ? getEnglishDateStringFullWithTimezone()
-                 : getPolishDateStringFullWithTimezone();
-  } else {
-    dateText = (tftLanguage == TFT_LANG_EN)
-                 ? getEnglishDateStringFull()
-                 : getPolishDateStringFull();
-  }
-  drawDateLine(dateText);
+  char dateStr[24];
+  snprintf(dateStr, sizeof(dateStr), "%04d-%02d-%02d",
+           timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setCursor(HC_CLOCK_CX - tft.textWidth(dateStr) / 2, HC_CLOCK_CY + HC_CLOCK_R + 10);
+  tft.print(dateStr);
 }
 
 void updateScreen2Clock() {
@@ -5296,7 +5414,9 @@ void handleTouchNavigation() {
       }
     }
     if (currentScreen == SCREEN_HAM_CLOCK) {
-      if (x > 285 && y < 35) {
+      // Przytrzymanie na tarczy analogowego zegara otwiera menu czasu/opcji.
+      int dx = (int)x - HC_CLOCK_CX, dy = (int)y - HC_CLOCK_CY;
+      if (dx * dx + dy * dy <= HC_CLOCK_R * HC_CLOCK_R) {
         inMenu = true;
         drawHamClockTimeMenu();
         return;
