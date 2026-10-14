@@ -188,11 +188,12 @@ int pskTempReportDays = 3;
 bool pskTempMqttEnabled = false;
 String pskTempMqttServer = "";
 String pskTempMqttCallsign = "";
+String pskTempLocator = "";
 String pskKeyboardBuffer = "";  // Bufor dla klawiatury ekranowej
-int pskKeyboardTarget = 0;        // 1=znak, 2=max, 3=mqtt_server, 4=mqtt_call
+int pskKeyboardTarget = 0;        // 1=znak, 2=max, 3=mqtt_server, 4=mqtt_call, 5=lokator
 enum PskMenuField { PSK_FIELD_NONE, PSK_FIELD_CALL, PSK_FIELD_BAND, PSK_FIELD_MODE, PSK_FIELD_MAXSPOTS,
                     PSK_FIELD_MQTT_MODE, PSK_FIELD_MQTT_SERVER, PSK_FIELD_MQTT_CALL, PSK_FIELD_DAYS,
-                    PSK_FIELD_KEYBOARD, PSK_FIELD_BAND_SELECT, PSK_FIELD_MODE_SELECT };
+                    PSK_FIELD_LOCATOR, PSK_FIELD_KEYBOARD, PSK_FIELD_BAND_SELECT, PSK_FIELD_MODE_SELECT };
 PskMenuField pskActiveField = PSK_FIELD_NONE;
 bool pskKeyboardActive = false;  // Czy klawiatura PSK jest widoczna (blokuje nawigacjÄ™)
 
@@ -19555,14 +19556,23 @@ static void drawPskSettingsMenu() {
     tft.print(" d");
   }
   
-  // MQTT Callsign (tylko gdy MQTT)
+  // Lokator (zawsze) - wyznacza pozycje na mapie i filtr MQTT
+  tft.setTextColor(pskActiveField == PSK_FIELD_LOCATOR ? TFT_YELLOW : TFT_WHITE);
+  tft.setCursor(60, 180);
+  tft.print("Lok:");
+  tft.fillRect(100, 175, 90, 20, pskActiveField == PSK_FIELD_LOCATOR ? TFT_DARKGREY : TFT_BLACK);
+  tft.setCursor(105, 180);
+  tft.print(pskTempLocator.length() > 0 ? pskTempLocator.c_str() : "(brak)");
+
+  // MQTT Callsign (tylko gdy MQTT) - prawa strona tego samego wiersza
   if (pskTempMqttEnabled) {
     tft.setTextColor(pskActiveField == PSK_FIELD_MQTT_CALL ? TFT_YELLOW : TFT_WHITE);
-    tft.setCursor(60, 180);
+    tft.setCursor(240, 180);
     tft.print("MQTT Znak:");
-    tft.fillRect(140, 175, 100, 20, pskActiveField == PSK_FIELD_MQTT_CALL ? TFT_DARKGREY : TFT_BLACK);
-    tft.setCursor(145, 180);
-    tft.print(pskTempMqttCallsign.length() > 0 ? pskTempMqttCallsign.c_str() : "(wszystkie)");
+    tft.fillRect(310, 175, 110, 20, pskActiveField == PSK_FIELD_MQTT_CALL ? TFT_DARKGREY : TFT_BLACK);
+    tft.setCursor(315, 180);
+    String mc = pskTempMqttCallsign.length() > 8 ? pskTempMqttCallsign.substring(0, 8) : pskTempMqttCallsign;
+    tft.print(mc.length() > 0 ? mc.c_str() : "(wszystkie)");
   }
   
   // Przyciski
@@ -19750,6 +19760,10 @@ static void handlePskKeyboardTouch(uint16_t x, uint16_t y) {
       pskTempMqttCallsign = pskKeyboardBuffer;
       pskTempMqttCallsign.trim();
       pskTempMqttCallsign.toUpperCase();
+    } else if (pskKeyboardTarget == 5) {
+      pskTempLocator = pskKeyboardBuffer;
+      pskTempLocator.trim();
+      pskTempLocator.toUpperCase();
     }
     pskActiveField = PSK_FIELD_NONE;
     pskKeyboardBuffer = "";
@@ -19900,6 +19914,14 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       pskMqttEnabled = pskTempMqttEnabled;
       pskMqttServer = pskTempMqttServer;
       pskMqttCallsign = pskTempMqttCallsign;
+      // Lokator z menu dotykowego jest tym samym ustawieniem co w WWW (Stacja).
+      // Gdy nie podano wprost LAT/LON, przelicz z niego pozycje - inaczej mapa
+      // PSK nie wie, gdzie jest uzytkownik (i filtr MQTT nie ma kwadratu).
+      bool locatorChanged = (pskTempLocator != userLocator);
+      userLocator = pskTempLocator;
+      if (locatorChanged && !userLatLonValid && userLocator.length() >= 4) {
+        updateUserLatLonFromLocator();
+      }
       Serial.printf("[PSK] Settings: receiver=%s, band=%s, mode=%s, max=%d, mqtt=%d\n", 
                     pskReceiverCallsign.c_str(), pskFilterBand.c_str(), 
                     pskFilterMode.c_str(), pskMaxSpots, pskMqttEnabled);
@@ -19912,6 +19934,12 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       preferences->putBool("psk_mqtt_en", pskMqttEnabled);
       preferences->putString("psk_mqtt_srv", pskMqttServer);
       preferences->putString("psk_mqtt_call", pskMqttCallsign);
+      preferences->putString("user_locator", userLocator);
+      if (locatorChanged && !userLatLonValid && userLocator.length() >= 4) {
+        preferences->putFloat("user_lat", (float)userLat);
+        preferences->putFloat("user_lon", (float)userLon);
+        preferences->putBool("user_ll_ok", userLatLonValid);
+      }
       pskMapMenuOpen = false;
       pskActiveField = PSK_FIELD_NONE;
       Serial.printf("[PSK] pskMapMenuOpen set to: %d\n", pskMapMenuOpen);
@@ -20003,8 +20031,18 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       return;
     }
     
-    // SprawdĹş czy dotkniÄ™to pole MQTT ZNAK (140,175,100,20) - tylko gdy MQTT
-    if (pskTempMqttEnabled && x >= 140 && x < 240 && y >= 175 && y < 195) {
+    // SprawdĹş czy dotkniÄ™to pole LOKATOR (100,175,90,20) - otwĂłrz klawiaturÄ™
+    if (x >= 100 && x < 190 && y >= 175 && y < 195) {
+      pskKeyboardTarget = 5; // 5 = lokator
+      pskKeyboardBuffer = pskTempLocator;
+      pskActiveField = PSK_FIELD_KEYBOARD;
+      pskKeyboardActive = true;
+      drawPskSettingsMenu();
+      return;
+    }
+
+    // SprawdĹş czy dotkniÄ™to pole MQTT ZNAK (310,175,110,20) - tylko gdy MQTT
+    if (pskTempMqttEnabled && x >= 310 && x < 420 && y >= 175 && y < 195) {
       pskKeyboardTarget = 4; // 4 = mqtt callsign
       pskKeyboardBuffer = pskTempMqttCallsign;
       pskActiveField = PSK_FIELD_KEYBOARD;
@@ -20036,6 +20074,7 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
     pskTempMqttEnabled = pskMqttEnabled;
     pskTempMqttServer = pskMqttServer;
     pskTempMqttCallsign = pskMqttCallsign;
+    pskTempLocator = userLocator;
     drawPskMap();
     return;
   }

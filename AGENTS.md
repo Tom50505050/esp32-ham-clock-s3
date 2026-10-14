@@ -211,6 +211,18 @@ Uwaga: tryb HTTP (domyslny, `psk_mqtt_en=false`) byl sprawny —
 `retrieve.pskreporter.info` z `rptlimit`/`flowStartSeconds` zwraca JSON z
 dlugimi kluczami (`senderCallsign`...), ktore firmware czyta poprawnie.
 
+## PSK MAP - gdzie ustawic lokator (14.10.2026)
+`userLocator` (NVS `user_locator`) ustawia sie w trzech miejscach:
+1. WWW → zakladka **Stacja** → "Locator (np. KN09)".
+2. WWW → zakladka **PSK Reporter** → "Twoj Locator" (pole `psk_user_locator`,
+   zsynchronizowane z polem w Stacji przez JS input->input; ten sam klucz).
+3. Ekran dotykowy: menu PSK MAP → wiersz **"Lok:"** (pole 100,175,90,20,
+   klawiatura `pskKeyboardTarget=5`). ZAPISZ kopiuje `pskTempLocator` do
+   `userLocator`, zapisuje NVS i - gdy brak wprost LAT/LON - przelicza pozycje
+   z lokatora (`updateUserLatLonFromLocator`).
+Uwaga: pole "MQTT Znak" w menu dotykowym przeniesione na prawa strone wiersza
+(310,175,110,20), zeby zrobic miejsce na "Lok:".
+
 ## Piny (skrot) - pelna tabela w PINOUT.md
 TFT: SCLK=12, MOSI=11, MISO=14, CS=10, DC=9, RST=-1, BL=21.
 Dotyk XPT2046 (wspolne SPI): T_CS=15, T_IRQ=16, T_DIN=11, T_DO=14, T_CLK=12.
