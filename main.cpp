@@ -141,6 +141,7 @@ const int PSK_MAX_SPOTS = 50;
 PskSpot pskSpots[PSK_MAX_SPOTS];
 int pskSpotCount = 0;
 unsigned long lastPskFetchMs = 0;
+bool pskRateLimited = false;      // PSKReporter odrzucil zapytanie (limit zapytan)
 const unsigned long PSK_FETCH_INTERVAL_MS = 900000; // co 15 minut
 
 // Konfiguracja PSKReporter (zapisana w NVS)
@@ -19072,14 +19073,17 @@ bool fetchPskReporterData() {
     secondsWindow = pskHoursWindow * 3600;
   }
   url += "flowStartSeconds=-" + String(secondsWindow) + "&";
-  url += "maxrows=" + String(pskMaxSpots) + "&";
+  // rptlimit ogranicza odpowiedz do zadanej liczby rekordow (maxrows jest
+  // ignorowane w trybie JSON - bez tego API zwraca cala tabele ~1,4 MB).
+  url += "rptlimit=" + String(pskMaxSpots) + "&";
+  url += "rronly=1&noactive=1&";
   // Opcjonalnie dodaj filtr znaku odbiornika
   if (pskReceiverCallsign.length() > 0) {
     url += "receiverCallsign=" + pskReceiverCallsign + "&";
   }
   // Opcjonalnie dodaj filtr znaku nadawcy (monitorowanie)
   if (pskMonitorCallsign.length() > 0) {
-    url += "transmitterCallsign=" + pskMonitorCallsign + "&";
+    url += "senderCallsign=" + pskMonitorCallsign + "&";
   }
   url += "frags=1&";
   url += "json=1";
@@ -19115,18 +19119,13 @@ bool fetchPskReporterData() {
   WiFiClient *stream = http.getStreamPtr();
 
   DynamicJsonDocument filter(256);
-  filter["receptions"][0]["callsign"] = true;
-  filter["receptions"][0]["locator"] = true;
-  filter["receptions"][0]["mode"] = true;
-  filter["receptions"][0]["snr"] = true;
-  filter["receptions"][0]["frequency"] = true;
-  filter["rx"][0]["callsign"] = true;
-  filter["rx"][0]["locator"] = true;
-  filter["rx"][0]["mode"] = true;
-  filter["rx"][0]["snr"] = true;
-  filter["rx"][0]["frequency"] = true;
+  filter["receptionReport"][0]["senderCallsign"] = true;
+  filter["receptionReport"][0]["senderLocator"] = true;
+  filter["receptionReport"][0]["mode"] = true;
+  filter["receptionReport"][0]["sNR"] = true;
+  filter["receptionReport"][0]["frequency"] = true;
 
-  DynamicJsonDocument doc(8192);
+  DynamicJsonDocument doc(24576);
   DeserializationError error = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
   http.end();
 
@@ -19138,19 +19137,28 @@ bool fetchPskReporterData() {
 
   pskSpotCount = 0;
 
-  JsonArray reports = doc["receptions"].as<JsonArray>();
-  if (reports.isNull()) {
-    reports = doc["rx"].as<JsonArray>();
+  // PSKReporter przy zbyt czestych zapytaniach zwraca sam komunikat JSON
+  // ({"message": "Your IP has made too many queries too often..."}) bez tablicy
+  // receptionReport - rozpoznaj to, zeby pokazac przyczyne zamiast cichego zera.
+  if (!doc.containsKey("receptionReport")) {
+    const char* msg = doc["message"];
+    Serial.print("[PSK] Brak danych: ");
+    Serial.println(msg ? msg : "brak pola receptionReport");
+    pskRateLimited = true;
+    return false;
   }
+  pskRateLimited = false;
+
+  JsonArray reports = doc["receptionReport"].as<JsonArray>();
 
   if (!reports.isNull()) {
     for (JsonObject report : reports) {
       if (pskSpotCount >= PSK_MAX_SPOTS) break;
 
-      const char* callsign = report["callsign"];
-      const char* locator = report["locator"];
+      const char* callsign = report["senderCallsign"];
+      const char* locator = report["senderLocator"];
       const char* mode = report["mode"];
-      int snr = report["snr"] | 0;
+      int snr = report["sNR"] | 0;
       int frequency = report["frequency"] | 0;
 
       if (callsign && locator) {
@@ -19241,6 +19249,24 @@ static void drawPskMapHeader() {
   tft.setTextColor(TFT_YELLOW);
   tft.setCursor(322, 12);
   tft.print("AUTO:" + String(pskAutoRefreshMinutes > 0 ? String(pskAutoRefreshMinutes) + "min" : "OFF"));
+
+  // Status danych: licznik spotow albo ostrzezenie o limicie zapytan PSKReporter.
+  tft.setTextSize(1);
+  if (pskRateLimited) {
+    tft.setTextColor(TFT_BLACK);
+    tft.setCursor(11, 29);
+    tft.print("LIMIT PSKReporter - poczekaj");
+    tft.setTextColor(TFT_RED);
+    tft.setCursor(12, 28);
+    tft.print("LIMIT PSKReporter - poczekaj");
+  } else if (pskSpotCount > 0) {
+    tft.setTextColor(TFT_BLACK);
+    tft.setCursor(11, 29);
+    tft.print("Spoty: " + String(pskSpotCount));
+    tft.setTextColor(TFT_GREEN);
+    tft.setCursor(12, 28);
+    tft.print("Spoty: " + String(pskSpotCount));
+  }
 }
 
 // Rysowanie przycisku menu w lewym gĂłrnym rogu
@@ -19552,7 +19578,6 @@ void drawPskMap() {
   if (!tftInitialized) return;
   tft.fillScreen(TFT_BLACK);
   Serial.println("[PSK] Screen cleared");
-  drawPskMapHeader();
   bool mapLoaded = false;
   if (littleFsReady) {
     mapLoaded = drawBmpFromFS(PSK_MAP_BMP_PATH, MAP_DISPLAY_X, MAP_DISPLAY_Y);
@@ -19583,6 +19608,7 @@ void drawPskMap() {
       }
     }
   }
+  drawPskMapHeader();
   // Rysowanie linii od pozycji uĹĽytkownika do stacji
   Serial.printf("[PSK] drawPskMap START: userLat=%.4f, userLon=%.4f, valid=%d, locator='%s'\n",
                 userLat, userLon, userLatLonValid, userLocator.c_str());

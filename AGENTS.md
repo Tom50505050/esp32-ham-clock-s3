@@ -598,3 +598,30 @@ domyslnie 0xFFFF bialy) mozna teraz ustawic na dwa sposoby:
   (nie 0..100!) - inaczej 100% jasnosci dawalo ~39% ("polowa jasnosci").
   Domyslne suwaki: nasycenie 100%, jasnosc 100%.
 
+
+## PSK Reporter: naprawa parsera API - mapa nie dzialala (14.10.2026)
+Objaw: ekran PSK MAP rysowal mape i tylko czerwona kropke usera, zero spotow
+i linii DX. Przyczyna: `fetchPskReporterData()` czytal pola, ktorych API juz
+nie zwraca (stary schemat). Realna odpowiedz `retrieve.pskreporter.info/query`
+(json=1) to:
+- tablica `receptionReport` (NIE `receptions` ani `rx`),
+- pola `senderCallsign`, `senderLocator`, `frequency`, `mode`, `sNR`
+  (NIE `callsign`/`locator`/`snr`).
+Naprawa:
+- `doc["receptionReport"]` zamiast `receptions`/`rx`; filtr strumieniowy
+  wskazuje te same realne nazwy pol.
+- Pole snr czytane z `sNR`.
+- Filtr nadawcy: `senderCallsign=` (bylo `transmitterCallsign=` - ignorowane).
+- Limit: `rptlimit=` (bylo `maxrows=` - ignorowane w trybie JSON); dodane
+  `rronly=1&noactive=1`. Bez tego API zwraca CALA tabele (~1,4 MB) i sygnalizuje
+  obciecie w `receptionReportLimited`. Z rptlimit=50 odpowiedz ~16 KB.
+- `DynamicJsonDocument doc` zwiekszony 8192 -> 24576 B (100 rekordow x ~250 B).
+- Rate-limit: API przy zbyt czestych zapytaniach zwraca
+  `{"message":"Your IP has made too many queries too often..."}` bez tablicy.
+  Wykrywane przez `!doc.containsKey("receptionReport")` -> `pskRateLimited=true`,
+  a naglowek mapy pokazuje "LIMIT PSKReporter - poczekaj" (czerwony) lub
+  "Spoty: N" (zielony).
+- `drawPskMap()` pobiera dane PRZED rysowaniem naglowka, zeby status byl aktualny.
+- API jest wrazliwe na czestotliwosc zapytan - przy testach z jednego IP latwo
+  o "too many queries"; odpytywac z umiarem (auto-refresh >= 5 min).
+
