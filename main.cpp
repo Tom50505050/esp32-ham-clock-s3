@@ -142,7 +142,9 @@ PskSpot pskSpots[PSK_MAX_SPOTS];
 int pskSpotCount = 0;
 unsigned long lastPskFetchMs = 0;
 bool pskRateLimited = false;      // PSKReporter odrzucil zapytanie (limit zapytan)
+unsigned long pskBackoffUntilMs = 0; // do kiedy nie pytamy API po 429/limicie
 const unsigned long PSK_FETCH_INTERVAL_MS = 900000; // co 15 minut
+const unsigned long PSK_RATE_LIMIT_BACKOFF_MS = 300000; // 5 min przerwy po HTTP 429
 
 // Konfiguracja PSKReporter (zapisana w NVS)
 String pskReceiverCallsign = "";  // znak odbiornika do filtrowania
@@ -19072,6 +19074,8 @@ bool fetchPskReporterData() {
     // Standardowe okno czasowe w godzinach
     secondsWindow = pskHoursWindow * 3600;
   }
+  // API PSKReporter nie obsluguje okien dluzszych niz 24 h.
+  if (secondsWindow > 86400) secondsWindow = 86400;
   url += "flowStartSeconds=-" + String(secondsWindow) + "&";
   // rptlimit ogranicza odpowiedz do zadanej liczby rekordow (maxrows jest
   // ignorowane w trybie JSON - bez tego API zwraca cala tabele ~1,4 MB).
@@ -19105,6 +19109,9 @@ bool fetchPskReporterData() {
   if (httpCode != 200) {
     Serial.print("[PSK] HTTP error: ");
     Serial.println(httpCode);
+    // 429 = zbyt wiele zapytan. Bez przerwy kolejne redrawy natychmiast
+    // dostaja 429 ponownie i limit nigdy nie mija (petla 429 -> fetch -> 429).
+    if (httpCode == 429) pskBackoffUntilMs = millis() + PSK_RATE_LIMIT_BACKOFF_MS;
     http.end();
     return false;
   }
@@ -19147,9 +19154,11 @@ bool fetchPskReporterData() {
     Serial.print("[PSK] Brak danych: ");
     Serial.println(msg ? msg : "brak pola receptionReport");
     pskRateLimited = true;
+    pskBackoffUntilMs = millis() + PSK_RATE_LIMIT_BACKOFF_MS;
     return false;
   }
   pskRateLimited = false;
+  pskBackoffUntilMs = 0;  // odpowiedz OK - limit minal
 
   JsonArray reports = doc["receptionReport"].as<JsonArray>();
 
@@ -19603,8 +19612,12 @@ void drawPskMap() {
     // Tryb HTTP - auto-odĹ›wieĹĽanie PSKReporter
     if (pskAutoRefreshMinutes > 0) {
       unsigned long refreshIntervalMs = (unsigned long)pskAutoRefreshMinutes * 60 * 1000;
-      // Fetchuj: przy pierwszym renderze (pskSpotCount==0) lub po uplywie interwalu
-      if (pskSpotCount == 0 || now - lastPskFetchMs > refreshIntervalMs) {
+      // Fetchuj tylko przy pierwszym renderze albo po uplywie interwalu - NIE przy
+      // kazdym redrawie z pustymi spotami (to zamienialo jeden blad w burze zapytan
+      // i utrwalalo limit 429). W trakcie backoffu po 429 nie pytamy wcale.
+      bool neverFetched = (lastPskFetchMs == 0);
+      if (millis() >= pskBackoffUntilMs &&
+          (neverFetched || now - lastPskFetchMs > refreshIntervalMs)) {
         fetchPskReporterData();
         lastPskFetchMs = now;
       }
@@ -19863,10 +19876,10 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       pskActiveField = PSK_FIELD_NONE;
       Serial.printf("[PSK] pskMapMenuOpen set to: %d\n", pskMapMenuOpen);
       Serial.println("[PSK] Closing menu and redrawing map...");
-      // Fetchuj dane natychmiast po zapisaniu ustawien
+      // Wymus odswiezenie po zapisaniu ustawien: zerujemy znacznik, zeby
+      // drawPskMap pobralo dane - ale nadal z poszanowaniem backoffu po 429.
       Serial.printf("[PSK] Before drawPskMap, pskMapMenuOpen=%d\n", pskMapMenuOpen);
-      fetchPskReporterData();
-      lastPskFetchMs = millis();
+      lastPskFetchMs = 0;
       drawPskMap();
       Serial.printf("[PSK] After drawPskMap, pskMapMenuOpen=%d\n", pskMapMenuOpen);
       Serial.println("[PSK] Map redrawn, menu should be closed");

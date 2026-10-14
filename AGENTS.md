@@ -625,3 +625,21 @@ Naprawa:
 - API jest wrazliwe na czestotliwosc zapytan - przy testach z jednego IP latwo
   o "too many queries"; odpytywac z umiarem (auto-refresh >= 5 min).
 
+### Burza zapytan / utrwalony limit 429 (14.10.2026, z logu urzadzenia)
+Objaw z logu: jedno tapniecie ZAPISZ wywolywalo 3-4 zapytania PSK, a kolejne
+redrawy ciagle dostawaly HTTP 429. Przyczyna: bramka w `drawPskMap()` brzmiala
+`pskSpotCount == 0 || po interwale` - po nieudanym fetchu spoty zostaja 0, wiec
+KAZDY redraw ponawial zapytanie (ZAPISZ sam robil fetch + draw + delay + draw).
+To zamienialo jeden blad w burze i nie pozwalalo limitowi 429 minac.
+Naprawa:
+- `pskBackoffUntilMs` + `PSK_RATE_LIMIT_BACKOFF_MS` (5 min). HTTP 429 ORAZ
+  odpowiedz 200 z samym `message` (bez receptionReport) ustawiaja backoff.
+- Bramka: fetch tylko gdy `lastPskFetchMs == 0` (pierwszy raz) albo po interwale,
+  i tylko gdy `millis() >= pskBackoffUntilMs`. Bez tego "0 spotow" nie ponawia.
+- ZAPISZ: zamiast `fetchPskReporterData()` na sile, `lastPskFetchMs = 0` -
+  drawPskMap pobierze, ale z poszanowaniem backoffu.
+- Okno czasu: `flowStartSeconds` clampowane do 86400 s (24 h). API i tak po cichu
+  obcina dluzsze okna (`receptionReportLimited.oldestRequested`), a pskReportDays
+  domyslnie 3 -> wczesniej wysylalismy -259200.
+- Symulacja bramki (12 redrawow przy padajacym API): stare 12 fetchy -> nowe 2.
+
