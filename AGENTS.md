@@ -189,6 +189,28 @@ Uwaga: `-1` jest zarezerwowane dla bram i aprs2.net je odrzuca.
   wspolrzedne SZER/DLUG i znak z SSID nie wychodza juz poza panel.
 - `ARP_COL_DIM = 0xBDF7` (jasny szary) — etykiety czytelne na czarnym tle.
 
+## PSK MAP pusty w trybie MQTT — ROZWIAZANE (14.10.2026)
+Objaw: ekran PSK MAP (tryb MQTT) nie pokazywal zadnych spotow.
+Przyczyna (weryfikacja na zywym brokerze `mqtt.pskreporter.info:1883`):
+1. **Zly temat subskrypcji.** Kod subskrybowal `pskr/filter/v2/+/+/+/LOC4/#`,
+   ale broker NIE grupuje tematow po lokatorze — realny uklad to
+   `pskr/filter/v2/<pasmo>/<tryb>/<nadawca>/<odbiorca>/<lokN>/<lokO>/<az>/<az>`.
+   Taki temat nie pasowal do niczego → 0 wiadomosci → pusty ekran.
+   Poprawnie: subskrybuj `pskr/filter/v2/#` i filtruj w callbacku.
+2. **Zle klucze JSON.** Kod czytal `sender`/`senderLocator`/`mode`/`frequency`,
+   a broker wysyla krotkie: `sc`/`sl`/`rc`/`rl`/`md`/`f` (Hz)/`rp` (SNR).
+3. **Zbyt wolny filtr.** Broker sypie ~240 spotami/s (payload do 176 B). JSON
+   dla kazdego to za duzo dla ESP32 — filtrujemy najpierw po lokatorze
+   odbiorcy wyczytanym wprost z tematu (`pskMqttTopicSegment(topic, 8)`),
+   zostaje garstka spotow odebranych w naszym kwadracie (~17/5400 w 20 s).
+Poprawka w `main.cpp`: `getPskMqttTopicForLocator()` → `pskr/filter/v2/#`;
+`pskMqttTopicSegment()` (prefiltr po temacie); `pskMqttCallback()` czyta
+`sc`/`sl`/`md`/`f`, zostawia spoty gdzie lokator odbiorcy == nasz kwadrat
+(rysujemy NADAWCE/DX, jak tryb HTTP).
+Uwaga: tryb HTTP (domyslny, `psk_mqtt_en=false`) byl sprawny —
+`retrieve.pskreporter.info` z `rptlimit`/`flowStartSeconds` zwraca JSON z
+dlugimi kluczami (`senderCallsign`...), ktore firmware czyta poprawnie.
+
 ## Piny (skrot) - pelna tabela w PINOUT.md
 TFT: SCLK=12, MOSI=11, MISO=14, CS=10, DC=9, RST=-1, BL=21.
 Dotyk XPT2046 (wspolne SPI): T_CS=15, T_IRQ=16, T_DIN=11, T_DO=14, T_CLK=12.

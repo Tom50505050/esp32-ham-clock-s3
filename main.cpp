@@ -21337,16 +21337,28 @@ unsigned long lastPskMqttReconnectAttempt = 0;
 const unsigned long PSK_MQTT_RECONNECT_INTERVAL_MS = 5000; // Co 5 sekund prĂłba reconnect
 
 // Generuje precyzyjny topic na podstawie lokatora uĹĽytkownika (tylko pierwsze 4 znaki = duĹĽy kwadrat ~100x200km)
+// Temat MQTT PSKReportera to pskr/filter/v2/<pasmo>/<tryb>/<nadawca>/<odbiorca>/
+// <lokator nadawcy>/<lokator odbiorcy>/<az>/<az>. Broker NIE tworzy tematow z
+// prefiksem lokatora (dawny "pskr/filter/v2/+/+/+/LOC4/#" nie pasowal do niczego
+// i ekran zostawal pusty), wiec subskrybujemy cala galeź i filtrujemy w
+// callbacku po lokatorze.
 static String getPskMqttTopicForLocator(const String& locator) {
-  if (locator.length() >= 4) {
-    String loc4 = locator.substring(0, 4);
-    loc4.toUpperCase();
-    // Format: pskr/filter/v2/+/+/+/{loc4}/#
-    // To ogranicza spam do konkretnego duĹĽego kwadratu lokatora
-    return "pskr/filter/v2/+/+/+/" + loc4 + "/#";
+  (void)locator;
+  return "pskr/filter/v2/#";
+}
+
+// Zwraca idx-ty segment tematu MQTT (rozdzielony '/'), np. idx=8 to lokator
+// odbiorcy w "pskr/filter/v2/<pasmo>/<tryb>/<nad>/<odb>/<lokN>/<lokO>/<az>/<az>".
+static String pskMqttTopicSegment(const char* topic, int idx) {
+  if (!topic) return String();
+  const char* p = topic;
+  for (int i = 0; i < idx; i++) {
+    p = strchr(p, '/');
+    if (!p) return String();
+    p++;
   }
-  // Fallback na szeroki topic tylko gdy brak lokatora
-  return "pskr/filter/v2/+/+/+/+/+";
+  const char* e = strchr(p, '/');
+  return e ? String(p).substring(0, e - p) : String(p);
 }
 
 // Callback dla MQTT - parsuje JSON i dodaje do bufora
@@ -21357,22 +21369,47 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
-  // Parsuj JSON
+  // Broker sypie ~240 spotami/s. Zanim sparsujemy JSON (drogie), odrzucamy
+  // spoty po lokatorze odbiorcy wyczytanym wprost z tematu - zostaje tylko
+  // garstka odebranych w naszym kwadracie.
+  if (userLocator.length() >= 4) {
+    String rl4 = pskMqttTopicSegment(topic, 8);
+    if (rl4.length() >= 4) {
+      rl4 = rl4.substring(0, 4);
+      rl4.toUpperCase();
+      String loc4 = userLocator.substring(0, 4);
+      loc4.toUpperCase();
+      if (rl4 != loc4) return;
+    }
+  }
+
+  // Parsuj JSON. Broker uzywa krotkich kluczy: sc=nadawca, sl=lokator nadawcy,
+  // rc=odbiorca, rl=lokator odbiorcy, md=tryb, f=czestotliwosc [Hz], rp=SNR.
+  // (Dawny kod czytal "sender"/"senderLocator"/"mode" - nigdy nie istnialy.)
   StaticJsonDocument<1024> doc;
   DeserializationError error = deserializeJson(doc, payload, length);
   if (error) {
     return; // Ciche pominiÄ™cie bĹ‚Ä™dĂłw parsowania
   }
 
-  // Pobierz pola z JSON
-  const char* sender = doc["sender"];
-  const char* receiver = doc["receiver"];
-  const char* receiverLocator = doc["receiverLocator"];
-  const char* senderLocator = doc["senderLocator"];
-  const char* mode = doc["mode"];
-  float frequency = doc["frequency"] | 0.0f;
+  const char* sender = doc["sc"];
+  const char* senderLocator = doc["sl"];
+  const char* receiverLocator = doc["rl"];
+  const char* mode = doc["md"];
+  float frequency = doc["f"] | 0.0f;
 
   if (!sender || !senderLocator) return;
+
+  // Na mapie rysujemy NADAWCE (DX) - tak jak tryb HTTP. Zeby mapa byla
+  // lokalnie istotna, zostawiamy tylko spoty odebrane w naszym kwadracie
+  // lokatora (odbiorca blisko nas), a nie nadawca.
+  if (userLocator.length() >= 4 && receiverLocator && receiverLocator[0]) {
+    String loc4 = userLocator.substring(0, 4);
+    loc4.toUpperCase();
+    String rl4 = String(receiverLocator).substring(0, 4);
+    rl4.toUpperCase();
+    if (rl4 != loc4) return;
+  }
 
   // Konwersja lokatora na lat/lon
   double lat = 0, lon = 0;
@@ -21466,14 +21503,9 @@ void reconnectPskMqtt() {
     Serial.println(" poĹ‚Ä…czono!");
     pskMqttConnected = true;
 
-    // Subskrybuj precyzyjny topic
-    String topic;
-    if (userLocator.length() >= 4) {
-      topic = getPskMqttTopicForLocator(userLocator);
-    } else {
-      // Fallback - subskrybuj wszystko (moĹĽe byÄ‡ spam)
-      topic = "pskr/filter/v2/+/+/+/+/+";
-    }
+    // Subskrybuj cala galeź pskr/filter/v2/# - filtrowanie po lokatorze
+    // odbywa sie w pskMqttCallback (broker nie grupuje tematow po lokatorze).
+    String topic = getPskMqttTopicForLocator(userLocator);
 
     Serial.printf("[PSK MQTT] Subskrypcja: %s\n", topic.c_str());
     pskMqttClient.subscribe(topic.c_str());
