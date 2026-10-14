@@ -20010,11 +20010,14 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
     return;
   }
   
-  // DotkniÄ™cie mapy odĹ›wieĹĽa dane (ale tylko jeĹ›li nie w rogach)
+  // DotkniÄ™cie mapy odĹ›wieĹĽa dane (ale tylko jeĹ›li nie w rogach).
+  // W trakcie backoffu po 429 nie pytamy API - samo przerysowanie z komunikat.
   if (x >= MAP_DISPLAY_X && x < MAP_DISPLAY_X + MAP_DISPLAY_W &&
       y >= MAP_DISPLAY_Y && y < MAP_DISPLAY_Y + MAP_DISPLAY_H) {
-    fetchPskReporterData();
-    lastPskFetchMs = millis();
+    if (millis() >= pskBackoffUntilMs) {
+      fetchPskReporterData();
+      lastPskFetchMs = millis();
+    }
     drawPskMap();
     return;
   }
