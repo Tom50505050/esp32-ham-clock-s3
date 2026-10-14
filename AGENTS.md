@@ -964,18 +964,12 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Podglad starszego ukladu: `/workspace/share/hamclock-classic-preview.png`.
   Build oba env: SUCCESS.
 
-### Modern styl zegara dopasowany do innych ekranow (14.10.2026)
-- Styl 0 (nowy uklad paneli) przemalowany na **wspolny styl ISS** zamiast wlasnej
-  palety cyjan/aluminium:
-  - Naglowek: `uiHeader("ESP32-HAM-CLOCK", false)` + `uiHeaderClock()` (jak inne
-    ekrany) - pasek tytulu usuniety z `drawHamClock()`.
-  - Panele (globus / zegar / widmo / info): `UI_COL_CARD` + ramka `UI_COL_BORDER`,
-    tytuly `hamClockPanelTitle` w `UI_COL_DIM` + akcentowy znacznik `UI_COL_ACCENT`.
-  - Akcenty: `UI_COL_ACCENT` (teal) / `UI_COL_ACCENT2` (niebieski); teksty
-    `UI_COL_TEXT`/`UI_COL_DIM`/`UI_COL_FAINT`.
-  - Stopka `uiFooter()` + adres IP `drawHamClockIp()` jak w innych ekranach.
-  - `updateScreen1Clock()` i `updateScreen1Date()` uzywaja kolorow UI_COL_*.
-- Podglad: `/workspace/share/hamclock-modern-preview.png`. Build oba env: SUCCESS.
+### Uwaga: styl nowoczesny = kod uzytkownika (bez zmian)
+- Ekran zegara w stylu nowoczesnym (styl 0) jest zbudowany **dokladnie z kodu
+  wzorcowego uzytkownika** (paleta HC_BG 0x0000 / HC_PANEL 0x10A2 / HC_CYAN 0x07FF
+  / HC_YELLOW 0xFFE0 / HC_TEXT 0xE73C; naglowek "ESP32 - HAM - CLOCK" font 4 +
+  linia; dolna ramka z cyjanowa obwodka). **Nie przerabiac** tego ukladu na
+  wspolny styl ISS - uzytkownik tego nie chce.
 
 
 

@@ -3502,19 +3502,23 @@ static const uint16_t HC_GOLD      = 0xFEA0;
 static uint16_t hamClockWf[HC_SPEC_WF_H][HC_SPEC_W];
 static bool hamClockWfInit = false;
 
-// Fazowana ramka panelu w stylu ISS: ciemna karta + obramowanie UI_COL_BORDER.
+// Fazowana ramka panelu: ciemna dolna/prawa krawedz + jasna gorna/lewa.
 static void hamClockBevel(int x, int y, int w, int h) {
-  tft.drawRoundRect(x, y, w, h, 6, UI_COL_BORDER);
+  tft.drawRoundRect(x, y, w, h, 6, HC_BEZEL_DK);
+  tft.drawFastHLine(x + 4, y + 1, w - 8, HC_BEZEL_LT);
+  tft.drawFastVLine(x + 1, y + 4, h - 8, HC_BEZEL_LT);
+  tft.drawFastHLine(x + 4, y + h - 2, w - 8, HC_BEZEL_DK);
+  tft.drawFastVLine(x + w - 2, y + 4, h - 8, HC_BEZEL_DK);
 }
 
-// Tytul panelu w stylu ISS: akcentowy znacznik + tekst + cienka linia.
+// Tytul panelu: cyjanowy znacznik + tekst + cienka linia.
 static void hamClockPanelTitle(int x, int y, int w, const char *title) {
-  tft.fillRect(x + 6, y + 4, 3, 9, UI_COL_ACCENT);
+  tft.fillRect(x + 6, y + 4, 3, 9, HC_CYAN);
   tft.setTextSize(1);
-  tft.setTextColor(UI_COL_DIM, UI_COL_CARD);
+  tft.setTextColor(HC_CYAN, HC_PANEL);
   tft.setCursor(x + 12, y + 4);
   tft.print(title);
-  tft.drawFastHLine(x + 6, y + 16, w - 12, UI_COL_BORDER);
+  tft.drawFastHLine(x + 6, y + 16, w - 12, HC_BEZEL_LT);
 }
 
 static uint8_t hamClockNoise(int bin, uint32_t t) {
@@ -3755,32 +3759,37 @@ static void updateScreen1ClockClassic() {
 
 void drawHamClock() {
   if (screen1ClockStyle == 1) { drawHamClockClassic(); return; }
-  // 1. Naglowek - wspolny styl ISS (uiHeader rysuje drawScreen), wiec tutaj nic.
+  // 1. Naglowek - cyjanowy, wysrodkowany, z linia pod spodem.
+  tft.setTextDatum(TC_DATUM);
+  tft.setTextColor(HC_CYAN, HC_BG);
+  tft.drawString("ESP32 - HAM - CLOCK", 240, 8, 4);
+  tft.drawFastHLine(40, HC_HLINE_Y, 400, HC_CYAN);
+  tft.setTextDatum(TL_DATUM);
 
-  // 2. Lewy panel - globus / sledzenie satelity (ciemna karta w stylu ISS).
-  tft.fillRoundRect(HC_GLOBE_X, HC_PANEL_Y, HC_GLOBE_W, HC_PANEL_H, 6, UI_COL_CARD);
+  // 2. Lewy panel - globus / sledzenie satelity.
+  tft.fillRoundRect(HC_GLOBE_X, HC_PANEL_Y, HC_GLOBE_W, HC_PANEL_H, 6, HC_PANEL);
   hamClockBevel(HC_GLOBE_X, HC_PANEL_Y, HC_GLOBE_W, HC_PANEL_H);
   hamClockPanelTitle(HC_GLOBE_X, HC_PANEL_Y, HC_GLOBE_W, "GLOBE / SAT");
 
-  tft.fillCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R, UI_COL_BG);
+  tft.fillCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R, HC_BG);
   for (int lon = -120; lon <= 120; lon += 60) {
     int dx = (int)((lon / 180.0) * HC_GLOBE_R);
     int hh = (int)sqrtf((float)(HC_GLOBE_R * HC_GLOBE_R - dx * dx));
-    tft.drawLine(HC_GLOBE_CX + dx, HC_GLOBE_CY - hh, HC_GLOBE_CX + dx, HC_GLOBE_CY + hh, UI_COL_BORDER);
+    tft.drawLine(HC_GLOBE_CX + dx, HC_GLOBE_CY - hh, HC_GLOBE_CX + dx, HC_GLOBE_CY + hh, HC_BEZEL_DK);
   }
   for (int lat = -60; lat <= 60; lat += 30) {
     int dy = (int)((lat / 90.0) * HC_GLOBE_R);
     int ww = (int)sqrtf((float)(HC_GLOBE_R * HC_GLOBE_R - dy * dy));
-    tft.drawLine(HC_GLOBE_CX - ww, HC_GLOBE_CY + dy, HC_GLOBE_CX + ww, HC_GLOBE_CY + dy, UI_COL_BORDER);
+    tft.drawLine(HC_GLOBE_CX - ww, HC_GLOBE_CY + dy, HC_GLOBE_CX + ww, HC_GLOBE_CY + dy, HC_BEZEL_DK);
   }
-  tft.drawCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R, UI_COL_ACCENT2);
+  tft.drawCircle(HC_GLOBE_CX, HC_GLOBE_CY, HC_GLOBE_R, HC_CYAN);
 
   if (userLatLonValid) {
-    hamClockGlobeMarker(userLat, userLon, UI_COL_ACCENT);
+    hamClockGlobeMarker(userLat, userLon, HC_YELLOW);
   } else if (userLocator.length() >= 4) {
     double la, lo;
     locatorToLatLon(userLocator, la, lo);
-    hamClockGlobeMarker(la, lo, UI_COL_ACCENT);
+    hamClockGlobeMarker(la, lo, HC_YELLOW);
   }
   hamClockGlobeMarker(issLat, issLng, TFT_RED);
 
@@ -3788,28 +3797,29 @@ void drawHamClock() {
   snprintf(issBuf, sizeof(issBuf), "%s%.1f %s%.1f",
            (issLat < 0 ? "-" : ""), fabs(issLat), (issLng < 0 ? "-" : ""), fabs(issLng));
   tft.setTextSize(1);
-  tft.setTextColor(UI_COL_DIM, UI_COL_CARD);
+  tft.setTextColor(HC_TEXT, HC_PANEL);
   tft.setCursor(HC_GLOBE_X + 6, HC_GLOBE_CY + HC_GLOBE_R + 6);
   tft.print("ISS:");
-  tft.setTextColor(UI_COL_ACCENT, UI_COL_CARD);
+  tft.setTextColor(HC_CYAN, HC_PANEL);
   tft.setCursor(HC_GLOBE_X + 32, HC_GLOBE_CY + HC_GLOBE_R + 6);
   tft.print(issBuf);
-  tft.setTextColor(UI_COL_DIM, UI_COL_CARD);
+  tft.setTextColor(HC_TEXT, HC_PANEL);
   tft.setCursor(HC_GLOBE_X + 6, HC_GLOBE_CY + HC_GLOBE_R + 18);
   tft.print("LOC:");
-  tft.setTextColor(UI_COL_ACCENT2, UI_COL_CARD);
+  tft.setTextColor(HC_YELLOW, HC_PANEL);
   tft.setCursor(HC_GLOBE_X + 32, HC_GLOBE_CY + HC_GLOBE_R + 18);
   tft.print(userLocator.length() > 0 ? userLocator : String("--"));
 
-  // 3. Srodkowy panel - analogowa tarcza zegara (karta + teal pierscien).
+  // 3. Srodkowy panel - analogowa tarcza zegara.
   const int cx = HC_CLOCK_CX, cy = HC_CLOCK_CY, r = HC_CLOCK_R;
-  tft.fillRoundRect(HC_CLOCK_X, HC_PANEL_Y, HC_CLOCK_W, HC_PANEL_H, 6, UI_COL_CARD);
+  tft.fillRoundRect(HC_CLOCK_X, HC_PANEL_Y, HC_CLOCK_W, HC_PANEL_H, 6, HC_PANEL);
   hamClockBevel(HC_CLOCK_X, HC_PANEL_Y, HC_CLOCK_W, HC_PANEL_H);
-  for (int i = 6; i >= 0; i--)
-    tft.drawCircle(cx, cy, r + 4 + i, lerpColor565(UI_COL_ACCENT, TFT_BLACK, (uint8_t)(210 - i * 28)));
-  tft.fillCircle(cx, cy, r + 3, UI_COL_ACCENT);
-  tft.fillCircle(cx, cy, r, UI_COL_BG);
-  tft.drawCircle(cx, cy, r - 2, lerpColor565(UI_COL_ACCENT2, TFT_BLACK, 120));
+  for (int i = 8; i >= 0; i--)
+    tft.drawCircle(cx, cy, r + 5 + i, lerpColor565(HC_CYAN, TFT_BLACK, (uint8_t)(220 - i * 22)));
+  tft.fillCircle(cx, cy, r + 4, HC_CYAN);
+  tft.fillCircle(cx, cy, r + 3, HC_BEZEL_LT);
+  tft.fillCircle(cx, cy, r, HC_BG);
+  tft.drawCircle(cx, cy, r - 2, lerpColor565(HC_CYAN, TFT_BLACK, 140));
 
   const char *nums[12] = {"12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"};
   for (int i = 0; i < 12; i++) {
@@ -3817,7 +3827,7 @@ void drawHamClock() {
     int nx = cx + (int)((r - 13) * cosf(a));
     int ny = cy + (int)((r - 13) * sinf(a));
     tft.setTextSize(2);
-    tft.setTextColor((i % 3 == 0) ? UI_COL_TEXT : UI_COL_DIM, UI_COL_BG);
+    tft.setTextColor((i % 3 == 0) ? HC_WHITE : HC_TEXT, HC_BG);
     tft.setCursor(nx - tft.textWidth(nums[i]) / 2, ny - 8);
     tft.print(nums[i]);
   }
@@ -3828,10 +3838,10 @@ void drawHamClock() {
     int y1 = cy + (int)((r - 4) * sinf(a));
     int x2 = cx + (int)((r - 9) * cosf(a));
     int y2 = cy + (int)((r - 9) * sinf(a));
-    tft.drawLine(x1, y1, x2, y2, UI_COL_BORDER);
+    tft.drawLine(x1, y1, x2, y2, HC_BEZEL_DK);
   }
   tft.setTextSize(1);
-  tft.setTextColor(UI_COL_ACCENT, UI_COL_CARD);
+  tft.setTextColor(HC_YELLOW, HC_BG);
   tft.setCursor(cx - 20, cy - r + 10);
   tft.print("HAM RADIO");
 
@@ -3848,26 +3858,26 @@ void drawHamClock() {
   }
   tft.setTextDatum(TC_DATUM);
   tft.setTextSize(2);
-  tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+  tft.setTextColor(HC_TEXT, HC_PANEL);
   tft.drawString(dateStr, cx, cy + r + 10, 2);
   tft.setTextDatum(TL_DATUM);
 
   // 4. Prawy panel - analizator widma + wodospad (20 m).
-  tft.fillRoundRect(HC_SPEC_X, HC_PANEL_Y, HC_SPEC_W, HC_PANEL_H, 6, UI_COL_CARD);
+  tft.fillRoundRect(HC_SPEC_X, HC_PANEL_Y, HC_SPEC_W, HC_PANEL_H, 6, HC_PANEL);
   hamClockBevel(HC_SPEC_X, HC_PANEL_Y, HC_SPEC_W, HC_PANEL_H);
   hamClockPanelTitle(HC_SPEC_X, HC_PANEL_Y, HC_SPEC_W, "20m SPECTRUM");
 
   uint32_t tick = millis() / 250;
-  tft.fillRect(HC_SPEC_X, HC_SPEC_BAR_Y, HC_SPEC_W, HC_SPEC_BAR_H, UI_COL_BG);
+  tft.fillRect(HC_SPEC_X, HC_SPEC_BAR_Y, HC_SPEC_W, HC_SPEC_BAR_H, HC_BG);
   for (int gy = 0; gy < HC_SPEC_BAR_H; gy += 12)
-    tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + gy, HC_SPEC_W, UI_COL_BORDER);
+    tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + gy, HC_SPEC_W, HC_BEZEL_DK);
   for (int i = 0; i < HC_SPEC_W; i++) {
     uint8_t a = hamClockSpectrumAmp(i, tick);
     int h = (int)((uint32_t)a * HC_SPEC_BAR_H / 100);
     if (h < 1) h = 1;
     tft.drawFastVLine(HC_SPEC_X + i, HC_SPEC_BAR_Y + HC_SPEC_BAR_H - h, h, hamClockSpecColor(a));
   }
-  tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + HC_SPEC_BAR_H, HC_SPEC_W, UI_COL_BORDER);
+  tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + HC_SPEC_BAR_H, HC_SPEC_W, HC_BEZEL_LT);
 
   if (!hamClockWfInit) {
     for (int yy = 0; yy < HC_SPEC_WF_H; yy++)
@@ -3883,29 +3893,27 @@ void drawHamClock() {
   }
   for (int yy = 0; yy < HC_SPEC_WF_H; yy++)
     tft.pushImage(HC_SPEC_X, HC_SPEC_WF_Y + yy, HC_SPEC_W, 1, hamClockWf[yy]);
-  tft.drawRect(HC_SPEC_X - 1, HC_SPEC_WF_Y - 1, HC_SPEC_W + 2, HC_SPEC_WF_H + 2, UI_COL_BORDER);
+  tft.drawRect(HC_SPEC_X - 1, HC_SPEC_WF_Y - 1, HC_SPEC_W + 2, HC_SPEC_WF_H + 2, HC_BEZEL_DK);
 
   tft.setTextSize(1);
-  tft.setTextColor(UI_COL_FAINT, UI_COL_CARD);
+  tft.setTextColor(HC_TEXT, HC_PANEL);
   tft.setCursor(HC_SPEC_X + 2, HC_SPEC_WF_Y + HC_SPEC_WF_H + 3);
   tft.print("14.000");
   tft.setCursor(HC_SPEC_X + HC_SPEC_W - 30, HC_SPEC_WF_Y + HC_SPEC_WF_H + 3);
   tft.print("14.35");
 
-  // 5. Dolna karta informacyjna - wspolny styl ISS (ciemna karta + akcent).
-  tft.fillRoundRect(HC_INFO_X, HC_INFO_Y, HC_INFO_W, HC_INFO_H, 6, UI_COL_CARD);
-  tft.drawRoundRect(HC_INFO_X, HC_INFO_Y, HC_INFO_W, HC_INFO_H, 6, UI_COL_BORDER);
+  // 5. Dolna ramka informacyjna - cyjanowa obwodka, tresc wysrodkowana.
+  tft.drawRoundRect(HC_INFO_X, HC_INFO_Y, HC_INFO_W, HC_INFO_H, 6, HC_CYAN);
   tft.setTextDatum(MC_DATUM);
   tft.setTextSize(1);
-  tft.setTextColor(UI_COL_ACCENT, UI_COL_CARD);
+  tft.setTextColor(HC_CYAN, HC_BG);
   tft.drawString("HAM RADIO  -  AMATEUR RADIO STATION", 240, HC_INFO_Y + 12, 1);
-  tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+  tft.setTextColor(HC_YELLOW, HC_BG);
   tft.drawString("version v1.2", 240, HC_INFO_Y + 26, 2);
   tft.drawString("Autor: Tomasz SP9TNV", 240, HC_INFO_Y + 40, 2);
   tft.drawString("Base: Konrad SP3KON", 240, HC_INFO_Y + 54, 2);
   tft.drawString("License: MIT", 240, HC_INFO_Y + 68, 2);
   tft.setTextSize(1);
-  tft.setTextColor(UI_COL_DIM, UI_COL_CARD);
   tft.drawString("SP9TNV@gmail.com", 240, HC_INFO_Y + 79, 1);
   tft.setTextDatum(TL_DATUM);
 
@@ -3957,9 +3965,9 @@ void updateScreen1Clock() {
 
   // Analizator widma - odswiez paski i dopisz nowy wiersz wodospadu.
   uint32_t tick = millis() / 250;
-  tft.fillRect(HC_SPEC_X, HC_SPEC_BAR_Y, HC_SPEC_W, HC_SPEC_BAR_H, UI_COL_BG);
+  tft.fillRect(HC_SPEC_X, HC_SPEC_BAR_Y, HC_SPEC_W, HC_SPEC_BAR_H, HC_BG);
   for (int gy = 0; gy < HC_SPEC_BAR_H; gy += 12)
-    tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + gy, HC_SPEC_W, UI_COL_BORDER);
+    tft.drawFastHLine(HC_SPEC_X, HC_SPEC_BAR_Y + gy, HC_SPEC_W, HC_BEZEL_DK);
   for (int i = 0; i < HC_SPEC_W; i++) {
     uint8_t a = hamClockSpectrumAmp(i, tick);
     int h = (int)((uint32_t)a * HC_SPEC_BAR_H / 100);
@@ -4004,7 +4012,7 @@ void updateScreen1Date() {
   snprintf(dateStr, sizeof(dateStr), "%04d-%02d-%02d",
            timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
   tft.setTextDatum(TC_DATUM);
-  tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+  tft.setTextColor(HC_TEXT, HC_PANEL);
   tft.drawString(dateStr, HC_CLOCK_CX, HC_CLOCK_CY + HC_CLOCK_R + 10, 2);
   tft.setTextDatum(TL_DATUM);
 }
