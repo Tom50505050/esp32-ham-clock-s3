@@ -1496,12 +1496,17 @@
         
         const screenOptionsDefault = ["hamclock", "dxcluster", "aprsis", "aprsradar", "bandinfo", "sunspots", "weather", "weatherforecast", "pota", "hamalert", "pskmap", "matrix", "systeminfo", "iss"];
 
+        // Aliasy starych kodow ekranow -> wartosci <option> (zapobiega pustym polom).
+        const screenCodeAliases = { solarindex: "bandinfo", propagacja: "sunspots", forecast: "weatherforecast", pskreporter: "pskmap", unlishunter: "systeminfo" };
         const applyScreenOrderToUI = (order) => {
             const arr = Array.isArray(order) && order.length ? order : screenOptionsDefault;
             for (let i = 0; i < 14; i++) {
                 const sel = document.getElementById(`screen_slot_${i+1}`);
                 if (!sel) continue;
-                sel.value = arr[i] || screenOptionsDefault[i] || "off";
+                let code = arr[i] || screenOptionsDefault[i] || "off";
+                if (screenCodeAliases[code]) code = screenCodeAliases[code];
+                const valid = Array.prototype.some.call(sel.options, (o) => o.value === code);
+                sel.value = valid ? code : "off";
             }
         };
 

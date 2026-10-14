@@ -4849,8 +4849,10 @@ const char* screenTypeToCodeStr(ScreenType t) {
     case SCREEN_DX_CLUSTER: return "dxcluster";
     case SCREEN_APRS_IS: return "aprsis";
     case SCREEN_APRS_RADAR: return "aprsradar";
-    case SCREEN_BAND_INFO: return "solarindex";
-    case SCREEN_SUN_SPOTS: return "propagacja";
+    // Kody musza zgadzac sie z opcjami <select> w data/index.html (bandinfo/sunspots),
+    // inaczej WWW nie potrafi ustawic wartosci i pola sa puste.
+    case SCREEN_BAND_INFO: return "bandinfo";
+    case SCREEN_SUN_SPOTS: return "sunspots";
     case SCREEN_WEATHER_DSP: return "weather";
     case SCREEN_WEATHER_FORECAST: return "weatherforecast";
     case SCREEN_POTA_CLUSTER: return "pota";
@@ -18826,7 +18828,7 @@ String getMainHTML() {
 <script>
 let C = {};
 const SCREENS = [
-  ['propagacja','Propagacja'],['solarindex','Solar Index'],['hamclock','Ham Clock'],
+  ['sunspots','Propagacja'],['bandinfo','Solar Index'],['hamclock','Ham Clock'],
   ['dxcluster','DX Cluster'],['aprsis','APRS-IS'],['aprsradar','APRS Radar'],
   ['weather','Pogoda'],['weatherforecast','Prognoza'],['pota','POTA'],
   ['hamalert','HamAlert'],['pskmap','PSK Map'],['systeminfo','Informacje systemowe'],
