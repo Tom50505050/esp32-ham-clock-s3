@@ -646,6 +646,7 @@
                     <label>Target:</label>
                     <select id="img-target">
                         <option value="splash">Boot screen (splash)</option>
+                        <option value="welcome">Welcome screen (version/authors)</option>
                         <option value="mapa">Map background (PSK/ISS)</option>
                     </select>
                 </div>
@@ -1512,9 +1513,16 @@
             })
                 .then(r => r.ok ? r.text() : Promise.reject(r.status))
                 .then(() => {
-                    status.textContent = "OK - image saved and shown on the TFT.";
-                    const pv = document.getElementById('splash-preview');
-                    if (target === 'splash' && pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
+                    status.textContent = "OK - image saved on the device.";
+                    if (target === 'welcome') {
+                        status.textContent = "OK - welcome screen saved (visible after restart).";
+                        const wpv = document.getElementById('welcome-preview');
+                        if (wpv) { wpv.style.display = ''; wpv.src = '/welcome_preview?t=' + Date.now(); }
+                    } else if (target === 'splash') {
+                        status.textContent = "OK - image saved and shown on the TFT.";
+                        const pv = document.getElementById('splash-preview');
+                        if (pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
+                    }
                 })
                 .catch((e) => { status.textContent = "Upload failed (network/format): " + e; })
                 .finally(() => { btn.disabled = false; });

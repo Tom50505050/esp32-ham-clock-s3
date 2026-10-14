@@ -646,6 +646,7 @@
                     <label>Cel:</label>
                     <select id="img-target">
                         <option value="splash">Ekran startowy (splash)</option>
+                        <option value="welcome">Ekran powitalny (wersja/autorzy)</option>
                         <option value="mapa">Tło mapy (PSK/ISS)</option>
                     </select>
                 </div>
@@ -1415,9 +1416,16 @@
             })
                 .then(r => r.ok ? r.text() : Promise.reject(r.status))
                 .then(() => {
-                    status.textContent = "OK - obraz zapisany i pokazany na TFT.";
-                    const pv = document.getElementById('splash-preview');
-                    if (target === 'splash' && pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
+                    status.textContent = "OK - obraz zapisany na urzadzeniu.";
+                    if (target === 'welcome') {
+                        status.textContent = "OK - ekran powitalny zapisany (widoczny po restarcie).";
+                        const wpv = document.getElementById('welcome-preview');
+                        if (wpv) { wpv.style.display = ''; wpv.src = '/welcome_preview?t=' + Date.now(); }
+                    } else if (target === 'splash') {
+                        status.textContent = "OK - obraz zapisany i pokazany na TFT.";
+                        const pv = document.getElementById('splash-preview');
+                        if (pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
+                    }
                 })
                 .catch((e) => { status.textContent = "Blad wysylania (siec/format): " + e; })
                 .finally(() => { btn.disabled = false; });
