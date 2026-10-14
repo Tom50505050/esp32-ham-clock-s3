@@ -18324,6 +18324,14 @@ String getMainHTML() {
       </div>
     </div>
     <div class="panel">
+      <h2>PSK Reporter - Twoj Locator</h2>
+      <div class="row">
+        <div class="field"><label>Locator (Maidenhead, np. JO82LK)</label><input id="psk_user_locator" type="text" placeholder="np. JO82LK"></div>
+      </div>
+      <p class="hint">Ten sam locator co w zakladce <b>Stacja</b>. Wyznacza Twoja pozycje na mapie PSK
+      (czerwona kropka) i - w trybie MQTT - ktore spoty sa pobierane (kwadrat lokatora odbiorcy).</p>
+    </div>
+    <div class="panel">
       <h2>PSK Reporter - Monitoring HTTP</h2>
       <div class="row">
         <div class="field"><label>Callsign (raportowanie)</label><input id="psk_monitor_callsign" type="text"></div>
@@ -18549,6 +18557,7 @@ function fillForm(cfg){
   val('led_alert_duration_ms',cfg.led_alert_duration_ms);
   val('led_alert_blink_ms',cfg.led_alert_blink_ms);
   // PSK
+  val('psk_user_locator',cfg.user_locator);
   val('psk_receiver',cfg.psk_receiver); val('psk_maxspots',cfg.psk_maxspots);
   val('psk_hours',cfg.psk_hours); val('psk_band',cfg.psk_band);
   val('psk_mode',cfg.psk_mode); val('psk_url',cfg.psk_url);
@@ -18804,6 +18813,13 @@ buildScreenOrderSelects();
 $('psk_mqtt_enabled').addEventListener('change',function(){
   $('mqtt_fields').style.display=this.checked?'grid':'none';
 });
+
+// Dwa pola locatora (Stacja i PSK) sa jednym ustawieniem - trzymaj je zgodne.
+const locStation=$('user_locator'), locPsk=$('psk_user_locator');
+if(locStation&&locPsk){
+  const syncLoc=(a,b)=>{b.addEventListener('input',()=>{a.value=b.value;});};
+  syncLoc(locStation,locPsk); syncLoc(locPsk,locStation);
+}
 
 $('bmpForm').addEventListener('submit',function(e){
   e.preventDefault();
