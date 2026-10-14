@@ -769,7 +769,7 @@ enum Screen1TimeMode {
 uint8_t screen1TimeMode = SCREEN1_TIME_UTC;
 // Styl ekranu 1 (zegara): 0 = nowy uklad (panele: globus/zegar/widmo),
 // 1 = starsza wersja (callsign + duzy zegar cyfrowy + data + imieniny).
-uint8_t screen1ClockStyle = 0;
+uint8_t screen1ClockStyle = 1;
 
 enum TftLang : uint8_t {
   TFT_LANG_PL = 0,
@@ -16937,7 +16937,7 @@ void loadPreferences() {
 
   screen1TimeMode = (uint8_t)preferences->getInt("screen1_time", SCREEN1_TIME_UTC);
   if (screen1TimeMode > SCREEN1_TIME_LOCAL) screen1TimeMode = SCREEN1_TIME_UTC;
-  screen1ClockStyle = (uint8_t)preferences->getInt("screen1_style", 0);
+  screen1ClockStyle = (uint8_t)preferences->getInt("screen1_style", 1);
   if (screen1ClockStyle > 1) screen1ClockStyle = 0;
   
   // Konfiguracja wygaszacza ekranu (Matrix)
