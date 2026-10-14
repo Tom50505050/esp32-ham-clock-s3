@@ -968,10 +968,10 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Ekran zegara w stylu nowoczesnym (styl 0) = `drawHamClockModern()`: **wyglad jak
   w wersji domyslnej (klasycznej)** - naglowek z logo + zegar HH:MM + WiFi + bateria,
   znak (callsign), "OPERATOR STATION", duzy zegar cyfrowy, etykieta czasu, data,
-  imieniny, adres IP i strzalki - ale w palecie nowoczesnej: czarne tlo (`HC_BG`),
-  CYJANOWY naglowek (`HC_CYAN 0x07FF`, logo/tekst czarny), cyjanowa ramka
-  (30,45,420,220), cyjanowe "OPERATOR STATION"/imieniny/strzalki i zolty zegar
-  (`HC_YELLOW 0xFFE0`).
+  imieniny, adres IP i strzalki - ale w stylu nowoczesnym: CZARNY naglowek z
+  BIALYM napisem "ESP32-HAM-CLOCK", cyjanowa linia pod naglowkiem, czarne tlo,
+  cyjanowa ramka (30,45,420,220), cyjanowy zegar HH:MM w naglowku,
+  "OPERATOR STATION"/imieniny/strzalki na cyjano i zolty zegar (`HC_YELLOW 0xFFE0`).
 - Naglowek MUSI byc pelny (jak domyslny): inaczej znikaja WiFi, bateria i logo.
 - `drawHamClockModern()` ustawia `screen1HeaderNeedsRedraw = false` PO narysowaniu
   naglowka; `updateScreen1HeaderModern()` przerysowuje naglowek tylko gdy

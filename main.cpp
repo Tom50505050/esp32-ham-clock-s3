@@ -3763,30 +3763,21 @@ static void updateScreen1ClockClassic() {
 }
 
 // ================= EKRAN 1: ZEGAR w stylu nowoczesnym =================
-// Wyglad jak w wersji DOMYSLNEJ (klasycznej): pomaranczowy naglowek z logo,
-// zegarem HH:MM, WiFi i bateria; znak, "OPERATOR STATION", duzy zegar cyfrowy,
-// data, imieniny, adres IP i strzalki - ale z nowoczesnymi akcentami:
-// czarne tlo, cyjanowa ramka i zolty zegar.
+// Wyglad jak w wersji DOMYSLNEJ (klasycznej): naglowek z logo, zegarem HH:MM,
+// WiFi i bateria; znak, "OPERATOR STATION", duzy zegar cyfrowy, data, imieniny,
+// adres IP i strzalki - ale w stylu nowoczesnym: czarny naglowek z bialym
+// napisem "ESP32-HAM-CLOCK", czarne tlo, cyjanowa ramka i zolty zegar.
 static void hamClockModernHeader() {
   const int headerH = 40;
   const int screenW = 480;
-  tft.fillRect(0, 0, screenW, headerH, HC_CYAN);
-  tft.drawFastHLine(0, headerH - 1, screenW, HC_PANEL);
+  tft.fillRect(0, 0, screenW, headerH, HC_BG);
+  tft.drawFastHLine(0, headerH - 1, screenW, HC_CYAN);
 
-  String logoPart1 = "ESP32";
-  String logoPart2 = "-HAM-CLOCK";
+  String logo = "ESP32-HAM-CLOCK";
   tft.setTextSize(2);
-  int part1W = tft.textWidth(logoPart1);
-  int part2W = tft.textWidth(logoPart2);
-  int startX = (screenW - (part1W + part2W)) / 2;
-  int textY = 12;
-  tft.fillRect(startX - 6, textY - 3, part1W + 12, 22, TFT_BLACK);
-  tft.setTextColor(HC_CYAN, TFT_BLACK);
-  tft.setCursor(startX, textY);
-  tft.print(logoPart1);
-  tft.setTextColor(TFT_BLACK, HC_CYAN);
-  tft.setCursor(startX + part1W, textY);
-  tft.print(logoPart2);
+  tft.setTextColor(HC_WHITE, HC_BG);
+  tft.setCursor((screenW - tft.textWidth(logo)) / 2, 12);
+  tft.print(logo);
 
   drawWifiSignalBars(screenW - 45, 8);
   drawBatteryIcon(screenW - 70, 8);
@@ -3797,10 +3788,8 @@ static void hamClockModernHeader() {
     strftime(timeBuffer, 6, "%H:%M", &timeinfo);
     String timeStr = String(timeBuffer);
     tft.setTextSize(2);
-    int timeX = 10, timeY = 12;
-    tft.fillRect(timeX - 2, timeY - 2, tft.textWidth(timeStr) + 4, 20, HC_CYAN);
-    tft.setTextColor(TFT_BLACK, HC_CYAN);
-    tft.setCursor(timeX, timeY);
+    tft.setTextColor(HC_CYAN, HC_BG);
+    tft.setCursor(10, 12);
     tft.print(timeStr);
   }
 }
