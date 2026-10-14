@@ -227,6 +227,12 @@ void setBacklightPercentRaw(int percent);
 
 void savePreferences();
 void locatorToLatLon(String locator, double &lat, double &lon);
+String latLonToLocator(double lat, double lon, int precision = 6);
+void gpsApplyConfig();
+void gpsUpdate();
+void gpsApplyPosition();
+void gpsSnapshotManualPosition();
+bool gpsModuleDetected();
 bool fetchAirPollutionData(double lat, double lon);
 static bool drawBmpFromFS(const String &filename, int16_t x, int16_t y);
 static bool drawBmp16FromFS(const String &filename, int16_t x, int16_t y);
@@ -1619,6 +1625,37 @@ String userLocator = "";
 double userLat = 0.0;
 double userLon = 0.0;
 bool userLatLonValid = false;
+
+// ========== GPS / GNSS (NMEA 0183 po UART2) ==========
+// Modul GPS podlacza sie do wolnych GPIO (domyslnie RX=18 <- TX modulu,
+// TX=17 -> RX modulu). Lokator Maidenhead liczymy automatycznie z pozycji.
+bool gpsEnabled = false;          // modul GPS wlaczony (NVS gps_en)
+int  gpsRxPin = 18;               // ESP32 RX  <- TX modulu GPS
+int  gpsTxPin = 17;               // ESP32 TX  -> RX modulu GPS
+int  gpsBaud = 9600;              // predkosc NMEA
+bool gpsUseForPosition = false;   // uzywaj pozycji GPS zamiast recznej (NVS gps_use)
+bool gpsFix = false;              // GGA quality > 0
+bool gpsHasPosition = false;      // odebrano poprawna pozycje
+double gpsLat = 0.0, gpsLon = 0.0;
+float gpsAltM = 0.0f, gpsSpeedKmh = 0.0f, gpsHdop = 99.9f;
+int gpsSats = 0;
+String gpsUtcTime = "";           // "hhmmss.sss"
+String gpsDateStr = "";           // "ddmmyy"
+String gpsLocator = "";
+unsigned long gpsLastFixMs = 0;       // ostatnia poprawna pozycja
+unsigned long gpsLastSentenceMs = 0;  // ostatnia dowolna ramka NMEA (detekcja modulu)
+uint32_t gpsSentenceCount = 0;
+HardwareSerial gpsSerial(2);
+bool gpsSerialBegun = false;
+int gpsLastBaudApplied = -1, gpsLastRxApplied = -1, gpsLastTxApplied = -1;
+// Reczne (z WWW) wartosci pozycji. Gdy "uzywaj GPS" jest wlaczone i jest FIX,
+// userLat/userLon/userLocator sa nadpisywane pozycja GPS dla wszystkich
+// odbiorcow (APRS, PSK, radar). Po wylaczeniu GPS wracamy do tych wartosci.
+double userLatManual = 0.0, userLonManual = 0.0;
+String userLocatorManual = "";
+bool userLatLonValidManual = false;
+bool gpsPositionOverrideActive = false;
+
 int timezoneHours = DEFAULT_TIMEZONE_HOURS;
 String qrzUsername = "";
 String qrzPassword = "";
@@ -11102,6 +11139,208 @@ void locatorToLatLon(String locator, double &lat, double &lon) {
   lat += 0.5;
 }
 
+// Konwersja wspolrzednych geograficznych na lokator Maidenhead.
+// precision: 4, 6 lub 8 znakow (domyslnie 6 - np. JO82LK).
+String latLonToLocator(double lat, double lon, int precision) {
+  if (precision != 4 && precision != 6 && precision != 8) precision = 6;
+  if (lat < -90.0) lat = -90.0;
+  if (lat > 90.0) lat = 90.0;
+  // Longitude 180 -> -180, zeby nie wyjsc poza pole 'R'.
+  if (lon >= 180.0) lon -= 360.0;
+  if (lon < -180.0) lon += 360.0;
+
+  double adjLon = lon + 180.0;
+  double adjLat = lat + 90.0;
+  String loc = "";
+
+  int lonField = (int)(adjLon / 20.0);
+  int latField = (int)(adjLat / 10.0);
+  loc += (char)('A' + lonField);
+  loc += (char)('A' + latField);
+
+  adjLon -= lonField * 20.0;
+  adjLat -= latField * 10.0;
+
+  int lonSq = (int)(adjLon / 2.0);
+  int latSq = (int)adjLat;
+  loc += (char)('0' + lonSq);
+  loc += (char)('0' + latSq);
+
+  if (precision >= 6) {
+    adjLon -= lonSq * 2.0;
+    adjLat -= latSq;
+    int lonSub = (int)(adjLon * 12.0);
+    int latSub = (int)(adjLat * 24.0);
+    if (lonSub > 23) lonSub = 23;
+    if (latSub > 23) latSub = 23;
+    loc += (char)('a' + lonSub);
+    loc += (char)('a' + latSub);
+  }
+
+  if (precision >= 8) {
+    adjLon -= ((int)(adjLon * 12.0)) / 12.0;
+    adjLat -= ((int)(adjLat * 24.0)) / 24.0;
+    int lonExt = (int)(adjLon * 120.0);
+    int latExt = (int)(adjLat * 240.0);
+    if (lonExt > 9) lonExt = 9;
+    if (latExt > 9) latExt = 9;
+    loc += (char)('0' + lonExt);
+    loc += (char)('0' + latExt);
+  }
+  return loc;
+}
+
+// ---- Parser NMEA (GGA + RMC) - bez zewnetrznej biblioteki ----
+// "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,..."
+static double nmeaToDeg(const String &value, const String &hemi) {
+  if (value.length() < 4) return 0.0;
+  double raw = value.toDouble();
+  int deg = (int)(raw / 100.0);
+  double min = raw - deg * 100.0;
+  double dec = deg + min / 60.0;
+  if (hemi == "S" || hemi == "W") dec = -dec;
+  return dec;
+}
+
+// Dzieli ramke po przecinkach. Pola sa kopiowane do tablicy String.
+static int nmeaSplit(const String &s, String *out, int maxFields) {
+  int n = 0, start = 0;
+  int len = s.length();
+  for (int i = 0; i <= len && n < maxFields; i++) {
+    if (i == len || s.charAt(i) == ',') {
+      out[n++] = s.substring(start, i);
+      start = i + 1;
+    }
+  }
+  return n;
+}
+
+static void gpsParseNmea(const String &line) {
+  // Akceptujemy GGA i RMC dla wszystkich konstelacji ($GPGGA, $GNGGA, $GLGGA...).
+  int star = line.indexOf('*');
+  String body = (star >= 0) ? line.substring(0, star) : line;
+  if (body.length() < 7 || body.charAt(0) != '$') return;
+  String type = body.substring(3, 6);  // "GGA" / "RMC"
+  if (type != "GGA" && type != "RMC") return;
+
+  String f[20];
+  int n = nmeaSplit(body, f, 20);
+
+  if (type == "GGA") {
+    if (n < 10) return;
+    gpsUtcTime = f[1];
+    gpsSats = f[7].toInt();
+    gpsHdop = f[8].length() ? f[8].toFloat() : 99.9f;
+    gpsAltM = f[9].length() ? f[9].toFloat() : 0.0f;
+    int quality = f[6].toInt();
+    if (quality > 0 && f[2].length() >= 4 && f[4].length() >= 4) {
+      gpsLat = nmeaToDeg(f[2], f[3]);
+      gpsLon = nmeaToDeg(f[4], f[5]);
+      gpsFix = true;
+      gpsHasPosition = true;
+      gpsLastFixMs = millis();
+      gpsLocator = latLonToLocator(gpsLat, gpsLon, 6);
+    } else {
+      gpsFix = false;
+    }
+  } else if (type == "RMC") {
+    if (n < 10) return;
+    // f[2] = status (A=aktywny, V=nieaktywny), f[7] = predkosc [wezly]
+    bool active = (f[2] == "A");
+    if (f[9].length() == 6) gpsDateStr = f[9];
+    if (active && f[3].length() >= 4 && f[5].length() >= 4) {
+      gpsLat = nmeaToDeg(f[3], f[4]);
+      gpsLon = nmeaToDeg(f[5], f[6]);
+      gpsFix = true;
+      gpsHasPosition = true;
+      gpsLastFixMs = millis();
+      gpsLocator = latLonToLocator(gpsLat, gpsLon, 6);
+    }
+    if (f[7].length()) gpsSpeedKmh = f[7].toFloat() * 1.852f;  // wezly -> km/h
+  }
+}
+
+// (Re)inicjalizacja UART2 dla modulu GPS. Idempotentna - wywolywana po zmianie
+// ustawien w WWW bez restartu.
+void gpsApplyConfig() {
+  if (gpsEnabled) {
+    if (!gpsSerialBegun || gpsLastBaudApplied != gpsBaud ||
+        gpsLastRxApplied != gpsRxPin || gpsLastTxApplied != gpsTxPin) {
+      gpsSerial.end();
+      delay(10);
+      gpsSerial.begin(gpsBaud, SERIAL_8N1, gpsRxPin, gpsTxPin);
+      gpsSerialBegun = true;
+      gpsLastBaudApplied = gpsBaud;
+      gpsLastRxApplied = gpsRxPin;
+      gpsLastTxApplied = gpsTxPin;
+      gpsSentenceCount = 0;
+      gpsHasPosition = false;
+      gpsFix = false;
+      Serial.printf("[GPS] UART2 start: baud=%d RX=%d TX=%d\n", gpsBaud, gpsRxPin, gpsTxPin);
+    }
+  } else if (gpsSerialBegun) {
+    gpsSerial.end();
+    gpsSerialBegun = false;
+    gpsFix = false;
+    gpsHasPosition = false;
+    Serial.println("[GPS] UART2 zatrzymany (modul wylaczony)");
+  }
+}
+
+// Wczytuje dostepne ramki NMEA. Tanie - wywolywane w loop().
+void gpsUpdate() {
+  if (!gpsEnabled || !gpsSerialBegun) return;
+  int budget = 0;
+  while (gpsSerial.available() && budget < 512) {
+    String line = gpsSerial.readStringUntil('\n');
+    budget += line.length() + 1;
+    line.trim();
+    if (line.length() >= 7 && line.charAt(0) == '$') {
+      gpsLastSentenceMs = millis();
+      gpsSentenceCount++;
+      gpsParseNmea(line);
+    }
+  }
+  // Brak ramek przez 5 s = modul nie odpowiada -> gas FIX (nie pokazuj starych danych).
+  if (gpsFix && millis() - gpsLastFixMs > 5000) {
+    gpsFix = false;
+  }
+  gpsApplyPosition();
+}
+
+// Zapamietuje recznie ustawiona pozycje (z WWW), zeby moc ja przywrocic po
+// wylaczeniu GPS. Wywolywane przy zapisie ustawien i po starcie.
+void gpsSnapshotManualPosition() {
+  if (gpsPositionOverrideActive) return;
+  userLatManual = userLat;
+  userLonManual = userLon;
+  userLocatorManual = userLocator;
+  userLatLonValidManual = userLatLonValid;
+}
+
+// Nadpisz pozycje uzytkownika pozycja GPS (gdy wlaczone i jest FIX) albo
+// przywroc wartosci reczne. Wywolywane po kazdej aktualizacji NMEA.
+void gpsApplyPosition() {
+  bool wantOverride = gpsEnabled && gpsUseForPosition && gpsFix && gpsHasPosition;
+  if (wantOverride) {
+    userLat = gpsLat;
+    userLon = gpsLon;
+    userLatLonValid = true;
+    if (gpsLocator.length() >= 4) userLocator = gpsLocator;
+    gpsPositionOverrideActive = true;
+  } else if (gpsPositionOverrideActive) {
+    userLat = userLatManual;
+    userLon = userLonManual;
+    userLatLonValid = userLatLonValidManual;
+    userLocator = userLocatorManual;
+    gpsPositionOverrideActive = false;
+  }
+}
+
+bool gpsModuleDetected() {
+  return gpsEnabled && gpsSentenceCount > 0 && (millis() - gpsLastSentenceMs) < 5000;
+}
+
 void updateUserLatLonFromLocator() {
   if (userLocator.length() >= 4) {
     locatorToLatLon(userLocator, userLat, userLon);
@@ -16123,6 +16362,17 @@ void loadPreferences() {
   yield();
   userLocator = preferences->getString("user_locator", "");
   yield();
+  gpsEnabled = preferences->getBool("gps_en", false);
+  yield();
+  gpsUseForPosition = preferences->getBool("gps_use", false);
+  yield();
+  gpsBaud = preferences->getInt("gps_baud", 9600);
+  if (gpsBaud < 300 || gpsBaud > 2000000) gpsBaud = 9600;
+  yield();
+  gpsRxPin = preferences->getInt("gps_rx", 18);
+  yield();
+  gpsTxPin = preferences->getInt("gps_tx", 17);
+  yield();
   timezoneHours = preferences->getInt("timezone", DEFAULT_TIMEZONE_HOURS);
   if (timezoneHours < -12) timezoneHours = -12;
   if (timezoneHours > 14) timezoneHours = 14;
@@ -16144,6 +16394,8 @@ void loadPreferences() {
   } else if (userLatLonValid && userLat == 0.0 && userLon == 0.0) {
     userLatLonValid = false;
   }
+  // Zapamietaj reczna pozycje - sluzy do przywrocenia, gdy GPS jest wylaczony.
+  gpsSnapshotManualPosition();
   qrzUsername = preferences->getString("qrz_user", "");
   yield();
   qrzPassword = preferences->getString("qrz_pass", "");
@@ -16323,11 +16575,17 @@ void savePreferences() {
   preferences->putString("hama_user", hamalertLogin);
   preferences->putString("hama_pass", hamalertPassword);
   preferences->putString("user_callsign", userCallsign);
-  preferences->putString("user_locator", userLocator);
+  // Zapisujemy reczna pozycje (gdy GPS ja nadpisuje, userLocator to lokator GPS).
+  preferences->putString("user_locator", gpsPositionOverrideActive ? userLocatorManual : userLocator);
   preferences->putInt("timezone", timezoneHours);
-  preferences->putFloat("user_lat", (float)userLat);
-  preferences->putFloat("user_lon", (float)userLon);
-  preferences->putBool("user_ll_ok", userLatLonValid);
+  preferences->putBool("gps_en", gpsEnabled);
+  preferences->putBool("gps_use", gpsUseForPosition);
+  preferences->putInt("gps_baud", gpsBaud);
+  preferences->putInt("gps_rx", gpsRxPin);
+  preferences->putInt("gps_tx", gpsTxPin);
+  preferences->putFloat("user_lat", (float)(gpsPositionOverrideActive ? userLatManual : userLat));
+  preferences->putFloat("user_lon", (float)(gpsPositionOverrideActive ? userLonManual : userLon));
+  preferences->putBool("user_ll_ok", gpsPositionOverrideActive ? userLatLonValidManual : userLatLonValid);
   preferences->putString("qrz_user", qrzUsername);
   preferences->putString("qrz_pass", qrzPassword);
   preferences->putString("weather_key", weatherApiKey);
@@ -17021,6 +17279,17 @@ void setupWebServer() {
       }
       userCallsign = doc["user_callsign"].as<String>();
       userLocator = doc["user_locator"].as<String>();
+      // GPS (NMEA po UART2). Klucze tylko nadpisuja, gdy obecne w payloadzie.
+      if (doc.containsKey("gps_enabled")) gpsEnabled = doc["gps_enabled"].as<bool>();
+      if (doc.containsKey("gps_use_for_position")) gpsUseForPosition = doc["gps_use_for_position"].as<bool>();
+      // Zgodnosc ze starszym UI: "Twoja Stacja" uzywa klucza use_gps_if_active.
+      if (doc.containsKey("use_gps_if_active")) gpsUseForPosition = doc["use_gps_if_active"].as<bool>();
+      if (doc["gps_baud"].is<int>()) {
+        gpsBaud = doc["gps_baud"].as<int>();
+        if (gpsBaud < 300 || gpsBaud > 2000000) gpsBaud = 9600;
+      }
+      if (doc["gps_rx_pin"].is<int>()) gpsRxPin = doc["gps_rx_pin"].as<int>();
+      if (doc["gps_tx_pin"].is<int>()) gpsTxPin = doc["gps_tx_pin"].as<int>();
       if (doc["timezone"].is<int>()) {
         timezoneHours = doc["timezone"].as<int>();
         if (timezoneHours < -12) timezoneHours = -12;
@@ -17561,6 +17830,10 @@ void setupWebServer() {
       if (!userLatLonValid && userLocator.length() >= 4) {
         updateUserLatLonFromLocator();
       }
+      // Zapamietaj reczna pozycje z formularza i (re)uruchom UART GPS bez restartu.
+      gpsPositionOverrideActive = false;
+      gpsSnapshotManualPosition();
+      gpsApplyConfig();
       savePreferences();
       applyEffectiveBacklight();
       if (tftInitialized) {
@@ -17679,7 +17952,7 @@ void setupWebServer() {
   
   // API - pobierz konfiguracjÄ™
   server->on("/api/config", HTTP_GET, []() {
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(8192);  // + klucze GPS/status
     doc["wifi_ssid"] = wifiSSID;
     doc["wifi_pass"] = wifiPassword;
     doc["wifi_ssid2"] = wifiSSID2;
@@ -17700,6 +17973,23 @@ void setupWebServer() {
     doc["user_lat"] = userLat;
     doc["user_lon"] = userLon;
     doc["user_lat_lon_valid"] = userLatLonValid;
+    // GPS (NMEA po UART2) + automatyczny lokator Maidenhead
+    doc["gps_enabled"] = gpsEnabled;
+    doc["gps_use_for_position"] = gpsUseForPosition;
+    doc["gps_baud"] = gpsBaud;
+    doc["gps_rx_pin"] = gpsRxPin;
+    doc["gps_tx_pin"] = gpsTxPin;
+    doc["gps_has_position"] = gpsHasPosition;
+    doc["gps_fix"] = gpsFix;
+    doc["gps_module_detected"] = gpsModuleDetected();
+    doc["gps_sats"] = gpsSats;
+    doc["gps_hdop"] = gpsHdop;
+    doc["gps_alt_m"] = gpsAltM;
+    doc["gps_speed_kmh"] = gpsSpeedKmh;
+    doc["gps_lat"] = gpsHasPosition ? gpsLat : 0.0;
+    doc["gps_lon"] = gpsHasPosition ? gpsLon : 0.0;
+    doc["gps_locator"] = gpsLocator;
+    doc["gps_override_active"] = gpsPositionOverrideActive;
     doc["qrz_user"] = qrzUsername;
     doc["qrz_pass"] = qrzPassword;
     doc["weather_key"] = weatherApiKey;
@@ -17858,10 +18148,55 @@ void setupWebServer() {
   // modulu ESP32-BRIDGE, wiec zwracamy spojny stan "nieaktywny", aby pelne UI
   // dzialalo bez bledow JS.
   server->on("/api/uart_status", HTTP_GET, []() {
-    server->send(200, "application/json",
-                 "{\"uart2_mode\":\"off\",\"uart2_connected_module\":\"\","
-                 "\"gps_active\":false,\"gps_fix\":false,\"bt_active\":false,"
-                 "\"aprs_uart_active\":false}");
+    // Ten build obsluguje tylko modul GPS na UART2 (BT/APRS-TNC/BRIDGE brak).
+    bool detected = gpsModuleDetected();
+    String mode = gpsEnabled ? "gps" : "off";
+    String module = gpsEnabled ? "gps" : "";
+    DynamicJsonDocument doc(512);
+    doc["uart2_mode"] = mode;
+    doc["uart2_connected_module"] = module;
+    doc["gps_enabled"] = gpsEnabled;
+    doc["gps_active"] = detected;
+    doc["gps_fix"] = gpsFix;
+    doc["gps_has_position"] = gpsHasPosition;
+    doc["gps_sats"] = gpsSats;
+    doc["gps_hdop"] = gpsHdop;
+    doc["gps_alt_m"] = gpsAltM;
+    doc["gps_speed_kmh"] = gpsSpeedKmh;
+    doc["gps_locator"] = gpsLocator;
+    doc["gps_override_active"] = gpsPositionOverrideActive;
+    doc["bt_active"] = false;
+    doc["aprs_uart_active"] = false;
+    String response;
+    serializeJson(doc, response);
+    server->send(200, "application/json", response);
+  });
+
+  // API - biezacy status GPS (odpytywane przez zakladke "Moduly" w WWW).
+  server->on("/api/gps", HTTP_GET, []() {
+    DynamicJsonDocument doc(512);
+    doc["enabled"] = gpsEnabled;
+    doc["use_for_position"] = gpsUseForPosition;
+    doc["module_detected"] = gpsModuleDetected();
+    doc["fix"] = gpsFix;
+    doc["has_position"] = gpsHasPosition;
+    doc["lat"] = gpsHasPosition ? gpsLat : 0.0;
+    doc["lon"] = gpsHasPosition ? gpsLon : 0.0;
+    doc["locator"] = gpsLocator;
+    doc["sats"] = gpsSats;
+    doc["hdop"] = gpsHdop;
+    doc["alt_m"] = gpsAltM;
+    doc["speed_kmh"] = gpsSpeedKmh;
+    doc["utc_time"] = gpsUtcTime;
+    doc["date"] = gpsDateStr;
+    doc["age_ms"] = gpsHasPosition ? (millis() - gpsLastFixMs) : 0;
+    doc["override_active"] = gpsPositionOverrideActive;
+    doc["baud"] = gpsBaud;
+    doc["rx_pin"] = gpsRxPin;
+    doc["tx_pin"] = gpsTxPin;
+    String response;
+    serializeJson(doc, response);
+    server->send(200, "application/json", response);
   });
 
   server->on("/api/bridge_bt_status", HTTP_GET, []() {
@@ -21819,6 +22154,12 @@ void setup() {
   bootLogLine("Config load...");
   bootLogLine("LittleFS ready: " + String(littleFsReady ? "YES" : "NO"));
   loadPreferences();
+
+  // Uruchom UART2 dla modulu GPS, jesli wlaczony w konfiguracji.
+  gpsApplyConfig();
+  if (gpsEnabled) {
+    bootLogLine("GPS: UART2 RX=" + String(gpsRxPin) + " TX=" + String(gpsTxPin) + " baud=" + String(gpsBaud));
+  }
   
   // TYMCZASOWA NAPRAWA KONFIGURACJI
   if (clusterHost == "Multiplay_C984" || clusterHost.length() == 0) {
@@ -22044,6 +22385,9 @@ void loop() {
   }
 
   updateStatusRgbLed();
+
+  // Odczyt NMEA z modulu GPS + nadpisanie pozycji/lokatora (jesli wlaczone).
+  gpsUpdate();
 
   // ObsĹ‚uga wygaszacza ekranu (Matrix)
   checkScreenSaverTimeout();

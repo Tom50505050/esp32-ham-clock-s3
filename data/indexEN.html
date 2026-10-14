@@ -1706,7 +1706,20 @@
             } else {
                 document.getElementById('user_lon').value = "";
             }
-            document.getElementById('use_gps_if_active').checked = data.use_gps_if_active === true;
+            const gpsUseValEN = (data.gps_use_for_position !== undefined && data.gps_use_for_position !== null)
+                ? data.gps_use_for_position === true
+                : data.use_gps_if_active === true;
+            document.getElementById('use_gps_if_active').checked = gpsUseValEN;
+            const gpsEnabledElEN = document.getElementById('gps_enabled');
+            if (gpsEnabledElEN) gpsEnabledElEN.checked = data.gps_enabled === true;
+            const gpsUseElEN = document.getElementById('gps_use_for_position');
+            if (gpsUseElEN) gpsUseElEN.checked = gpsUseValEN;
+            const gpsBaudElEN = document.getElementById('gps_baud');
+            if (gpsBaudElEN && data.gps_baud) gpsBaudElEN.value = data.gps_baud;
+            const gpsRxElEN = document.getElementById('gps_rx_pin');
+            if (gpsRxElEN && data.gps_rx_pin !== undefined && data.gps_rx_pin !== null) gpsRxElEN.value = data.gps_rx_pin;
+            const gpsTxElEN = document.getElementById('gps_tx_pin');
+            if (gpsTxElEN && data.gps_tx_pin !== undefined && data.gps_tx_pin !== null) gpsTxElEN.value = data.gps_tx_pin;
             document.getElementById('qrz_user').value = data.qrz_user || "";
             document.getElementById('qrz_pass').value = data.qrz_pass || "";
             document.getElementById('weather_key').value = data.weather_key || "";
@@ -2367,6 +2380,11 @@
             user_lat: parseFloat(document.getElementById('user_lat').value) || 0,
             user_lon: parseFloat(document.getElementById('user_lon').value) || 0,
             use_gps_if_active: document.getElementById('use_gps_if_active').checked,
+            gps_enabled: (() => { const el = document.getElementById('gps_enabled'); return el ? el.checked : false; })(),
+            gps_use_for_position: (() => { const el = document.getElementById('gps_use_for_position'); return el ? el.checked : document.getElementById('use_gps_if_active').checked; })(),
+            gps_baud: (() => { const el = document.getElementById('gps_baud'); const v = el ? parseInt(el.value, 10) : 9600; return Number.isFinite(v) ? Math.min(2000000, Math.max(300, v)) : 9600; })(),
+            gps_rx_pin: (() => { const el = document.getElementById('gps_rx_pin'); const v = el ? parseInt(el.value, 10) : 18; return Number.isFinite(v) ? Math.min(48, Math.max(0, v)) : 18; })(),
+            gps_tx_pin: (() => { const el = document.getElementById('gps_tx_pin'); const v = el ? parseInt(el.value, 10) : 17; return Number.isFinite(v) ? Math.min(48, Math.max(0, v)) : 17; })(),
             qrz_user: document.getElementById('qrz_user').value,
             qrz_pass: document.getElementById('qrz_pass').value,
             weather_key: document.getElementById('weather_key').value,
@@ -2802,6 +2820,48 @@
                 '      </select>' +
                 '    </div>' +
                 '  </div>' +
+                '  <div id="gps-module-section" class="config-section">' +
+                '    <h3>📍 GPS Module (NMEA 0183 / UART2)</h3>' +
+                '    <div class="form-group">' +
+                '      <label style="display:flex; align-items:center; gap:10px;">' +
+                '        <input type="checkbox" id="gps_enabled" name="gps_enabled" style="width:auto;">' +
+                '        <span>Enable GPS module (UART2)</span>' +
+                '      </label>' +
+                '      <small>Starts reading NMEA sentences from a GPS module connected to UART2.</small>' +
+                '    </div>' +
+                '    <div class="form-group">' +
+                '      <label>GPS Baud Rate:</label>' +
+                '      <input type="number" id="gps_baud" name="gps_baud" min="300" max="2000000" step="1" value="9600">' +
+                '      <small>Default 9600 (typical NEO-6M/NEO-M8N/ATGM336H modules).</small>' +
+                '    </div>' +
+                '    <div class="form-group" style="display:flex; gap:10px; flex-wrap:wrap;">' +
+                '      <div style="flex:1; min-width:120px;">' +
+                '        <label>RX pin (ESP32) &larr; module TX:</label>' +
+                '        <input type="number" id="gps_rx_pin" name="gps_rx_pin" min="0" max="48" value="18">' +
+                '      </div>' +
+                '      <div style="flex:1; min-width:120px;">' +
+                '        <label>TX pin (ESP32) &rarr; module RX:</label>' +
+                '        <input type="number" id="gps_tx_pin" name="gps_tx_pin" min="0" max="48" value="17">' +
+                '      </div>' +
+                '    </div>' +
+                '    <div class="form-group">' +
+                '      <small>Free safe GPIO: 2, 7, 8, 13, 17, 18, 38-42, 47, 48. Avoid 26-37 (flash/PSRAM), 19/20 (USB), 0/3/45/46 (strapping), 43/44 (UART0).</small>' +
+                '    </div>' +
+                '    <div class="form-group">' +
+                '      <label style="display:flex; align-items:center; gap:10px;">' +
+                '        <input type="checkbox" id="gps_use_for_position" name="gps_use_for_position" style="width:auto;">' +
+                '        <span>Use GPS position as my station position</span>' +
+                '      </label>' +
+                '      <small>With a GPS fix, coordinates and Maidenhead locator come from GPS for all services (APRS, PSK, radar). Falls back to manual values when the fix is lost.</small>' +
+                '    </div>' +
+                '    <div class="form-group" style="background:#0b1220; border:1px solid #2a3357; border-radius:8px; padding:10px;">' +
+                '      <div id="gps-live-status" style="color:#e8eef7; font-size:13px; line-height:1.6;">GPS status: waiting...</div>' +
+                '      <div style="margin-top:8px; display:flex; gap:10px; flex-wrap:wrap;">' +
+                '        <button type="button" class="btn" id="gpsRefreshBtn" style="padding:6px 12px;">Refresh GPS status</button>' +
+                '        <button type="button" class="btn" id="gpsUseLocatorBtn" style="padding:6px 12px;">Copy GPS locator to Station</button>' +
+                '      </div>' +
+                '    </div>' +
+                '  </div>' +
                 '  <div id="bridge-btspp-section" class="config-section" style="display:none;">' +
                 '    <h3>ESP32-BRIDGE-Bluetooth SPP</h3>' +
                 '    <div class="form-group" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">' +
@@ -2877,7 +2937,66 @@
             refreshBridgeBtSectionVisibility();
         }
 
-        document.addEventListener('DOMContentLoaded', ensureModulesTabEN);
+        function updateGpsLiveStatusEN(data) {
+            const el = document.getElementById('gps-live-status');
+            if (!el) return;
+            const d = data || {};
+            const fixTxt = d.fix ? 'FIX' : (d.module_detected ? 'no FIX' : 'no module');
+            const loc = (d.locator && String(d.locator).length) ? d.locator : '—';
+            const lat = (d.has_position && Number.isFinite(Number(d.lat))) ? Number(d.lat).toFixed(5) : '—';
+            const lon = (d.has_position && Number.isFinite(Number(d.lon))) ? Number(d.lon).toFixed(5) : '—';
+            const alt = Number.isFinite(Number(d.alt_m)) ? Number(d.alt_m).toFixed(1) + ' m' : '—';
+            const spd = Number.isFinite(Number(d.speed_kmh)) ? Number(d.speed_kmh).toFixed(1) + ' km/h' : '—';
+            const hdop = Number.isFinite(Number(d.hdop)) ? Number(d.hdop).toFixed(1) : '—';
+            const override = d.override_active ? '<span style="color:#22c55e;">active (GPS overrides position)</span>' : 'inactive';
+            el.innerHTML =
+                'Module: <b>' + (d.module_detected ? 'detected' : 'not detected') + '</b> · Status: <b>' + fixTxt + '</b><br>' +
+                'Satellites: <b>' + (Number.isFinite(Number(d.sats)) ? Number(d.sats) : 0) + '</b> · HDOP: <b>' + hdop + '</b><br>' +
+                'Lat: <b>' + lat + '</b> · Lon: <b>' + lon + '</b><br>' +
+                'Locator (Maidenhead): <b style="color:#f59e0b;">' + loc + '</b><br>' +
+                'Altitude: ' + alt + ' · Speed: ' + spd + '<br>' +
+                'UART2: ' + (d.baud || '—') + ' baud, RX=' + (d.rx_pin !== undefined ? d.rx_pin : '—') + ', TX=' + (d.tx_pin !== undefined ? d.tx_pin : '—') + '<br>' +
+                'Position from GPS: ' + override;
+        }
+
+        function loadGpsStatusEN() {
+            fetch('/api/gps')
+                .then(r => r.json())
+                .then(data => updateGpsLiveStatusEN(data || {}))
+                .catch(() => updateGpsLiveStatusEN({}));
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            ensureModulesTabEN();
+            const refreshBtnEN = document.getElementById('gpsRefreshBtn');
+            if (refreshBtnEN && !refreshBtnEN.dataset.hooked) {
+                refreshBtnEN.addEventListener('click', loadGpsStatusEN);
+                refreshBtnEN.dataset.hooked = '1';
+            }
+            const useLocBtnEN = document.getElementById('gpsUseLocatorBtn');
+            if (useLocBtnEN && !useLocBtnEN.dataset.hooked) {
+                useLocBtnEN.addEventListener('click', () => {
+                    const el = document.getElementById('gps-live-status');
+                    fetch('/api/gps').then(r => r.json()).then(d => {
+                        if (d && d.locator && String(d.locator).length >= 4) {
+                            document.getElementById('user_locator').value = d.locator;
+                            if (typeof saveConfig === 'function') saveConfig();
+                        } else if (el) {
+                            el.insertAdjacentHTML('beforeend', '<br><span style="color:#ef4444;">No GPS locator to copy.</span>');
+                        }
+                    }).catch(() => {});
+                });
+                useLocBtnEN.dataset.hooked = '1';
+            }
+            const gpsUseAEN = document.getElementById('use_gps_if_active');
+            const gpsUseBEN = document.getElementById('gps_use_for_position');
+            if (gpsUseAEN && gpsUseBEN) {
+                gpsUseAEN.addEventListener('change', () => { gpsUseBEN.checked = gpsUseAEN.checked; });
+                gpsUseBEN.addEventListener('change', () => { gpsUseAEN.checked = gpsUseBEN.checked; });
+            }
+            loadGpsStatusEN();
+            setInterval(loadGpsStatusEN, 5000);
+        });
 
         // System status bar (online / IP / RAM)
         const refreshSysStatus = () => {

@@ -18,8 +18,18 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 ## Interfejs WWW
 - Pełny UI (148 KB) jest plikiem `data/index.html` serwowanym z LittleFS pod `/` i `/config`; wymaga `data/style.*.css` (inaczej strona jest „ucięta"/bez wyglądu).
 - Wbudowany `getMainHTML()` w `main.cpp` to tylko skrócony zapas (gdy brak pliku w LittleFS).
-- Endpointy API: `/api/config`, `/api/save`, `/api/spots`, `/api/aprs`, `/api/pota`, `/api/hamalert`, `/api/propagation`, `/api/uart_status`, `/api/bridge_bt_*`, `/api/reset_touch`, `/api/reset_tft_rotation`.
-- `/api/uart_status` i `/api/bridge_bt_*` to stuby (ten build nie ma UART2 ani modułu ESP32-BRIDGE) — zwracają stan „nieaktywny", żeby pełne UI działało bez błędów JS.
+- Endpointy API: `/api/config`, `/api/save`, `/api/spots`, `/api/aprs`, `/api/pota`, `/api/hamalert`, `/api/propagation`, `/api/uart_status`, `/api/gps`, `/api/bridge_bt_*`, `/api/reset_touch`, `/api/reset_tft_rotation`.
+- `/api/uart_status` zwraca realny status modułu GPS (UART2). `/api/gps` to lekki endpoint odpytywany co 5 s przez zakładkę „Moduły" (fix, satelity, HDOP, lokator, lat/lon, piny UART).
+- `/api/bridge_bt_*` to stuby (ten build nie ma modułu ESP32-BRIDGE) — zwracają stan „nieaktywny", żeby pełne UI działało bez błędów JS.
+
+## GPS + automatyczny lokator (Maidenhead)
+- **Wejście:** zakładka **„Moduły"** w WWW (sekcja „📍 Moduł GPS (NMEA 0183 / UART2)"). Pola: włącz GPS, baud, piny RX/TX, „używaj pozycji GPS jako Twojej pozycji", podgląd statusu na żywo + przycisk „Skopiuj lokator GPS do Stacji".
+- **Backend:** `gpsEnabled`, `gpsBaud` (dom. 9600), `gpsRxPin` (dom. **18**), `gpsTxPin` (dom. **17**), `gpsUseForPosition` (NVS: `gps_en`, `gps_baud`, `gps_rx`, `gps_tx`, `gps_use`). UART2 = `HardwareSerial gpsSerial(2)`.
+- **Parser NMEA** (bez biblioteki): GGA (pozycja, jakość, satelity, HDOP, wysokość) + RMC (status, data, prędkość). Akceptuje `$GPGGA`/`$GNGGA`/`$GLGGA`/`$GNRMC` itd.
+- **Lokator:** `latLonToLocator(lat, lon, 6)` liczy 6-znakowy Maidenhead (np. Poznań 52.4064,16.9252 → **JO82LJ**). `locatorToLatLon()` pozostaje dla kierunku odwrotnego.
+- **Nadpisanie pozycji:** gdy `gpsEnabled && gpsUseForPosition && gpsFix`, `userLat/userLon/userLocator` są brane z GPS dla wszystkich usług (APRS/PSK/radar). Po utracie FIX wracają wartości ręczne (`userLatManual` itd.). Zapis NVS zawsze utrwala wartości ręczne, nie GPS-owe.
+- **Piny GPS:** wolne GPIO (dom. RX=18, TX=17). Nie używać 26–37 (flash/PSRAM), 19/20 (USB), 0/3/45/46 (strapping), 43/44 (UART0).
+- Klucz zapisu `use_gps_if_active` (starsze UI, zakładka „Stacja") jest mapowany na `gpsUseForPosition` — oba checkboxy są zsynchronizowane.
 
 ## Piny (ESP32-S3)
 TFT: SCK 12, MOSI 11, MISO **14**, CS 10, DC 9, RST -1, BL 21.
