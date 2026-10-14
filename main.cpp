@@ -2356,24 +2356,72 @@ void drawWelcomeScreenYellow() {
   if (!tftInitialized) {
     return;
   }
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextSize(2);
+  tft.fillScreen(UI_COL_BG);
   const int centerX = 240;
-  const int startY = 60;
-  const int lineGap = 30;
+
+  // --- Tytul ---
+  const char *title = "ESP32-HAM-CLOCK";
+  tft.setTextSize(3);
+  tft.setTextColor(TFT_YELLOW, UI_COL_BG);
+  int titleW = tft.textWidth(title);
+  tft.setCursor(centerX - titleW / 2, 8);
+  tft.print(title);
+
+  // Cienka linia akcentu pod tytulem.
+  tft.drawFastHLine(centerX - 150, 40, 300, UI_COL_ACCENT);
+
+  // --- Grafika: maszt antenowy + fale radiowe ---
+  const int tipY = 92;
+  const int baseY = 208;
+
+  // Fale radiowe - wspolsrodkowe okregi wokol wierzcholka anteny.
+  for (int i = 0; i < 3; i++) {
+    int r = 18 + i * 14;
+    tft.drawCircle(centerX, tipY, r, (i % 2) ? UI_COL_ACCENT2 : UI_COL_ACCENT);
+  }
+  // Krotkie "dipole" po bokach masztu.
+  tft.drawFastHLine(centerX - 42, tipY + 34, 84, UI_COL_ACCENT);
+  tft.drawFastHLine(centerX - 62, tipY + 74, 124, UI_COL_ACCENT);
+
+  // Maszt (rysowany po falach, zeby byl na wierzchu).
+  tft.fillRect(centerX - 3, tipY, 6, baseY - tipY, UI_COL_TEXT);
+  // Kratownica - skosy.
+  for (int y = tipY + 6; y < baseY - 12; y += 18) {
+    tft.drawLine(centerX - 3, y, centerX + 3, y + 18, UI_COL_DIM);
+    tft.drawLine(centerX + 3, y, centerX - 3, y + 18, UI_COL_DIM);
+  }
+  // Swiatlo ostrzegawcze na szczycie.
+  tft.fillCircle(centerX, tipY - 6, 4, UI_COL_RED);
+
+  // Ziemia / podstawa.
+  tft.drawFastHLine(centerX - 110, baseY, 220, UI_COL_BORDER);
+  for (int x = centerX - 110; x <= centerX + 110; x += 20) {
+    tft.drawFastVLine(x, baseY, 4, UI_COL_BORDER);
+  }
+
+  // Etykieta pod grafika.
+  const char *lbl = "HAM RADIO  -  AMATEUR RADIO STATION";
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_ACCENT, UI_COL_BG);
+  int lblW = tft.textWidth(lbl);
+  tft.setCursor(centerX - lblW / 2, baseY + 9);
+  tft.print(lbl);
+
+  // --- Stopka: autorstwo ---
   String lines[] = {
-    "ESP32-HAM-CLOCK",
     "version v1.2",
     "Autor: Tomasz SP9TNV",
     "Base: Konrad SP3KON",
     "License: MIT",
     "SP9TNV@gmail.com"
   };
-  for (int i = 0; i < 6; i++) {
+  const int startY = 226;
+  const int lineGap = 17;
+  tft.setTextSize(2);
+  for (int i = 0; i < 5; i++) {
     int textWidth = tft.textWidth(lines[i]);
-    int x = centerX - (textWidth / 2);
-    tft.setTextColor(TFT_YELLOW);
-    tft.setCursor(x, startY + i * lineGap);
+    tft.setTextColor(TFT_YELLOW, UI_COL_BG);
+    tft.setCursor(centerX - (textWidth / 2), startY + i * lineGap);
     tft.print(lines[i]);
   }
 }

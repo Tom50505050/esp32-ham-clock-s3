@@ -856,3 +856,13 @@ Uwaga: `tft_style` ("light" = biale tlo) istnieje w WWW, ale firmware go NIE
 obsluguje (brak klucza w `main.cpp`) — opcja jest ignorowana, nie powoduje bieli.
 
 Build: `pio run -e esp32-s3-n16r8 -e esp32-s3-n16r8-notouch` -> SUCCESS.
+
+## Ekran startowy (welcome): grafika krotkofalarska (14.10.2026)
+- `drawWelcomeScreenYellow()` (main.cpp) - ekran pokazywany przy starcie, gdy brak pliku splash.
+- Dodano grafike zwiazana z krotkofalarstwem: maszt antenowy (kratownica, swiatlo
+  ostrzegawcze RED na szczycie), 3 wspolsrodkowe fale radiowe (teal/niebieski,
+  naprzemiennie), dwa dipole po bokach i podstawa/ziemia.
+- Uklad 480x320: tytul "ESP32-HAM-CLOCK" (size 3, zolty) + linia akcentu, grafika
+  na srodku, podpis "HAM RADIO - AMATEUR RADIO STATION", stopka (version/autor/base/
+  license/email) w 5 liniach (size 2). Kolory z palety UI_COL_* (spojne z reszta UI).
+- Podglad ukladu: `/workspace/share/welcome-preview.png` (render symulujacy ekran).
