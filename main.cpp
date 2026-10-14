@@ -2566,7 +2566,7 @@ void drawScreen(ScreenType screenNum) {
   if (!issFullBleed) {
     switch (screenNum) {
       case SCREEN_HAM_CLOCK:        uiHeader("ESP32-HAM-CLOCK", false); uiHeaderClock(); screen1HeaderNeedsRedraw = false; break;
-      case SCREEN_DX_CLUSTER:       uiHeader(clusterHost.c_str(), true); break;
+      case SCREEN_DX_CLUSTER:       uiHeader("DXSPOTS.com", true); break;
       case SCREEN_POTA_CLUSTER:     uiHeader("POTA.app", true); break;
       case SCREEN_HAMALERT_CLUSTER: uiHeader("HAMALERT.org", true); break;
       case SCREEN_APRS_IS:          uiHeader("APRS-IS", true); break;
@@ -5406,9 +5406,8 @@ static void uiHeader(const char *title, bool showMenu) {
   tft.drawFastHLine(0, UI_HEADER_H - 1, 480, UI_COL_ACCENT);
   if (showMenu) uiHamburger(5, 4);
   tft.setTextDatum(TC_DATUM);
-  tft.setTextSize(2);
   tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
-  tft.drawString(title, 240, 4, 2);
+  tft.drawString(title, 240, 5, 2);  // Font 2 (16 px) - proporcjonalny, miesci sie w ramce
   tft.setTextDatum(TL_DATUM);
   drawWifiSignalBars(445, 1);
   drawBatteryIcon(420, 1);
