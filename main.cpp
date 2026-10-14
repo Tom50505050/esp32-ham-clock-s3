@@ -123,6 +123,7 @@ void drawWeatherMenu();
 void drawHamClockTimeMenu();
 static bool isScreen6RadarRangeTileHit(uint16_t x, uint16_t y, int &index);
 static void uiHeader(const char *title, bool showMenu);
+static void uiHeaderClock();
 static void uiFooter();
 static void triggerScreen6RadarHint();
 float calculateBearing(double lat1, double lon1, double lat2, double lon2);
@@ -2564,7 +2565,7 @@ void drawScreen(ScreenType screenNum) {
                              screenNum == SCREEN_ISS_PASS_TRACKING);
   if (!issFullBleed) {
     switch (screenNum) {
-      case SCREEN_HAM_CLOCK:        uiHeader("ESP32-HAM-CLOCK", false); screen1HeaderNeedsRedraw = false; break;
+      case SCREEN_HAM_CLOCK:        uiHeader("ESP32-HAM-CLOCK", false); uiHeaderClock(); screen1HeaderNeedsRedraw = false; break;
       case SCREEN_DX_CLUSTER:       uiHeader(clusterHost.c_str(), true); break;
       case SCREEN_POTA_CLUSTER:     uiHeader("POTA.app", true); break;
       case SCREEN_HAMALERT_CLUSTER: uiHeader("HAMALERT.org", true); break;
@@ -3249,7 +3250,10 @@ void drawBatteryIcon(int x, int y, int percentage = -1) {
 }
 
 void updateScreen1HeaderClock() {
-  return;  // naglowek HAM CLOCK w stylu ISS bez osobnego zegara
+  if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
+    return;
+  }
+  uiHeaderClock();
 }
 
 void updateDxClusterClock() {
@@ -3290,6 +3294,7 @@ void updateScreen1Header() {
     return;
   }
   uiHeader("ESP32-HAM-CLOCK", false);
+  uiHeaderClock();
   screen1HeaderNeedsRedraw = false;
 }
 
@@ -5407,6 +5412,21 @@ static void uiHeader(const char *title, bool showMenu) {
   tft.setTextDatum(TL_DATUM);
   drawWifiSignalBars(445, 1);
   drawBatteryIcon(420, 1);
+}
+
+// Zegar UTC w lewym gornym rogu naglowka (mniejszy, obok hamburgera przy menu).
+static void uiHeaderClock() {
+  if (!tftInitialized || inMenu || brightnessMenuActive || screenSaverMenuActive ||
+      screenSleepMenuActive || touchCalActive || pskKeyboardActive) {
+    return;
+  }
+  String utc = getUtcTimeString();
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextSize(1);
+  tft.fillRect(34, 4, 60, 16, UI_COL_CARD);
+  tft.setTextColor(UI_COL_ACCENT, UI_COL_CARD);
+  tft.drawString(utc.substring(0, 5), 36, 8, 1);
+  tft.setTextDatum(TL_DATUM);
 }
 
 // Stopka: strzalki < > + podpis "SWITCH SCREEN" (styl ISS).
