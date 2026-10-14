@@ -660,6 +660,15 @@
                     <button type="button" class="btn" id="img-upload-btn" style="background:#4a6a4a;">⬆️ Wyślij na ESP32</button>
                     <div id="img-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
                 </div>
+                <div class="form-group" style="border-top:1px solid #2a3357;padding-top:12px;">
+                    <label>Wgraj bezpośrednio jako JPG / PNG / BMP (bez konwersji):</label>
+                    <input type="file" id="splash-direct-file" accept=".png,.jpg,.jpeg,.bmp">
+                    <small>Plik trafia na urządzenie 1:1 i <b>zastępuje</b> stary ekran startowy. Zalecane 480×320. Firmware dekoduje JPG (TJpg), PNG (pngle) i BMP.</small>
+                    <div style="margin-top:8px;">
+                        <button type="button" class="btn" id="splash-direct-btn" style="background:#2a4a6a;">⬆️ Wgraj i ustaw jako ekran startowy</button>
+                    </div>
+                    <div id="splash-direct-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
+                </div>
             </div>
 
             <button type="button" class="save-btn" onclick="saveConfig()">💾 Zapisz ustawienia TFT</button>
@@ -1255,6 +1264,39 @@
             });
         };
 
+        // Bezposredni upload ekranu startowego (JPG/PNG/BMP) - plik 1:1 na urzadzenie.
+        // Serwer odpowiada przekierowaniem 303 na "/", wiec przegladarka po POST
+        // wchodzi na GET / i firmware rysuje nowy splash na TFT.
+        let splashDirectInit = false;
+        const initSplashDirectUpload = () => {
+            if (splashDirectInit) return;
+            const btn = document.getElementById('splash-direct-btn');
+            const fileInput = document.getElementById('splash-direct-file');
+            const status = document.getElementById('splash-direct-status');
+            if (!btn || !fileInput) return;
+            splashDirectInit = true;
+            btn.addEventListener('click', () => {
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) { status.textContent = "Najpierw wybierz plik JPG / PNG / BMP."; return; }
+                status.textContent = "Wgrywam i ustawiam: " + file.name + "...";
+                btn.disabled = true;
+                // Surowy korpus (RAW) z naglowkiem X-Filename - niezawodny dla
+                // duzych plikow (parser multipart bywa resetowany). Firmware
+                // zapisuje plik 1:1 jako /splash.<ext> i zastepuje stary splash.
+                fetch('/upload_splash', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-Filename': file.name,
+                        'X-Upload-Target': 'splash'
+                    },
+                    body: file
+                })
+                    .then(r => { window.location.href = '/'; })
+                    .catch(() => { status.textContent = "Blad wgrywania (format/siec)."; btn.disabled = false; });
+            });
+        };
+
         // ===== Konwersja grafiki JPG/PNG/BMP -> BMP 16-bit RGB565 (480x320) =====
         // Wszystko dzieje sie w przegladarce: skalowanie do 480x320 + pakowanie
         // kolorow do RGB565 (format natywny ILI9488). Wynik jest gotowym plikiem
@@ -1427,7 +1469,7 @@
             document.getElementById(page + '-page').classList.add('active');
             if (page === "config" || page === "tft" || page === "alert") {
                 loadConfig();
-                if (page === "tft") initImageUpload();
+                if (page === "tft") { initImageUpload(); initSplashDirectUpload(); }
             } else if (page === "aprs") {
                 loadAPRS();
             } else if (page === "propagation") {

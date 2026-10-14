@@ -918,5 +918,23 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Uwaga: przy `MC_DATUM` + `drawString` nie uzywac `setTextPadding` (kalibruje pozycje).
 - Podglad: `/workspace/share/hamclock-preview.png`. Build oba env: SUCCESS.
 
+### Upload ekranu startowego (JPG/PNG/BMP) przez WWW (14.10.2026)
+- Zakladka TFT -> "Grafika na ekran": dodana sekcja "Wgraj bezposrednio jako
+  JPG/PNG/BMP" (id `splash-direct-file` / `splash-direct-btn`), obok istniejacego
+  konwertera do BMP565. Wysyla plik 1:1 przez RAW (`/upload_splash`, naglowki
+  `X-Filename` + `X-Upload-Target: splash`).
+- Firmware: `resolveUploadTarget()` zapisuje jako `/splash.<ext>` (jpg/png/bmp) i
+  usuwa stare warianty (`removeOldSplashVariants`) - nowy plik ZASTEPUJE stary splash.
+- `/upload_splash` (POST): jesli `Accept` zawiera `text/html` -> redirect 303 na `/`
+  (przegladarka robi GET /, ktory rysuje nowy splash); inaczej JSON (fetch/curl).
+- Usunieto odswiezanie splasha w `rawUploadFinish`/multipart END - zapobiega
+  miganiu/podwojnemu rysowaniu; splash odrysowuje GET /.
+- Domyslny splash w LittleFS zmieniony z `splash.bmp` na `splash.jpg` (nowy wyglad).
+  Priorytet: splash.png > splash.jpg > splash.jpeg > ... > splash.bmp.
+- Publish: `/workspace/share/flash/littlefs.bin` + `esp32-ham-clock-s3.zip` (zawiera
+  splash.jpg). Uwaga: nie zmieniac rozmiaru/typu istniejacego pliku na urzadzeniu -
+  LittleFS nie skasuje go bez pelnego formatu.
+
+
 
 

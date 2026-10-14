@@ -16997,7 +16997,8 @@ static void rawUploadFinish() {
   File f = LittleFS.open(rawUploadPath);
   if (f) { sz = f.size(); f.close(); }
   Serial.printf("[UPLOAD] Zakonczono: %s (%d B)\n", rawUploadPath.c_str(), (int)sz);
-  if (rawUploadIsSplash && tftInitialized) drawSplashScreen();
+  // Nie odswiezamy tu ekranu startowego - WWW po uploadzie robi redirect (GET /),
+  // ktory i tak rysuje splash. Odswiezanie tutaj powodowalo miganie ekranu.
   if (currentScreen == SCREEN_PSK_MAP) drawPskMap();
 }
 
@@ -17041,7 +17042,7 @@ static void handleUpload(const String &targetForced) {
       if (!mpUploadActive) return;
       mpUploadActive = false;
       Serial.printf("[UPLOAD] multipart koniec: %s (%d B)\n", mpUploadPath.c_str(), (int)upload.totalSize);
-      if (mpUploadIsSplash && tftInitialized) drawSplashScreen();
+      // Splash odswiezy GET / po przekierowaniu (patrz /upload_splash) - bez podwojnego rysowania.
       if (currentScreen == SCREEN_PSK_MAP) drawPskMap();
     } else if (upload.status == UPLOAD_FILE_ABORTED) {
       mpUploadActive = false;
@@ -18576,8 +18577,16 @@ void setupWebServer() {
   // (definiowane jako lambda, uzywana przez /splash_preview ponizej)
 
   // Upload ekranu startowego (PNG/JPG/JPEG/BMP) -> LittleFS jako /splash.<ext>.
+  // Odpowiedz zalezy od naglowka Accept: przegladarka (text/html) dostaje
+  // przekierowanie na "/" (GET / rysuje nowy splash na TFT), a fetch/curl JSON.
   server->on("/upload_splash", HTTP_POST, []() {
-    server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"splash_uploaded\"}");
+    String accept = server->header("Accept");
+    if (accept.indexOf("text/html") >= 0) {
+      server->sendHeader("Location", "/");
+      server->send(303, "text/plain", "splash uploaded");
+    } else {
+      server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"splash_uploaded\"}");
+    }
   }, []() {
     handleUpload("splash");
   });
