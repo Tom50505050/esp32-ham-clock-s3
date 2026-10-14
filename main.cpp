@@ -1090,6 +1090,9 @@ const unsigned long QRZ_LOOKUP_INTERVAL_POTA_MS = 4000;                    // by
 const unsigned long QRZ_RETRY_DELAY_MS = 5000;                             // 5s retry
 const unsigned long QRZ_CACHE_TTL_MS = 15UL * 60UL * 1000UL;               // 15 min cache wpisu
 const uint8_t QRZ_RETRY_LIMIT = 2;
+// Jak dlugo pamietamy "nie znaleziono" - callook.info obsluguje tylko znaki USA,
+// wiec wiekszosc swiata zawsze daje 404. Bez tego ten sam znak byl pytany w kolko.
+const unsigned long QRZ_NEGATIVE_TTL_MS = 60UL * 60UL * 1000UL;
 const int QRZ_QUEUE_SIZE = 20;
 
 // ========== STRUKTURA DANYCH ==========
@@ -2085,10 +2088,13 @@ struct QrzCacheEntry {
   float lat;
   float lon;
   bool hasLatLon;
+  bool notFound;      // wpis negatywny: API nie zna tego znaku (np. callook = tylko USA)
   unsigned long fetchedAtMs;
 };
 const int QRZ_CACHE_SIZE = 20;
 QrzCacheEntry qrzCache[QRZ_CACHE_SIZE];
+bool isQrzCacheKnownMissing(const String &callsign, unsigned long ttlMs);
+void writeQrzNegativeCache(const String &callsign);
 
 // Forward declarations
 void drawSystemInfo();
@@ -11922,6 +11928,9 @@ bool fetchCallookCallsignInfo(const String &callsign, String &outGrid, String &o
     http.end();
     Serial.print("[CALLOOK] HTTP error: ");
     Serial.println(code);
+    // 404 = callook nie zna znaku (dla nie-US to norma). Zapamietaj negatywnie,
+    // inaczej kolejka QRZ pyta o ten sam znak w kolko (burza 404 w logu).
+    if (code == 404) writeQrzNegativeCache(call);
     return false;
   }
   String body = http.getString();
@@ -11939,6 +11948,7 @@ bool fetchCallookCallsignInfo(const String &callsign, String &outGrid, String &o
   // Check if callsign exists
   if (doc["status"] == "INVALID") {
     Serial.println("[CALLOOK] Callsign not found");
+    writeQrzNegativeCache(call);
     return false;
   }
 
@@ -11998,6 +12008,7 @@ bool fetchCallookCallsignInfo(const String &callsign, String &outGrid, String &o
   qrzCache[oldestIdx].lat = (float)outLat;
   qrzCache[oldestIdx].lon = (float)outLon;
   qrzCache[oldestIdx].hasLatLon = outHasLatLon;
+  qrzCache[oldestIdx].notFound = false;
   qrzCache[oldestIdx].fetchedAtMs = now;
 
   Serial.print("[CALLOOK] Fetched: ");
@@ -12306,6 +12317,7 @@ bool fetchHamQthCallsignInfo(const String &callsign, String &outGrid, String &ou
   qrzCache[oldestIdx].lat = (float)outLat;
   qrzCache[oldestIdx].lon = (float)outLon;
   qrzCache[oldestIdx].hasLatLon = outHasLatLon;
+  qrzCache[oldestIdx].notFound = false;
   qrzCache[oldestIdx].fetchedAtMs = now;
 
   Serial.print("[HAMQTH] Fetched: ");
@@ -12477,6 +12489,7 @@ bool fetchQrzCallsignInfo(const String &callsign, String &outGrid, String &outCo
   qrzCache[oldestIdx].lat = (float)outLat;
   qrzCache[oldestIdx].lon = (float)outLon;
   qrzCache[oldestIdx].hasLatLon = outHasLatLon;
+  qrzCache[oldestIdx].notFound = false;
   qrzCache[oldestIdx].fetchedAtMs = now;
 
   return (grid.length() > 0 || country.length() > 0 || name.length() > 0);
@@ -12511,6 +12524,49 @@ bool getQrzCacheFresh(const String &callsign, String &outGrid, String &outCountr
     }
   }
   return false;
+}
+
+// Czy w cache jest swiezy wpis negatywny ("API nie zna tego znaku")?
+bool isQrzCacheKnownMissing(const String &callsign, unsigned long ttlMs) {
+  String call = callsign;
+  call.toUpperCase();
+  unsigned long now = millis();
+  for (int i = 0; i < QRZ_CACHE_SIZE; i++) {
+    if (qrzCache[i].notFound && qrzCache[i].callsign == call &&
+        (now - qrzCache[i].fetchedAtMs) < ttlMs) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Zapisz wpis negatywny (znak nieznany / 404), zeby nie pytac o niego w kolko.
+void writeQrzNegativeCache(const String &callsign) {
+  String call = callsign;
+  call.toUpperCase();
+  unsigned long now = millis();
+  int idx = -1;
+  for (int i = 0; i < QRZ_CACHE_SIZE; i++) {
+    if (qrzCache[i].callsign == call) { idx = i; break; }
+  }
+  if (idx < 0) {
+    unsigned long oldestMs = 0xFFFFFFFFUL;
+    idx = 0;
+    for (int i = 0; i < QRZ_CACHE_SIZE; i++) {
+      if (qrzCache[i].fetchedAtMs < oldestMs) { oldestMs = qrzCache[i].fetchedAtMs; idx = i; }
+    }
+  }
+  qrzCache[idx].callsign = call;
+  qrzCache[idx].grid = "";
+  qrzCache[idx].country = "";
+  qrzCache[idx].name = "";
+  qrzCache[idx].email = "";
+  qrzCache[idx].qth = "";
+  qrzCache[idx].lat = 0.0f;
+  qrzCache[idx].lon = 0.0f;
+  qrzCache[idx].hasLatLon = false;
+  qrzCache[idx].notFound = true;
+  qrzCache[idx].fetchedAtMs = now;
 }
 
 void applyQrzCacheToSpot(DXSpot &spot, unsigned long ttlMs) {
@@ -12675,6 +12731,11 @@ void enqueueQrzLookup(const String &callsign) {
   double lon = 0.0;
   bool hasLatLon = false;
   if (getQrzCacheFresh(normalized, grid, country, name, email, qth, lat, lon, hasLatLon, QRZ_CACHE_TTL_MS)) {
+    return;
+  }
+  // Nie kolejkuj znaku, ktory niedawno zwrocil "nie znaleziono" - to wlasnie
+  // generowalo ciagly strumien HTTP 404 dla znakow spoza USA.
+  if (isQrzCacheKnownMissing(normalized, QRZ_NEGATIVE_TTL_MS)) {
     return;
   }
 
@@ -18988,6 +19049,21 @@ void uiTaskLoop(void *parameter) {
       if (tftInitialized && currentScreen == SCREEN_SYSTEM_INFO && !inMenu && !aprsAlertScreenActive) {
         updateSystemInfo();
       }
+
+      // Auto-odswiezanie ekranu PSK (tryb HTTP). drawPskMap() wolane bylo tylko
+      // przy zdarzeniach (wejscie na ekran, dotyk), wiec licznik auto-refresh
+      // nigdy nie odpalal i ekran zamarzal na danych z chwili wejscia. Wolamy
+      // periodycznie, ale tylko gdy minie interwal i nie trwa backoff po 429
+      // (inaczej pelne przerysowanie powtarzaloby sie w kolko).
+      if (tftInitialized && currentScreen == SCREEN_PSK_MAP && !inMenu &&
+          !pskMapMenuOpen && !aprsAlertScreenActive && !pskMqttEnabled &&
+          pskAutoRefreshMinutes > 0 && lastPskFetchMs != 0) {
+        unsigned long pskIntervalMs = (unsigned long)pskAutoRefreshMinutes * 60UL * 1000UL;
+        if (millis() >= pskBackoffUntilMs && (millis() - lastPskFetchMs) >= pskIntervalMs) {
+          drawPskMap();
+        }
+      }
+
       
       // ObsĹ‚uga MQTT dla PSK Reporter (gdy aktywny ekran PSK i wĹ‚Ä…czony MQTT)
       if (pskMqttEnabled && currentScreen == SCREEN_PSK_MAP && !pskMapMenuOpen) {

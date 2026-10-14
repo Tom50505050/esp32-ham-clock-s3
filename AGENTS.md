@@ -661,3 +661,24 @@ Dodano: ekalk.eu -> "Bezpłatne kalkulatory online dla elektroników i radioamat
 (EN: "Free online calculators for electronics engineers and radio amateurs").
 Po zmianie data/ trzeba przebudowac LittleFS (pio run -e esp32-s3-n16r8 -t buildfs),
 bo WWW jest wgrywane z LittleFS - inaczej zmiana nie trafi na urzadzenie.
+
+
+## CALLOOK 404-storm + brak auto-odswiezania PSK (14.10.2026, z logu urzadzenia)
+Log pokazal dwa realne problemy (PSK byl cicho, CALLOOK sypal 404):
+
+1) CALLOOK/callook.info obsluguje TYLKO znaki USA. Polskie znaki (SP9TNV,
+   SP8AJK...) zawsze zwracaly 404, a kolejka QRZ ponawiala je bez konca
+   (fetchCallookCallsignInfo w petli co QRZ_LOOKUP_INTERVAL). Stad strumien
+   "[CALLOOK] HTTP error: 404" co ~6 s.
+   Naprawa: wpis NEGATYWNY w qrzCache (pole notFound). 404 oraz status INVALID
+   zapisuja wpis na QRZ_NEGATIVE_TTL_MS (1 h); enqueueQrzLookup pomija znaki
+   znane jako brakujace (isQrzCacheKnownMissing). Udany zapis czysci notFound.
+   Symulacja: 10 min x 30 znakow -> 3600 zapytan przed, 30 po.
+
+2) Ekran PSK nie odswiezal sie sam. drawPskMap() bylo wolane TYLKO przy
+   zdarzeniach (wejscie na ekran, dotyk, zapis) - brak periodycznego wywolania,
+   wiec licznik pskAutoRefreshMinutes nigdy nie odpalal. Dodano periodyczne
+   wywolanie w UI_Task (sekcja per-screen): gdy interwal minal i nie ma backoffu
+   po 429. To naprawia tez "pierwszy fetch po wgraniu nic nie pobral" (przy
+   poprzednim FW nie bylo zadnego auto-fetchu - fetch dzialal tylko przy wejsciu
+   na ekran z lastPskFetchMs==0, co przy starcie na innym ekranie nie zachodzi).
