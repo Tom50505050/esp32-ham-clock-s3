@@ -17041,7 +17041,8 @@ static bool   mpUploadActive = false;
 //  - multipart/form-data -> klasyczna sciezka WebServer::upload()
 //  - cokolwiek innego    -> RAW (surowe cialo wg Content-Length) - szybkie i
 //    niezawodne dla duzych plikow binarnych.
-// targetForced: "mapa" lub "splash"; gdy puste - bierzemy naglowek X-Upload-Target.
+// targetForced: "mapa", "welcome" lub "splash"; naglowek X-Upload-Target ma
+// pierwszenstwo nad ta wartoscia, a gdy oba puste - domyslnie "splash".
 static void handleUpload(const String &targetForced) {
   if (!server) return;
   String ctype = server->header("Content-Type");
@@ -17051,7 +17052,11 @@ static void handleUpload(const String &targetForced) {
     if (upload.status == UPLOAD_FILE_START) {
       mpUploadActive = false;
       if (!littleFsReady) return;
-      String target = targetForced.length() ? targetForced : server->header("X-Upload-Target");
+      // Naglowek X-Upload-Target ma pierwszenstwo nad celem wymuszonym przez
+      // trase - inaczej upload na /upload_splash z naglowkiem "splash" trafialby
+      // do celu domyslnego ("welcome").
+      String target = server->header("X-Upload-Target");
+      if (target.length() == 0) target = targetForced;
       if (target.length() == 0) target = "splash";
       String path = resolveUploadTarget(target, upload.filename);
       if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format"); return; }
@@ -17088,7 +17093,9 @@ static void handleUpload(const String &targetForced) {
     if (!littleFsReady) return;
     String fname = server->header("X-Filename");
     if (fname.length() == 0) fname = (targetForced == "mapa") ? "Mapa swiata.bmp" : "splash.bmp";
-    String target = targetForced.length() ? targetForced : server->header("X-Upload-Target");
+    // Naglowek X-Upload-Target ma pierwszenstwo nad celem wymuszonym przez trase.
+    String target = server->header("X-Upload-Target");
+    if (target.length() == 0) target = targetForced;
     if (target.length() == 0) target = "splash";
     String path = resolveUploadTarget(target, fname);
     if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format (RAW)"); return; }
@@ -18608,9 +18615,7 @@ void setupWebServer() {
   // Znajduje aktualny plik ekranu startowego (dowolne obslugiwane rozszerzenie).
   // (definiowane jako lambda, uzywana przez /splash_preview ponizej)
 
-  // Upload ekranu powitalnego (zastepuje ekran z wersja/autorami) oraz splash.
-  // Odpowiedz zalezy od naglowka Accept: przegladarka (text/html) dostaje
-  // przekierowanie na "/" (GET / rysuje nowy ekran), a fetch/curl JSON.
+  // Upload ekranu startowego (splash) - zachowany dla zakladki Linki.
   server->on("/upload_splash", HTTP_POST, []() {
     String accept = server->header("Accept");
     if (accept.indexOf("text/html") >= 0) {
@@ -18620,8 +18625,19 @@ void setupWebServer() {
       server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"uploaded\"}");
     }
   }, []() {
-    // Domyslnie cel = ekran powitalny (ekran z wersja/autorami). Nadpisywane
-    // naglowkiem X-Upload-Target (np. "splash").
+    handleUpload("splash");
+  });
+
+  // Upload ekranu powitalnego (zastepuje ekran z wersja/autorami).
+  server->on("/upload_welcome", HTTP_POST, []() {
+    String accept = server->header("Accept");
+    if (accept.indexOf("text/html") >= 0) {
+      server->sendHeader("Location", "/");
+      server->send(303, "text/plain", "uploaded");
+    } else {
+      server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"uploaded\"}");
+    }
+  }, []() {
     handleUpload("welcome");
   });
 

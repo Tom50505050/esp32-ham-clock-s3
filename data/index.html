@@ -662,13 +662,13 @@
                     <div id="img-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
                 </div>
                 <div class="form-group" style="border-top:1px solid #2a3357;padding-top:12px;">
-                    <label>Wgraj bezpośrednio jako JPG / PNG / BMP (bez konwersji):</label>
-                    <input type="file" id="splash-direct-file" accept=".png,.jpg,.jpeg,.bmp">
+                    <label>Ekran powitalny — wgraj bezpośrednio jako JPG / PNG / BMP (bez konwersji):</label>
+                    <input type="file" id="welcome-direct-file" accept=".png,.jpg,.jpeg,.bmp">
                     <small>Zastępuje <b>ekran powitalny</b> (ekran z wersją i autorami programu) wgranym obrazem. Plik trafia na urządzenie 1:1. Zalecane 480×320. Firmware dekoduje JPG (TJpg), PNG (pngle) i BMP.</small>
                     <div style="margin-top:8px;">
-                        <button type="button" class="btn" id="splash-direct-btn" style="background:#2a4a6a;">⬆️ Wgraj i ustaw jako ekran powitalny</button>
+                        <button type="button" class="btn" id="welcome-direct-btn" style="background:#2a4a6a;">⬆️ Wgraj i ustaw jako ekran powitalny</button>
                     </div>
-                    <div id="splash-direct-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
+                    <div id="welcome-direct-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
                     <div style="margin-top:10px;">
                         <small>Podgląd aktualnej grafiki ekranu powitalnego (jeśli wgrana):</small><br>
                         <img id="welcome-preview" src="/welcome_preview" alt="" style="max-width:320px;margin-top:6px;border:1px solid #2a3357;display:none;"
@@ -1270,32 +1270,26 @@
             });
         };
 
-        // Bezposredni upload ekranu startowego (JPG/PNG/BMP) - plik 1:1 na urzadzenie.
-        // Serwer odpowiada przekierowaniem 303 na "/", wiec przegladarka po POST
-        // wchodzi na GET / i firmware rysuje nowy splash na TFT.
-        let splashDirectInit = false;
-        const initSplashDirectUpload = () => {
-            if (splashDirectInit) return;
-            const btn = document.getElementById('splash-direct-btn');
-            const fileInput = document.getElementById('splash-direct-file');
-            const status = document.getElementById('splash-direct-status');
+        // Bezposredni upload EKRANU POWITALNEGO (JPG/PNG/BMP) - plik 1:1 na
+        // urzadzenie, zapisywany jako /welcome.<ext>. Trasa /upload_welcome.
+        let welcomeDirectInit = false;
+        const initWelcomeDirectUpload = () => {
+            if (welcomeDirectInit) return;
+            const btn = document.getElementById('welcome-direct-btn');
+            const fileInput = document.getElementById('welcome-direct-file');
+            const status = document.getElementById('welcome-direct-status');
             if (!btn || !fileInput) return;
-            splashDirectInit = true;
+            welcomeDirectInit = true;
             btn.addEventListener('click', () => {
                 const file = fileInput.files && fileInput.files[0];
                 if (!file) { status.textContent = "Najpierw wybierz plik JPG / PNG / BMP."; return; }
                 status.textContent = "Wgrywam i ustawiam: " + file.name + "...";
                 btn.disabled = true;
-                // Surowy korpus (RAW) z naglowkiem X-Filename - niezawodny dla
-                // duzych plikow (parser multipart bywa resetowany). Firmware
-                // zapisuje plik 1:1 jako /welcome.<ext> i zastepuje stary ekran
-                // powitalny (z wersja/autorami).
-                fetch('/upload_splash', {
+                fetch('/upload_welcome', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/octet-stream',
-                        'X-Filename': file.name,
-                        'X-Upload-Target': 'welcome'
+                        'X-Filename': file.name
                     },
                     body: file
                 })
@@ -1399,7 +1393,7 @@
             const btn = document.getElementById('img-upload-btn');
             if (!imgConvertedBlob) { status.textContent = "Najpierw kliknij 'Konwertuj do RGB565'."; return; }
             const target = document.getElementById('img-target').value;
-            const url = (target === 'mapa') ? '/upload/mapa565' : '/upload_splash';
+            const url = (target === 'mapa') ? '/upload/mapa565' : (target === 'welcome') ? '/upload_welcome' : '/upload_splash';
             status.textContent = "Wysylam na ESP32...";
             btn.disabled = true;
             // Surowe cialo (RAW) zamiast multipart - parser multipart w WebServer
@@ -1489,7 +1483,7 @@
             document.getElementById(page + '-page').classList.add('active');
             if (page === "config" || page === "tft" || page === "alert") {
                 loadConfig();
-                if (page === "tft") { initImageUpload(); initSplashDirectUpload(); }
+                if (page === "tft") { initImageUpload(); initWelcomeDirectUpload(); }
             } else if (page === "aprs") {
                 loadAPRS();
             } else if (page === "propagation") {

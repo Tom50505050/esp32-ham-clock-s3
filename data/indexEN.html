@@ -662,13 +662,13 @@
                     <div id="img-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
                 </div>
                 <div class="form-group" style="border-top:1px solid #2a3357;padding-top:12px;">
-                    <label>Upload directly as JPG / PNG / BMP (no conversion):</label>
-                    <input type="file" id="splash-direct-file" accept=".png,.jpg,.jpeg,.bmp">
+                    <label>Welcome screen — upload directly as JPG / PNG / BMP (no conversion):</label>
+                    <input type="file" id="welcome-direct-file" accept=".png,.jpg,.jpeg,.bmp">
                     <small>Replaces the <b>welcome screen</b> (the screen showing the program version and authors) with your image. The file goes to the device 1:1. 480×320 recommended. Firmware decodes JPG (TJpg), PNG (pngle) and BMP.</small>
                     <div style="margin-top:8px;">
-                        <button type="button" class="btn" id="splash-direct-btn" style="background:#2a4a6a;">⬆️ Upload and set as welcome screen</button>
+                        <button type="button" class="btn" id="welcome-direct-btn" style="background:#2a4a6a;">⬆️ Upload and set as welcome screen</button>
                     </div>
-                    <div id="splash-direct-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
+                    <div id="welcome-direct-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
                     <div style="margin-top:10px;">
                         <small>Preview of the current welcome-screen image (if uploaded):</small><br>
                         <img id="welcome-preview" src="/welcome_preview" alt="" style="max-width:320px;margin-top:6px;border:1px solid #2a3357;display:none;"
@@ -1369,32 +1369,26 @@
             });
         };
 
-        // Direct boot-screen upload (JPG/PNG/BMP) - file sent 1:1 to the device.
-        // The server replies with a 303 redirect to "/", so the browser then does
-        // GET / and the firmware draws the new splash on the TFT.
-        let splashDirectInit = false;
-        const initSplashDirectUpload = () => {
-            if (splashDirectInit) return;
-            const btn = document.getElementById('splash-direct-btn');
-            const fileInput = document.getElementById('splash-direct-file');
-            const status = document.getElementById('splash-direct-status');
+        // Direct WELCOME-screen upload (JPG/PNG/BMP) - file sent 1:1 to the
+        // device, stored as /welcome.<ext>. Route: /upload_welcome.
+        let welcomeDirectInit = false;
+        const initWelcomeDirectUpload = () => {
+            if (welcomeDirectInit) return;
+            const btn = document.getElementById('welcome-direct-btn');
+            const fileInput = document.getElementById('welcome-direct-file');
+            const status = document.getElementById('welcome-direct-status');
             if (!btn || !fileInput) return;
-            splashDirectInit = true;
+            welcomeDirectInit = true;
             btn.addEventListener('click', () => {
                 const file = fileInput.files && fileInput.files[0];
                 if (!file) { status.textContent = "Choose a JPG / PNG / BMP file first."; return; }
                 status.textContent = "Uploading and setting: " + file.name + "...";
                 btn.disabled = true;
-                // Raw body + X-Filename header - reliable for large files (the
-                // multipart parser can be reset). The firmware stores the file 1:1
-                // as /welcome.<ext> and replaces the old welcome screen
-                // (the version/authors screen).
-                fetch('/upload_splash', {
+                fetch('/upload_welcome', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/octet-stream',
-                        'X-Filename': file.name,
-                        'X-Upload-Target': 'welcome'
+                        'X-Filename': file.name
                     },
                     body: file
                 })
@@ -1496,7 +1490,7 @@
             const btn = document.getElementById('img-upload-btn');
             if (!imgConvertedBlob) { status.textContent = "Click 'Convert to RGB565' first."; return; }
             const target = document.getElementById('img-target').value;
-            const url = (target === 'mapa') ? '/upload/mapa565' : '/upload_splash';
+            const url = (target === 'mapa') ? '/upload/mapa565' : (target === 'welcome') ? '/upload_welcome' : '/upload_splash';
             status.textContent = "Sending to ESP32...";
             btn.disabled = true;
             // Raw body (not multipart): the WebServer multipart parser drops the
@@ -1585,7 +1579,7 @@
             document.getElementById(page + '-page').classList.add('active');
             if (page === "config" || page === "tft" || page === "alert") {
                 loadConfig();
-                if (page === "tft") { initImageUpload(); initSplashDirectUpload(); }
+                if (page === "tft") { initImageUpload(); initWelcomeDirectUpload(); }
             } else if (page === "aprs") {
                 loadAPRS();
             } else if (page === "propagation") {
