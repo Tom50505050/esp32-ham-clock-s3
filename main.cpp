@@ -19609,18 +19609,17 @@ void drawPskMap() {
     // Tryb MQTT - loop obsĹ‚uguje wszystko w tle
     loopPskMqtt();
   } else {
-    // Tryb HTTP - auto-odĹ›wieĹĽanie PSKReporter
-    if (pskAutoRefreshMinutes > 0) {
-      unsigned long refreshIntervalMs = (unsigned long)pskAutoRefreshMinutes * 60 * 1000;
-      // Fetchuj tylko przy pierwszym renderze albo po uplywie interwalu - NIE przy
-      // kazdym redrawie z pustymi spotami (to zamienialo jeden blad w burze zapytan
-      // i utrwalalo limit 429). W trakcie backoffu po 429 nie pytamy wcale.
-      bool neverFetched = (lastPskFetchMs == 0);
-      if (millis() >= pskBackoffUntilMs &&
-          (neverFetched || now - lastPskFetchMs > refreshIntervalMs)) {
-        fetchPskReporterData();
-        lastPskFetchMs = now;
-      }
+    // Tryb HTTP - auto-odĹ›wieĹĽanie PSKReporter.
+    // Pierwszy fetch zawsze (takze gdy auto-refresh wylaczone) - inaczej ekran
+    // zostaje pusty az do recznego tapniecia. Kolejne tylko po interwale.
+    // Bez tego "0 spotow" ponawialo zapytanie przy kazdym redrawie (burza/429),
+    // a w trakcie backoffu po 429 nie pytamy wcale.
+    bool neverFetched = (lastPskFetchMs == 0);
+    bool intervalElapsed = (pskAutoRefreshMinutes > 0) &&
+                           (now - lastPskFetchMs > (unsigned long)pskAutoRefreshMinutes * 60 * 1000);
+    if (millis() >= pskBackoffUntilMs && (neverFetched || intervalElapsed)) {
+      fetchPskReporterData();
+      lastPskFetchMs = now;
     }
   }
   drawPskMapHeader();
@@ -19876,10 +19875,14 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       pskActiveField = PSK_FIELD_NONE;
       Serial.printf("[PSK] pskMapMenuOpen set to: %d\n", pskMapMenuOpen);
       Serial.println("[PSK] Closing menu and redrawing map...");
-      // Wymus odswiezenie po zapisaniu ustawien: zerujemy znacznik, zeby
-      // drawPskMap pobralo dane - ale nadal z poszanowaniem backoffu po 429.
+      // Wymus natychmiastowe odswiezenie po zapisaniu ustawien (z poszanowaniem
+      // backoffu po 429). Nie polegamy na bramce drawPskMap, bo przy
+      // auto-refresh=0 zaleznosc od interwalu blokowalaby pobranie danych.
       Serial.printf("[PSK] Before drawPskMap, pskMapMenuOpen=%d\n", pskMapMenuOpen);
-      lastPskFetchMs = 0;
+      if (millis() >= pskBackoffUntilMs) {
+        fetchPskReporterData();
+        lastPskFetchMs = millis();
+      }
       drawPskMap();
       Serial.printf("[PSK] After drawPskMap, pskMapMenuOpen=%d\n", pskMapMenuOpen);
       Serial.println("[PSK] Map redrawn, menu should be closed");

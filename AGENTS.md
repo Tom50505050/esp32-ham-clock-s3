@@ -642,4 +642,10 @@ Naprawa:
   obcina dluzsze okna (`receptionReportLimited.oldestRequested`), a pskReportDays
   domyslnie 3 -> wczesniej wysylalismy -259200.
 - Symulacja bramki (12 redrawow przy padajacym API): stare 12 fetchy -> nowe 2.
+- REGRESJA (z kolejnego logu): ZAPISZ przestal pobierac dane, bo po zmianie
+  polegal na bramce drawPskMap, ktora siedzi w `if (pskAutoRefreshMinutes > 0)`.
+  Przy auto-refresh=0 nic sie nie pobieralo. Naprawa: ZAPISZ robi jawny
+  `fetchPskReporterData()` (z poszanowaniem backoffu), a pierwszy fetch w
+  drawPskMap jest niezalezny od auto-refresh (pierwsze wejscie na ekran zawsze
+  pobiera; kolejne wg interwalu, gdy auto-refresh > 0).
 
