@@ -966,15 +966,20 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 
 ### Uwaga: ekran zegara - styl nowoczesny
 - Ekran zegara w stylu nowoczesnym (styl 0) = `drawHamClockModern()`: **wyglad jak
-  w wersji domyslnej (klasycznej)** - znak (callsign), "OPERATOR STATION", duzy
-  zegar cyfrowy, etykieta czasu, data, imieniny, adres IP i strzalki - ale w palecie
-  nowoczesnej: czarne tlo (`HC_BG 0x0000`), cyjanowe akcenty (`HC_CYAN 0x07FF`:
-  naglowek, linia, ramka 30/45/420/220, OPERATOR STATION, imieniny, strzalki) i
-  zolty zegar (`HC_YELLOW 0xFFE0`).
-- Naglowek "ESP32 - HAM - CLOCK" (font 4, TC_DATUM 240,8) + linia (20,35,280) - wg kodu.
+  w wersji domyslnej (klasycznej)** - naglowek z logo + zegar HH:MM + WiFi + bateria,
+  znak (callsign), "OPERATOR STATION", duzy zegar cyfrowy, etykieta czasu, data,
+  imieniny, adres IP i strzalki - ale w palecie nowoczesnej: czarne tlo (`HC_BG`),
+  CYJANOWY naglowek (`HC_CYAN 0x07FF`, logo/tekst czarny), cyjanowa ramka
+  (30,45,420,220), cyjanowe "OPERATOR STATION"/imieniny/strzalki i zolty zegar
+  (`HC_YELLOW 0xFFE0`).
+- Naglowek MUSI byc pelny (jak domyslny): inaczej znikaja WiFi, bateria i logo.
+- `drawHamClockModern()` ustawia `screen1HeaderNeedsRedraw = false` PO narysowaniu
+  naglowka; `updateScreen1HeaderModern()` przerysowuje naglowek tylko gdy
+  `screen1HeaderNeedsRedraw == true` (oszczedza migotanie).
 - `drawScreen()`: dla SCREEN_HAM_CLOCK NIE rysuje uiHeader/uiFooter/drawHamClockIp
   (oba style maja wlasny naglowek i stopke).
-- Aktualizacja: `updateScreen1ClockModern()` + `updateScreen1HeaderModern()`.
+- Menu czasu (WYGLAD ZEGARA: NOWY/STARY) w obu stylach otwiera sie kliknieciem
+  w prawy gorny rog (x > 285 && y < 35).
 - **Nie przerabiac** tego ukladu na wspolny styl ISS - uzytkownik tego nie chce.
 
 

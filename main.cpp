@@ -3763,15 +3763,46 @@ static void updateScreen1ClockClassic() {
 }
 
 // ================= EKRAN 1: ZEGAR w stylu nowoczesnym =================
-// Wyglad jak w wersji DOMYSLNEJ (klasycznej): znak, duzy zegar cyfrowy,
-// data, imieniny, adres IP i strzalki - ale w palecie nowoczesnej:
-// czarne tlo, cyjanowe akcenty (ramka, linia) i zolty zegar.
+// Wyglad jak w wersji DOMYSLNEJ (klasycznej): pomaranczowy naglowek z logo,
+// zegarem HH:MM, WiFi i bateria; znak, "OPERATOR STATION", duzy zegar cyfrowy,
+// data, imieniny, adres IP i strzalki - ale z nowoczesnymi akcentami:
+// czarne tlo, cyjanowa ramka i zolty zegar.
 static void hamClockModernHeader() {
-  tft.setTextDatum(TC_DATUM);
-  tft.setTextColor(HC_CYAN, HC_BG);
-  tft.drawString("ESP32 - HAM - CLOCK", 240, HC_CODE_HDR_Y, 4);
-  tft.drawFastHLine(HC_CODE_HLINE_X, HC_CODE_HLINE_Y, HC_CODE_HLINE_W, HC_CYAN);
-  tft.setTextDatum(TL_DATUM);
+  const int headerH = 40;
+  const int screenW = 480;
+  tft.fillRect(0, 0, screenW, headerH, HC_CYAN);
+  tft.drawFastHLine(0, headerH - 1, screenW, HC_PANEL);
+
+  String logoPart1 = "ESP32";
+  String logoPart2 = "-HAM-CLOCK";
+  tft.setTextSize(2);
+  int part1W = tft.textWidth(logoPart1);
+  int part2W = tft.textWidth(logoPart2);
+  int startX = (screenW - (part1W + part2W)) / 2;
+  int textY = 12;
+  tft.fillRect(startX - 6, textY - 3, part1W + 12, 22, TFT_BLACK);
+  tft.setTextColor(HC_CYAN, TFT_BLACK);
+  tft.setCursor(startX, textY);
+  tft.print(logoPart1);
+  tft.setTextColor(TFT_BLACK, HC_CYAN);
+  tft.setCursor(startX + part1W, textY);
+  tft.print(logoPart2);
+
+  drawWifiSignalBars(screenW - 45, 8);
+  drawBatteryIcon(screenW - 70, 8);
+
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 1)) {
+    char timeBuffer[6];
+    strftime(timeBuffer, 6, "%H:%M", &timeinfo);
+    String timeStr = String(timeBuffer);
+    tft.setTextSize(2);
+    int timeX = 10, timeY = 12;
+    tft.fillRect(timeX - 2, timeY - 2, tft.textWidth(timeStr) + 4, 20, HC_CYAN);
+    tft.setTextColor(TFT_BLACK, HC_CYAN);
+    tft.setCursor(timeX, timeY);
+    tft.print(timeStr);
+  }
 }
 
 static void hamClockModernCallsign() {
@@ -3892,9 +3923,9 @@ static void hamClockModernIpAndArrows() {
 
 static void drawHamClockModern() {
   tft.fillScreen(HC_BG);
-  screen1HeaderNeedsRedraw = false;
 
   hamClockModernHeader();
+  screen1HeaderNeedsRedraw = false;
 
   // Ramka wokol znaku, zegara i daty - cyjanowa (nowoczesny akcent).
   tft.drawRoundRect(30, 45, 420, 220, 10, HC_CYAN);
@@ -3929,13 +3960,18 @@ static void updateScreen1HeaderModern() {
   if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
     return;
   }
+  if (!screen1HeaderNeedsRedraw) {
+    return;
+  }
   hamClockModernHeader();
+  screen1HeaderNeedsRedraw = false;
 }
 
 void drawHamClock() {
   if (screen1ClockStyle == 1) { drawHamClockClassic(); return; }
   drawHamClockModern();
 }
+
 
 // Adres IP nad stopka. Rysowany PO uiFooter(), zeby napis "SWITCH SCREEN"
 // nie zamalowal adresu (stopka czysci caly pas od y=296 w dol).
@@ -5684,9 +5720,9 @@ void handleTouchNavigation() {
           return;
         }
       } else {
-        // Nowy uklad: przytrzymanie na tarczy analogowego zegara.
-        int dx = (int)x - HC_CLOCK_CX, dy = (int)y - HC_CLOCK_CY;
-        if (dx * dx + dy * dy <= HC_CLOCK_R * HC_CLOCK_R) {
+        // Nowy uklad ma ten sam naglowek co domyslny: menu czasu otwiera sie
+        // kliknieciem w prawy gorny rog ekranu.
+        if (x > 285 && y < 35) {
           inMenu = true;
           drawHamClockTimeMenu();
           return;
