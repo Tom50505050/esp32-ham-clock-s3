@@ -2687,8 +2687,8 @@ void drawScreen(ScreenType screenNum) {
   if (!issFullBleed) {
     switch (screenNum) {
       case SCREEN_HAM_CLOCK:
-        if (screen1ClockStyle == 1) { screen1HeaderNeedsRedraw = true; }
-        else { uiHeader("ESP32-HAM-CLOCK", false); uiHeaderClock(); screen1HeaderNeedsRedraw = false; }
+        // Zegar rysuje wlasny naglowek (klasyczny albo wg kodu wzorcowego).
+        screen1HeaderNeedsRedraw = (screen1ClockStyle == 1);
         break;
       case SCREEN_DX_CLUSTER:       uiHeader("DXSPOTS.com", true); break;
       case SCREEN_POTA_CLUSTER:     uiHeader("POTA.app", true); break;
@@ -2753,12 +2753,10 @@ void drawScreen(ScreenType screenNum) {
       break;
   }
 
-  const bool classicClock = (screenNum == SCREEN_HAM_CLOCK && screen1ClockStyle == 1);
-  if (!issFullBleed && screenNum != SCREEN_OFF && !classicClock) {
+  // Zegar (oba style) rysuje wlasna stopke/naglowek, wiec bez uiFooter/IP.
+  const bool hamClockScreen = (screenNum == SCREEN_HAM_CLOCK);
+  if (!issFullBleed && screenNum != SCREEN_OFF && !hamClockScreen) {
     uiFooter();
-  }
-  if (screenNum == SCREEN_HAM_CLOCK && !classicClock) {
-    drawHamClockIp();  // IP nad "SWITCH SCREEN" (po stopce)
   }
 }
 
@@ -3488,6 +3486,13 @@ static const int HC_SPEC_BAR_Y = 62,  HC_SPEC_BAR_H = 48;
 static const int HC_SPEC_WF_Y = 114,  HC_SPEC_WF_H = 70;
 static const int HC_INFO_X = 10, HC_INFO_Y = 210, HC_INFO_W = 460, HC_INFO_H = 84;
 
+// Uklad wg kodu wzorcowego (drawUI): naglowek cyjanowy, linia, ramka 300x85.
+static const int HC_CODE_HDR_Y = 8;
+static const int HC_CODE_HLINE_X = 20, HC_CODE_HLINE_Y = 35, HC_CODE_HLINE_W = 280;
+static const int HC_CODE_FRAME_X = 10, HC_CODE_FRAME_Y = 150;
+static const int HC_CODE_FRAME_W = 300, HC_CODE_FRAME_H = 85;
+static const int HC_CODE_FRAME_CX = HC_CODE_FRAME_X + HC_CODE_FRAME_W / 2;  // 160
+
 // Paleta (RGB565) - zgodna ze wzorcem
 static const uint16_t HC_BG        = 0x0000;  // czarny
 static const uint16_t HC_PANEL     = 0x10A2;  // ciemny grafit
@@ -3757,14 +3762,39 @@ static void updateScreen1ClockClassic() {
   tft.setTextPadding(0);
 }
 
-void drawHamClock() {
-  if (screen1ClockStyle == 1) { drawHamClockClassic(); return; }
-  // 1. Naglowek - cyjanowy, wysrodkowany, z linia pod spodem.
+// ================= EKRAN 1: ZEGAR wg kodu wzorcowego =================
+// Uklad dokladnie jak w kodzie uzytkownika (drawUI):
+//   naglowek cyjanowy "ESP32 - HAM - CLOCK" (font 4) + linia pod nim,
+//   dolna ramka 300x85 z cyjanowa obwodka i wysrodkowana trescia
+//   (HAM RADIO..., version, Autor, Base, License, e-mail).
+// Dodatkowo panele (globus / tarcza / widmo) w tej samej palecie.
+static void hamClockCodeHeader() {
   tft.setTextDatum(TC_DATUM);
   tft.setTextColor(HC_CYAN, HC_BG);
-  tft.drawString("ESP32 - HAM - CLOCK", 240, 8, 4);
-  tft.drawFastHLine(40, HC_HLINE_Y, 400, HC_CYAN);
+  tft.drawString("ESP32 - HAM - CLOCK", 240, HC_CODE_HDR_Y, 4);
+  tft.drawFastHLine(HC_CODE_HLINE_X, HC_CODE_HLINE_Y, HC_CODE_HLINE_W, HC_CYAN);
   tft.setTextDatum(TL_DATUM);
+}
+
+static void hamClockCodeInfoFrame() {
+  tft.drawRoundRect(HC_CODE_FRAME_X, HC_CODE_FRAME_Y, HC_CODE_FRAME_W, HC_CODE_FRAME_H, 6, HC_CYAN);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextSize(1);
+  tft.setTextColor(HC_CYAN, HC_BG);
+  tft.drawString("HAM RADIO  -  AMATEUR RADIO STATION", HC_CODE_FRAME_CX, HC_CODE_FRAME_Y + 12, 1);
+  tft.setTextColor(HC_YELLOW, HC_BG);
+  tft.drawString("version v1.2", HC_CODE_FRAME_CX, HC_CODE_FRAME_Y + 25, 2);
+  tft.drawString("Autor: Tomasz SP9TNV", HC_CODE_FRAME_CX, HC_CODE_FRAME_Y + 40, 2);
+  tft.drawString("Base: Konrad SP3KON", HC_CODE_FRAME_CX, HC_CODE_FRAME_Y + 53, 2);
+  tft.drawString("License: MIT", HC_CODE_FRAME_CX, HC_CODE_FRAME_Y + 66, 2);
+  tft.setTextSize(1);
+  tft.drawString("SP9TNV@gmail.com", HC_CODE_FRAME_CX, HC_CODE_FRAME_Y + 78, 1);
+  tft.setTextDatum(TL_DATUM);
+}
+
+static void drawHamClockCode() {
+  // 1. Naglowek cyjanowy + linia.
+  hamClockCodeHeader();
 
   // 2. Lewy panel - globus / sledzenie satelity.
   tft.fillRoundRect(HC_GLOBE_X, HC_PANEL_Y, HC_GLOBE_W, HC_PANEL_H, 6, HC_PANEL);
@@ -3857,7 +3887,6 @@ void drawHamClock() {
     snprintf(dateStr, sizeof(dateStr), "----------");
   }
   tft.setTextDatum(TC_DATUM);
-  tft.setTextSize(2);
   tft.setTextColor(HC_TEXT, HC_PANEL);
   tft.drawString(dateStr, cx, cy + r + 10, 2);
   tft.setTextDatum(TL_DATUM);
@@ -3902,28 +3931,21 @@ void drawHamClock() {
   tft.setCursor(HC_SPEC_X + HC_SPEC_W - 30, HC_SPEC_WF_Y + HC_SPEC_WF_H + 3);
   tft.print("14.35");
 
-  // 5. Dolna ramka informacyjna - cyjanowa obwodka, tresc wysrodkowana.
-  tft.drawRoundRect(HC_INFO_X, HC_INFO_Y, HC_INFO_W, HC_INFO_H, 6, HC_CYAN);
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextSize(1);
-  tft.setTextColor(HC_CYAN, HC_BG);
-  tft.drawString("HAM RADIO  -  AMATEUR RADIO STATION", 240, HC_INFO_Y + 12, 1);
-  tft.setTextColor(HC_YELLOW, HC_BG);
-  tft.drawString("version v1.2", 240, HC_INFO_Y + 26, 2);
-  tft.drawString("Autor: Tomasz SP9TNV", 240, HC_INFO_Y + 40, 2);
-  tft.drawString("Base: Konrad SP3KON", 240, HC_INFO_Y + 54, 2);
-  tft.drawString("License: MIT", 240, HC_INFO_Y + 68, 2);
-  tft.setTextSize(1);
-  tft.drawString("SP9TNV@gmail.com", 240, HC_INFO_Y + 79, 1);
-  tft.setTextDatum(TL_DATUM);
+  // 5. Dolna ramka informacyjna - dokladnie wg kodu wzorcowego.
+  hamClockCodeInfoFrame();
 
-  // Znak nie jest juz wyswietlany na tym ekranie - wylacz obszar przytrzymania.
   callsignHitW = 0;
   callsignHitH = 0;
 
 #ifdef BATTERY_MONITORING_ENABLED
   drawBatteryQuickUpdate(true);
 #endif
+}
+
+void drawHamClock() {
+  if (screen1ClockStyle == 1) { drawHamClockClassic(); return; }
+  // Styl nowoczesny = uklad wg kodu wzorcowego uzytkownika.
+  drawHamClockCode();
 }
 
 // Adres IP nad stopka. Rysowany PO uiFooter(), zeby napis "SWITCH SCREEN"
