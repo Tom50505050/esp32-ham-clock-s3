@@ -512,7 +512,7 @@ static const uint16_t UI_COL_DIM     = 0x9D98; // #9fb0c6 przygaszony
 static const uint16_t UI_COL_FAINT   = 0x6BF2; // #6c7d94 slabу
 static const uint16_t UI_COL_RED     = 0xF800; // czerwony (blad)
 static const uint16_t UI_COL_GREEN   = 0x07E0; // zielony (OK)
-static const int UI_HEADER_H = 30;
+static const int UI_HEADER_H = 26;
 static const int UI_FOOTER_Y = 300;
 
 #define TFT_BL_PIN TFT_BL
@@ -3120,7 +3120,7 @@ String getPolishNameDay() {
 // Rysuje liniÄ™ daty/tygodnia wyĹ›rodkowanÄ… - zaktualizowana dla 480x320
 void drawDateLine(const String &dateText) {
   const int screenW = 480;
-  const int timeY = 130;  // Taka sama jak w drawHamClock
+  const int timeY = 122;  // Taka sama jak w drawHamClock
   const int dateY = timeY + 84;  // Taka sama jak w drawHamClock
 
   // CzyĹ›Ä‡ obszar daty (szeroki prostokÄ…t na caĹ‚ej szerokoĹ›ci)
@@ -3307,7 +3307,7 @@ void drawHamClock() {
   // 2. RAMKA WOKĂ“Ĺ ZNAKU, ZEGARA I DATY - powiÄ™kszona
   int clockFrameX = 30;     // OdstÄ™p od lewej
   int clockFrameW = 420;    // SzerokoĹ›Ä‡ ramki (szersza)
-  int clockFrameY = 45;     // GĂłra ramki
+  int clockFrameY = 37;     // GĂłra ramki
   int clockFrameH = 220;    // WysokoĹ›Ä‡ ramki (powiÄ™kszona dla wiÄ™kszego zegara i imienin)
   tft.drawRoundRect(clockFrameX, clockFrameY, clockFrameW, clockFrameH, 10, UI_COL_BORDER);
 
@@ -3318,7 +3318,7 @@ void drawHamClock() {
   callsign.toUpperCase();
   int callWidth = tft.textWidth(callsign);
   int callX = (screenW - callWidth) / 2;
-  int callY = 55;
+  int callY = 47;
   tft.setCursor(max(10, callX), callY);
   tft.print(callsign);
   // Zapamietaj obszar znaku - sluzy do wykrycia przytrzymania palca na znaku.
@@ -3344,7 +3344,7 @@ void drawHamClock() {
                      : getUtcTimeString();
   int timeWidth = tft.textWidth(timeStr);
   int timeX = (screenW - timeWidth) / 2;
-  int timeY = 130;
+  int timeY = 122;
   tft.setCursor(max(10, timeX), timeY);
   tft.print(timeStr);
 
@@ -3454,7 +3454,7 @@ void drawHamClock() {
     String ipStr = ip.toString();
     int ipWidth = ipStr.length() * 12;
     int ipX = (screenW - ipWidth) / 2;
-    tft.setCursor(ipX, screenH - 20);
+    tft.setCursor(ipX, screenH - 14);
     tft.print(ipStr);
   } else {
     tft.setTextColor(TFT_RED);
@@ -3462,7 +3462,7 @@ void drawHamClock() {
     String noConn = "NO CONNECTION";
     int ncWidth = noConn.length() * 12;
     int ncX = (screenW - ncWidth) / 2;
-    tft.setCursor(ncX, screenH - 20);
+    tft.setCursor(ncX, screenH - 14);
     tft.print(noConn);
   }
   
@@ -3479,7 +3479,7 @@ void updateScreen1Clock() {
   }
 
   const int screenW = 480;
-  const int timeY = 130;  // Zaktualizowana pozycja Y dla wiÄ™kszego zegara
+  const int timeY = 122;  // Zaktualizowana pozycja Y dla wiÄ™kszego zegara
 
   String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                      ? getTimezoneTimeString("%H:%M:%S", 9)
@@ -5399,14 +5399,14 @@ static void uiHamburger(int x, int y) {
 static void uiHeader(const char *title, bool showMenu) {
   tft.fillRect(0, 0, 480, UI_HEADER_H, UI_COL_CARD);
   tft.drawFastHLine(0, UI_HEADER_H - 1, 480, UI_COL_ACCENT);
-  if (showMenu) uiHamburger(5, 5);
+  if (showMenu) uiHamburger(5, 4);
   tft.setTextDatum(TC_DATUM);
   tft.setTextSize(2);
   tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
-  tft.drawString(title, 240, 7, 2);
+  tft.drawString(title, 240, 4, 2);
   tft.setTextDatum(TL_DATUM);
-  drawWifiSignalBars(445, 4);
-  drawBatteryIcon(420, 4);
+  drawWifiSignalBars(445, 1);
+  drawBatteryIcon(420, 1);
 }
 
 // Stopka: strzalki < > + podpis "SWITCH SCREEN" (styl ISS).
@@ -5646,15 +5646,15 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   // Naglowek w stylu ISS (karta + teal linia) nad obszarem radaru (panel ma wlasne tlo).
   sp.fillRect(0, 0, ARP_PANEL_X - 1, UI_HEADER_H, UI_COL_CARD);
   sp.drawFastHLine(0, UI_HEADER_H - 1, ARP_PANEL_X - 1, UI_COL_ACCENT);
-  sp.fillRoundRect(2, 2, 26, 23, 3, UI_COL_CARD);
-  sp.drawRoundRect(2, 2, 26, 23, 3, UI_COL_ACCENT2);
-  sp.fillRect(5, 7, 20, 3, UI_COL_ACCENT2);
-  sp.fillRect(5, 14, 20, 3, UI_COL_ACCENT2);
-  sp.fillRect(5, 21, 20, 3, UI_COL_ACCENT2);
+  sp.fillRoundRect(2, 1, 24, 22, 3, UI_COL_CARD);
+  sp.drawRoundRect(2, 1, 24, 22, 3, UI_COL_ACCENT2);
+  sp.fillRect(5, 5, 18, 2, UI_COL_ACCENT2);
+  sp.fillRect(5, 11, 18, 2, UI_COL_ACCENT2);
+  sp.fillRect(5, 17, 18, 2, UI_COL_ACCENT2);
   sp.setTextDatum(TC_DATUM);
-  sp.setTextSize(2);
+  sp.setTextSize(1);
   sp.setTextColor(UI_COL_TEXT, UI_COL_CARD);
-  sp.drawString("APRS RADAR", (ARP_PANEL_X - 1) / 2, 7, 2);
+  sp.drawString("APRS RADAR", (ARP_PANEL_X - 1) / 2, 9, 1);
   sp.setTextDatum(TL_DATUM);
 
   // --- Siatka radaru ---
@@ -5857,9 +5857,9 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     char tb[8];
     strftime(tb, sizeof(tb), "%H:%M", &timeinfo);
     sp.setTextDatum(TR_DATUM);
-    sp.setTextSize(2);
+    sp.setTextSize(1);
     sp.setTextColor(UI_COL_TEXT, UI_COL_CARD);
-    sp.drawString(tb, ARP_PANEL_X - 8, 7, 2);
+    sp.drawString(tb, ARP_PANEL_X - 6, 9, 1);
     sp.setTextDatum(TL_DATUM);
   }
 
@@ -19219,18 +19219,18 @@ static void drawPskMapHeader() {
   // Status auto-odswiezania
   tft.setTextSize(1);
   tft.setTextColor(UI_COL_WARN, UI_COL_BG);
-  tft.setCursor(322, 35);
+  tft.setCursor(322, 30);
   tft.print("AUTO:" + String(pskAutoRefreshMinutes > 0 ? String(pskAutoRefreshMinutes) + "min" : "OFF"));
 
   // Status danych: licznik spotow albo ostrzezenie o limicie zapytan PSKReporter.
   tft.setTextSize(1);
   if (pskRateLimited) {
     tft.setTextColor(UI_COL_RED, UI_COL_BG);
-    tft.setCursor(12, 34);
+    tft.setCursor(12, 30);
     tft.print("LIMIT PSKReporter - poczekaj");
   } else if (pskSpotCount > 0) {
     tft.setTextColor(UI_COL_ACCENT, UI_COL_BG);
-    tft.setCursor(12, 34);
+    tft.setCursor(12, 30);
     tft.print("Spoty: " + String(pskSpotCount));
   }
 }
