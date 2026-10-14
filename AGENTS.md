@@ -649,3 +649,15 @@ Naprawa:
   drawPskMap jest niezalezny od auto-refresh (pierwsze wejscie na ekran zawsze
   pobiera; kolejne wg interwalu, gdy auto-refresh > 0).
 
+
+
+## Strona WWW urzadzenia: dodawanie linkow (14.10.2026)
+Sekcja "Polecane" (PL) / "Recommended" (EN) jest w tabeli links-desc-table:
+- PL: data/index.html (linia ~1095)
+- EN: data/indexEN.html (linia ~1194)
+- download/index.html to STARA kopia opublikowanej strony (przed v1.2, brak
+  pskmap) - ma tez sekcje "Polecane"; dodajac link, zaktualizuj tez ta kopie.
+Dodano: ekalk.eu -> "Bezpłatne kalkulatory online dla elektroników i radioamatorów"
+(EN: "Free online calculators for electronics engineers and radio amateurs").
+Po zmianie data/ trzeba przebudowac LittleFS (pio run -e esp32-s3-n16r8 -t buildfs),
+bo WWW jest wgrywane z LittleFS - inaczej zmiana nie trafi na urzadzenie.
