@@ -19119,6 +19119,8 @@ bool fetchPskReporterData() {
   WiFiClient *stream = http.getStreamPtr();
 
   DynamicJsonDocument filter(256);
+  // Zachowaj pole message - PSKReporter wstawia tam powod odrzucenia zapytania.
+  filter["message"] = true;
   filter["receptionReport"][0]["senderCallsign"] = true;
   filter["receptionReport"][0]["senderLocator"] = true;
   filter["receptionReport"][0]["mode"] = true;
