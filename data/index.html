@@ -627,6 +627,41 @@
                 </div>
             </div>
 
+            <div class="config-section">
+                <h3>🖼️ Grafika na ekran (JPG / PNG / BMP)</h3>
+                <small>Obraz z komputera jest automatycznie skalowany do <b>480×320</b> i konwertowany do <b>RGB565</b> (format natywny sterownika ILI9488) - bezpośrednio w przeglądarce. Plik wynikowy jest wysyłany do urządzenia i pokazywany na TFT.</small>
+                <div class="form-group">
+                    <label>Wybierz obraz:</label>
+                    <input type="file" id="img-file" accept="image/png,image/jpeg,image/bmp,image/gif,image/webp">
+                </div>
+                <div class="form-group">
+                    <label>Dopasowanie do 480×320:</label>
+                    <select id="img-fit">
+                        <option value="contain">Zachowaj proporcje (czarne tło, całość widoczna)</option>
+                        <option value="cover">Wypełnij ekran (przytnij nadmiar, bez zniekształceń)</option>
+                        <option value="stretch">Rozciągnij dokładnie do 480×320</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Cel:</label>
+                    <select id="img-target">
+                        <option value="splash">Ekran startowy (splash)</option>
+                        <option value="mapa">Tło mapy (PSK/ISS)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <div style="background:#0b1220;border:1px solid #2a3357;border-radius:8px;padding:8px;display:inline-block;">
+                        <canvas id="img-preview" width="480" height="320" style="max-width:100%;height:auto;image-rendering:auto;display:block;"></canvas>
+                    </div>
+                    <small>Podglad po konwersji (dokladnie to, co zobaczy TFT).</small>
+                </div>
+                <div class="form-group">
+                    <button type="button" class="btn" id="img-convert-btn">🖼️ Konwertuj do RGB565</button>
+                    <button type="button" class="btn" id="img-upload-btn" style="background:#4a6a4a;">⬆️ Wyślij na ESP32</button>
+                    <div id="img-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
+                </div>
+            </div>
+
             <button type="button" class="save-btn" onclick="saveConfig()">💾 Zapisz ustawienia TFT</button>
         </div>
     </div>
@@ -1211,6 +1246,142 @@
             });
         };
 
+        // ===== Konwersja grafiki JPG/PNG/BMP -> BMP 16-bit RGB565 (480x320) =====
+        // Wszystko dzieje sie w przegladarce: skalowanie do 480x320 + pakowanie
+        // kolorow do RGB565 (format natywny ILI9488). Wynik jest gotowym plikiem
+        // BMP, ktory firmware czyta bez zadnej dalszej konwersji.
+        let imgUploadInit = false;
+        let imgConvertedBlob = null;
+        let imgConvertedName = "image_480x320.bmp";
+        let imgSourceImage = null;
+
+        const IMG_W = 480, IMG_H = 320;
+
+        const drawFittedToCanvas = (img, mode) => {
+            const cv = document.getElementById('img-preview');
+            const ctx = cv.getContext('2d');
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, IMG_W, IMG_H);
+            const iw = img.naturalWidth || img.width;
+            const ih = img.naturalHeight || img.height;
+            if (mode === 'stretch') {
+                ctx.drawImage(img, 0, 0, IMG_W, IMG_H);
+            } else if (mode === 'cover') {
+                const s = Math.max(IMG_W / iw, IMG_H / ih);
+                const dw = iw * s, dh = ih * s;
+                ctx.drawImage(img, (IMG_W - dw) / 2, (IMG_H - dh) / 2, dw, dh);
+            } else {
+                const s = Math.min(IMG_W / iw, IMG_H / ih);
+                const dw = iw * s, dh = ih * s;
+                ctx.drawImage(img, (IMG_W - dw) / 2, (IMG_H - dh) / 2, dw, dh);
+            }
+            return ctx.getImageData(0, 0, IMG_W, IMG_H).data;
+        };
+
+        const buildBmp565 = (rgba) => {
+            const rowSize = ((16 * IMG_W + 31) >> 5) * 4;   // wyrownanie do 4 bajtow
+            const padding = rowSize - IMG_W * 2;
+            const pixelDataSize = rowSize * IMG_H;
+            const headerSize = 14 + 40 + 12;                // + maski R/G/B
+            const fileSize = headerSize + pixelDataSize;
+            const buf = new ArrayBuffer(fileSize);
+            const dv = new DataView(buf);
+            let o = 0;
+            dv.setUint8(o++, 0x42); dv.setUint8(o++, 0x4D);           // 'BM'
+            dv.setUint32(o, fileSize, true); o += 4;
+            dv.setUint16(o, 0, true); o += 2;
+            dv.setUint16(o, 0, true); o += 2;
+            dv.setUint32(o, headerSize, true); o += 4;
+            dv.setUint32(o, 40, true); o += 4;                        // DIB header
+            dv.setInt32(o, IMG_W, true); o += 4;
+            dv.setInt32(o, IMG_H, true); o += 4;                      // bottom-up
+            dv.setUint16(o, 1, true); o += 2;                         // planes
+            dv.setUint16(o, 16, true); o += 2;                        // bpp
+            dv.setUint32(o, 3, true); o += 4;                         // BI_BITFIELDS
+            dv.setUint32(o, pixelDataSize, true); o += 4;
+            dv.setInt32(o, 2835, true); o += 4;
+            dv.setInt32(o, 2835, true); o += 4;
+            dv.setUint32(o, 0, true); o += 4;
+            dv.setUint32(o, 0, true); o += 4;
+            dv.setUint32(o, 0xF800, true); o += 4;                    // maska R
+            dv.setUint32(o, 0x07E0, true); o += 4;                    // maska G
+            dv.setUint32(o, 0x001F, true); o += 4;                    // maska B
+            // piksele: od dolnego wiersza, RGB565 little-endian
+            for (let y = IMG_H - 1; y >= 0; y--) {
+                let p = o;
+                for (let x = 0; x < IMG_W; x++) {
+                    const i = (y * IMG_W + x) * 4;
+                    const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+                    const v = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+                    dv.setUint16(p, v, true); p += 2;
+                }
+                o += rowSize;
+            }
+            return new Blob([buf], { type: 'image/bmp' });
+        };
+
+        const runImageConversion = () => {
+            const status = document.getElementById('img-status');
+            if (!imgSourceImage) { status.textContent = "Najpierw wybierz plik obrazu."; return; }
+            const mode = document.getElementById('img-fit').value;
+            const rgba = drawFittedToCanvas(imgSourceImage, mode);
+            imgConvertedBlob = buildBmp565(rgba);
+            const kb = (imgConvertedBlob.size / 1024).toFixed(1);
+            status.textContent = "Gotowe: 480x320, 16-bit RGB565 BMP (" + kb + " KB). Mozesz wyslac na ESP32.";
+        };
+
+        const uploadConvertedImage = () => {
+            const status = document.getElementById('img-status');
+            const btn = document.getElementById('img-upload-btn');
+            if (!imgConvertedBlob) { status.textContent = "Najpierw kliknij 'Konwertuj do RGB565'."; return; }
+            const target = document.getElementById('img-target').value;
+            const url = (target === 'mapa') ? '/upload/mapa565' : '/upload/splash';
+            const field = (target === 'mapa') ? 'mapa' : 'splash';
+            const fd = new FormData();
+            fd.append(field, imgConvertedBlob, imgConvertedName);
+            status.textContent = "Wysylam na ESP32...";
+            btn.disabled = true;
+            fetch(url, { method: 'POST', body: fd })
+                .then(r => r.ok ? r.text() : Promise.reject(r.status))
+                .then(() => {
+                    status.textContent = "OK - obraz zapisany i pokazany na TFT.";
+                    const pv = document.getElementById('splash-preview');
+                    if (target === 'splash' && pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
+                })
+                .catch(() => { status.textContent = "Blad wysylania (siec/format)."; })
+                .finally(() => { btn.disabled = false; });
+        };
+
+        const initImageUpload = () => {
+            if (imgUploadInit) return;
+            const fileInput = document.getElementById('img-file');
+            const convertBtn = document.getElementById('img-convert-btn');
+            const uploadBtn = document.getElementById('img-upload-btn');
+            const fitSel = document.getElementById('img-fit');
+            if (!fileInput || !convertBtn || !uploadBtn) return;
+            imgUploadInit = true;
+            fileInput.addEventListener('change', () => {
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) return;
+                imgConvertedName = (file.name.replace(/\.[^.]+$/, '') || 'image') + '_480x320.bmp';
+                const url = URL.createObjectURL(file);
+                const im = new Image();
+                im.onload = () => {
+                    imgSourceImage = im;
+                    URL.revokeObjectURL(url);
+                    runImageConversion();
+                };
+                im.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    document.getElementById('img-status').textContent = "Nie mozna odczytac tego pliku obrazu.";
+                };
+                im.src = url;
+            });
+            fitSel.addEventListener('change', () => { if (imgSourceImage) runImageConversion(); });
+            convertBtn.addEventListener('click', runImageConversion);
+            uploadBtn.addEventListener('click', uploadConvertedImage);
+        };
+
         const loadManual = () => {
             if (manualLoaded) return;
             fetch(manualUrl)
@@ -1239,6 +1410,7 @@
             document.getElementById(page + '-page').classList.add('active');
             if (page === "config" || page === "tft" || page === "alert") {
                 loadConfig();
+                if (page === "tft") initImageUpload();
             } else if (page === "aprs") {
                 loadAPRS();
             } else if (page === "propagation") {

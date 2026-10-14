@@ -18258,6 +18258,36 @@ void setupWebServer() {
       }
     }
   });
+
+  // Upload tla mapy (BMP 16-bit RGB565) wygenerowanego w przegladarce WWW.
+  // Zapisuje pod ta sama sciezka co /upload/bmp (PSK_MAP_BMP_PATH) - pole 'mapa'.
+  server->on("/upload/mapa565", HTTP_POST, []() {
+    server->send(200, "text/plain", "Upload complete");
+  }, []() {
+    HTTPUpload& upload = server->upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      if (littleFsReady) {
+        LittleFS.remove(PSK_MAP_BMP_PATH);
+        File f = LittleFS.open(PSK_MAP_BMP_PATH, "w");
+        if (!f) {
+          Serial.println("[UPLOAD] Failed to open map for writing");
+          return;
+        }
+        f.close();
+        Serial.printf("[UPLOAD] Start mapy: %s\n", upload.filename.c_str());
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      if (littleFsReady) {
+        File f = LittleFS.open(PSK_MAP_BMP_PATH, "a");
+        if (f) { f.write(upload.buf, upload.currentSize); f.close(); }
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      Serial.printf("[UPLOAD] Mapa gotowa: %d bytes\n", upload.totalSize);
+      if (currentScreen == SCREEN_PSK_MAP) {
+        drawPskMap();
+      }
+    }
+  });
   
   // Znajduje aktualny plik ekranu startowego (dowolne obslugiwane rozszerzenie).
   // (definiowane jako lambda, uzywana przez /splash_preview ponizej)
@@ -19983,7 +20013,10 @@ void drawPskMap() {
   Serial.println("[PSK] Screen cleared");
   bool mapLoaded = false;
   if (littleFsReady) {
-    mapLoaded = drawBmpFromFS(PSK_MAP_BMP_PATH, MAP_DISPLAY_X, MAP_DISPLAY_Y);
+    // Obsluz zarowno 24-bit BMP, jak i 16-bit RGB565 BMP (ten drugi generuje
+    // konwerter w WWW - patrz /upload/mapa565).
+    mapLoaded = drawBmpFromFS(PSK_MAP_BMP_PATH, MAP_DISPLAY_X, MAP_DISPLAY_Y)
+             || drawBmp16FromFS(PSK_MAP_BMP_PATH, MAP_DISPLAY_X, MAP_DISPLAY_Y);
   }
   if (!mapLoaded) {
     tft.fillRect(MAP_DISPLAY_X, MAP_DISPLAY_Y, MAP_DISPLAY_W, MAP_DISPLAY_H, 0x0011);

@@ -19,6 +19,7 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 - Pełny UI (148 KB) jest plikiem `data/index.html` serwowanym z LittleFS pod `/` i `/config`; wymaga `data/style.*.css` (inaczej strona jest „ucięta"/bez wyglądu).
 - Wbudowany `getMainHTML()` w `main.cpp` to tylko skrócony zapas (gdy brak pliku w LittleFS).
 - Endpointy API: `/api/config`, `/api/save`, `/api/spots`, `/api/aprs`, `/api/pota`, `/api/hamalert`, `/api/propagation`, `/api/uart_status`, `/api/gps`, `/api/bridge_bt_*`, `/api/reset_touch`, `/api/reset_tft_rotation`.
+- Uploady: `/upload_splash` (pole `splash`, PNG/JPG/BMP → `/splash.<ext>`), `/upload/bmp` (pole `file`, BMP → `/Mapa swiata.bmp`), `/upload/mapa565` (pole `mapa`, BMP 16-bit RGB565 → `/Mapa swiata.bmp`), `/api/upload` (dowolny plik do LittleFS).
 - `/api/uart_status` zwraca realny status modułu GPS (UART2). `/api/gps` to lekki endpoint odpytywany co 5 s przez zakładkę „Moduły" (fix, satelity, HDOP, lokator, lat/lon, piny UART).
 - `/api/bridge_bt_*` to stuby (ten build nie ma modułu ESP32-BRIDGE) — zwracają stan „nieaktywny", żeby pełne UI działało bez błędów JS.
 
@@ -335,6 +336,18 @@ Podglad: /workspace/share/_sat-preview.html + _preview.html (mock API).
 - drawSplashScreen() sprawdza nazwy: /icon50/splash.bmp, /splash.bmp, /boot.bmp, /logo.bmp, /start.bmp, /splash_16bit.bmp, /splash16.bmp. Probuje 24-bit BMP (drawBmpFromFS) ORAZ 16-bit RGB565 (drawBmp16FromFS). Wczesniej tylko 24-bit -> 16-bit splash.bmp dawal czarny ekran.
 - Aby zmienic splash: wrzuc plik do data/ (dowolna z tych nazw), potem -t uploadfs. PNG/JPG -> tools/make_splash.py obraz.png data/splash.bmp (480x320, 24-bit, bottom-up).
 - UWAGA: firmware NIE dekoduje PNG/JPG (brak pngle/TJpgDec) - tylko BMP.
+
+## Grafika na ekran: JPG/PNG/BMP -> RGB565 (14.10.2026)
+- **Wejscie:** zakładka „Ekran TFT" → sekcja „🖼️ Grafika na ekran (JPG / PNG / BMP)".
+- Konwersja odbywa się **w przeglądarce** (canvas + `getImageData`), bez obciążania ESP32:
+  - skalowanie do natywnych **480×320** (tryby: `contain` zachowaj proporcje / `cover` wypełnij+przytnij / `stretch` rozciągnij),
+  - pakowanie kolorów do **RGB565** (natywny format ILI9488): `((r&0xF8)<<8)|((g&0xFC)<<3)|(b>>3)`,
+  - zapis jako **BMP 16-bit, BI_BITFIELDS (compression=3), bottom-up, maski R=0xF800 G=0x07E0 B=0x001F**, wiersze wyrównane do 4 B (480 px × 2 B = 960 B → bez paddingu). Plik = 66 + 307200 = 307266 B.
+- Ten format czyta `drawBmp16FromFS()` bez żadnej dalszej konwersji (sterownik dostaje gotowe RGB565).
+- **Cele uploadu:** „Ekran startowy (splash)" → `/upload_splash` (pole `splash`); „Tło mapy (PSK/ISS)" → `/upload/mapa565` (pole `mapa` → `/Mapa swiata.bmp`). `drawPskMap()` próbuje teraz 24-bit (`drawBmpFromFS`) ORAZ 16-bit RGB565 (`drawBmp16FromFS`).
+- **Skrypt offline:** `python3 tools/img_to_bmp565.py obraz.jpg [wyjscie.bmp] [--fit contain|stretch|cover]` generuje identyczny plik RGB565 480×320 (byte-for-byte zgodny z konwerterem JS — zweryfikowane testem).
+- UWAGA: UI nie wymaga już Pillow; firmware NIE dekoduje PNG/JPG samodzielnie w tym miejscu — konwersję robi przeglądarka/skrypt. (Istniejący `/upload_splash` przyjmuje PNG/JPG dzięki dekoderom pngle/TJpgDec w `drawImageFromFS`, ale konwerter i tak wysyła gotowy BMP.)
+- Wbudowany `getMainHTML()` NIE zawiera tej sekcji (to tylko skrócony zapas).
 
 ## ISS: predyktor nextpass() + plan kilku przelotow (13.10.2026)
 - PRZYCZYNA "brak odczytu nastepny przelot" na urzadzeniu: reczny skan orbity co 60 s

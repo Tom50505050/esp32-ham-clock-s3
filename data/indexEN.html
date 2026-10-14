@@ -627,6 +627,41 @@
                 </div>
             </div>
 
+            <div class="config-section">
+                <h3>🖼️ On-screen graphics (JPG / PNG / BMP)</h3>
+                <small>An image from your computer is automatically scaled to <b>480×320</b> and converted to <b>RGB565</b> (the ILI9488 driver's native format) right in the browser. The resulting file is sent to the device and shown on the TFT.</small>
+                <div class="form-group">
+                    <label>Choose an image:</label>
+                    <input type="file" id="img-file" accept="image/png,image/jpeg,image/bmp,image/gif,image/webp">
+                </div>
+                <div class="form-group">
+                    <label>Fit to 480×320:</label>
+                    <select id="img-fit">
+                        <option value="contain">Keep aspect ratio (black bars, whole image visible)</option>
+                        <option value="cover">Fill the screen (crop excess, no distortion)</option>
+                        <option value="stretch">Stretch exactly to 480×320</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Target:</label>
+                    <select id="img-target">
+                        <option value="splash">Boot screen (splash)</option>
+                        <option value="mapa">Map background (PSK/ISS)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <div style="background:#0b1220;border:1px solid #2a3357;border-radius:8px;padding:8px;display:inline-block;">
+                        <canvas id="img-preview" width="480" height="320" style="max-width:100%;height:auto;image-rendering:auto;display:block;"></canvas>
+                    </div>
+                    <small>Preview after conversion (exactly what the TFT will show).</small>
+                </div>
+                <div class="form-group">
+                    <button type="button" class="btn" id="img-convert-btn">🖼️ Convert to RGB565</button>
+                    <button type="button" class="btn" id="img-upload-btn" style="background:#4a6a4a;">⬆️ Send to ESP32</button>
+                    <div id="img-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
+                </div>
+            </div>
+
             <button type="button" class="save-btn" onclick="saveConfig()">💾 Save TFT Settings</button>
         </div>
     </div>
@@ -1310,6 +1345,140 @@
             });
         };
 
+        // ===== Image conversion JPG/PNG/BMP -> 16-bit RGB565 BMP (480x320) =====
+        // Runs entirely in the browser: scale to 480x320 + pack colors to RGB565
+        // (ILI9488 native format). The result is a ready-to-use BMP the firmware
+        // reads without any further conversion.
+        let imgUploadInit = false;
+        let imgConvertedBlob = null;
+        let imgConvertedName = "image_480x320.bmp";
+        let imgSourceImage = null;
+
+        const IMG_W = 480, IMG_H = 320;
+
+        const drawFittedToCanvas = (img, mode) => {
+            const cv = document.getElementById('img-preview');
+            const ctx = cv.getContext('2d');
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, IMG_W, IMG_H);
+            const iw = img.naturalWidth || img.width;
+            const ih = img.naturalHeight || img.height;
+            if (mode === 'stretch') {
+                ctx.drawImage(img, 0, 0, IMG_W, IMG_H);
+            } else if (mode === 'cover') {
+                const s = Math.max(IMG_W / iw, IMG_H / ih);
+                const dw = iw * s, dh = ih * s;
+                ctx.drawImage(img, (IMG_W - dw) / 2, (IMG_H - dh) / 2, dw, dh);
+            } else {
+                const s = Math.min(IMG_W / iw, IMG_H / ih);
+                const dw = iw * s, dh = ih * s;
+                ctx.drawImage(img, (IMG_W - dw) / 2, (IMG_H - dh) / 2, dw, dh);
+            }
+            return ctx.getImageData(0, 0, IMG_W, IMG_H).data;
+        };
+
+        const buildBmp565 = (rgba) => {
+            const rowSize = ((16 * IMG_W + 31) >> 5) * 4;   // 4-byte row align
+            const pixelDataSize = rowSize * IMG_H;
+            const headerSize = 14 + 40 + 12;                // + R/G/B masks
+            const fileSize = headerSize + pixelDataSize;
+            const buf = new ArrayBuffer(fileSize);
+            const dv = new DataView(buf);
+            let o = 0;
+            dv.setUint8(o++, 0x42); dv.setUint8(o++, 0x4D);           // 'BM'
+            dv.setUint32(o, fileSize, true); o += 4;
+            dv.setUint16(o, 0, true); o += 2;
+            dv.setUint16(o, 0, true); o += 2;
+            dv.setUint32(o, headerSize, true); o += 4;
+            dv.setUint32(o, 40, true); o += 4;                        // DIB header
+            dv.setInt32(o, IMG_W, true); o += 4;
+            dv.setInt32(o, IMG_H, true); o += 4;                      // bottom-up
+            dv.setUint16(o, 1, true); o += 2;                         // planes
+            dv.setUint16(o, 16, true); o += 2;                        // bpp
+            dv.setUint32(o, 3, true); o += 4;                         // BI_BITFIELDS
+            dv.setUint32(o, pixelDataSize, true); o += 4;
+            dv.setInt32(o, 2835, true); o += 4;
+            dv.setInt32(o, 2835, true); o += 4;
+            dv.setUint32(o, 0, true); o += 4;
+            dv.setUint32(o, 0, true); o += 4;
+            dv.setUint32(o, 0xF800, true); o += 4;                    // R mask
+            dv.setUint32(o, 0x07E0, true); o += 4;                    // G mask
+            dv.setUint32(o, 0x001F, true); o += 4;                    // B mask
+            for (let y = IMG_H - 1; y >= 0; y--) {
+                let p = o;
+                for (let x = 0; x < IMG_W; x++) {
+                    const i = (y * IMG_W + x) * 4;
+                    const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+                    const v = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+                    dv.setUint16(p, v, true); p += 2;
+                }
+                o += rowSize;
+            }
+            return new Blob([buf], { type: 'image/bmp' });
+        };
+
+        const runImageConversion = () => {
+            const status = document.getElementById('img-status');
+            if (!imgSourceImage) { status.textContent = "Choose an image file first."; return; }
+            const mode = document.getElementById('img-fit').value;
+            const rgba = drawFittedToCanvas(imgSourceImage, mode);
+            imgConvertedBlob = buildBmp565(rgba);
+            const kb = (imgConvertedBlob.size / 1024).toFixed(1);
+            status.textContent = "Done: 480x320, 16-bit RGB565 BMP (" + kb + " KB). You can send it to the ESP32.";
+        };
+
+        const uploadConvertedImage = () => {
+            const status = document.getElementById('img-status');
+            const btn = document.getElementById('img-upload-btn');
+            if (!imgConvertedBlob) { status.textContent = "Click 'Convert to RGB565' first."; return; }
+            const target = document.getElementById('img-target').value;
+            const url = (target === 'mapa') ? '/upload/mapa565' : '/upload/splash';
+            const field = (target === 'mapa') ? 'mapa' : 'splash';
+            const fd = new FormData();
+            fd.append(field, imgConvertedBlob, imgConvertedName);
+            status.textContent = "Sending to ESP32...";
+            btn.disabled = true;
+            fetch(url, { method: 'POST', body: fd })
+                .then(r => r.ok ? r.text() : Promise.reject(r.status))
+                .then(() => {
+                    status.textContent = "OK - image saved and shown on the TFT.";
+                    const pv = document.getElementById('splash-preview');
+                    if (target === 'splash' && pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
+                })
+                .catch(() => { status.textContent = "Upload failed (network/format)."; })
+                .finally(() => { btn.disabled = false; });
+        };
+
+        const initImageUpload = () => {
+            if (imgUploadInit) return;
+            const fileInput = document.getElementById('img-file');
+            const convertBtn = document.getElementById('img-convert-btn');
+            const uploadBtn = document.getElementById('img-upload-btn');
+            const fitSel = document.getElementById('img-fit');
+            if (!fileInput || !convertBtn || !uploadBtn) return;
+            imgUploadInit = true;
+            fileInput.addEventListener('change', () => {
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) return;
+                imgConvertedName = (file.name.replace(/\.[^.]+$/, '') || 'image') + '_480x320.bmp';
+                const url = URL.createObjectURL(file);
+                const im = new Image();
+                im.onload = () => {
+                    imgSourceImage = im;
+                    URL.revokeObjectURL(url);
+                    runImageConversion();
+                };
+                im.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    document.getElementById('img-status').textContent = "Cannot read this image file.";
+                };
+                im.src = url;
+            });
+            fitSel.addEventListener('change', () => { if (imgSourceImage) runImageConversion(); });
+            convertBtn.addEventListener('click', runImageConversion);
+            uploadBtn.addEventListener('click', uploadConvertedImage);
+        };
+
         const loadManual = () => {
             if (manualLoaded) return;
             fetch(manualUrl)
@@ -1337,6 +1506,7 @@
             document.getElementById(page + '-page').classList.add('active');
             if (page === "config" || page === "tft" || page === "alert") {
                 loadConfig();
+                if (page === "tft") initImageUpload();
             } else if (page === "aprs") {
                 loadAPRS();
             } else if (page === "propagation") {
