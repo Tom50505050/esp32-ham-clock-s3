@@ -233,6 +233,7 @@ static bool drawImageFromFS(const String &path);
 static bool isSupportedImagePath(const String &path);
 void sendAPRSLogin();
 static String getAprsTxCallsignWithSsid();
+static String getAprsBaseCallsign();
 void sendAPRSFilter();
 void fetchIssData();
 void getIssCountryFromCoords(double lat, double lng);
@@ -5612,14 +5613,37 @@ static void aprsRadarSection(int y, const char *txt) {
   aprsRadarSprite.drawFastHLine(ARP_PANEL_X, y + 16, ARP_PANEL_W, ARP_COL_GRID);
 }
 
+// Wartosc wiersza panelu dopasowana do prawej krawedzi ramki: skracana, a gdy
+// nadal za szeroka, rysowana proporcjonalnym fontem 2 (przy tym samym lewym
+// marginesie i bazowej linii tekstu). Bez tego dlugie wartosci (np. wspolrzedne
+// SZER/DLUG albo znak z SSID) wychodzily poza ramke panelu.
+static void aprsRadarRowValue(int y, const char *value, uint16_t valCol) {
+  const int x = ARP_PANEL_X + 92;
+  const int maxW = (ARP_PANEL_X + ARP_PANEL_W - 6) - x;
+  String v(value ? value : "");
+  int font = 1;
+  int charW = 6;
+  if ((int)v.length() * 6 > maxW) {
+    font = 2;      // proporcjonalny 16 px - wezsze znaki, wieksza czytelnosc
+    charW = 8;
+  }
+  int fit = maxW / charW;
+  if (fit < 1) fit = 1;
+  if ((int)v.length() > fit) v = v.substring(0, fit);
+  aprsRadarSprite.setTextDatum(TL_DATUM);
+  aprsRadarSprite.setTextSize(1);
+  aprsRadarSprite.setTextColor(valCol, ARP_COL_PANEL);
+  // Font 2 jest o 8 px wyzszy od Font 1 - podniesienie o 4 px trzyma wspolna linie.
+  aprsRadarSprite.drawString(v, x, font == 2 ? y - 4 : y, font);
+}
+
 // Wiersz "ETYKIETA: wartosc" w panelu.
 static void aprsRadarRow(int y, const char *label, const char *value, uint16_t valCol) {
   aprsRadarSprite.setTextDatum(TL_DATUM);
   aprsRadarSprite.setTextSize(1);
   aprsRadarSprite.setTextColor(ARP_COL_DIM, ARP_COL_PANEL);
   aprsRadarSprite.drawString(label, ARP_PANEL_X + 6, y, 1);
-  aprsRadarSprite.setTextColor(valCol, ARP_COL_PANEL);
-  aprsRadarSprite.drawString(value, ARP_PANEL_X + 92, y, 1);
+  aprsRadarRowValue(y, value, valCol);
 }
 
 // Panel zakresow na dole, wysrodkowany; aktywny kafelek podswietlony.
@@ -13591,6 +13615,23 @@ void connectToAPRS() {
   Serial.println("[APRS] connectToAPRS() END");
 }
 
+// Oblicza standardowy passcode APRS-IS dla znaku (algorytm aprs.fi/passcode).
+// Wartosc 0 oznacza brak poprawnego znaku - serwer przyjmie wtedy tylko odczyt.
+static int computeAprsPasscode(const String &rawCall) {
+  String call = rawCall;
+  call.trim();
+  call.toUpperCase();
+  int dash = call.indexOf('-');
+  if (dash > 0) call = call.substring(0, dash);
+  if (call.length() == 0) return 0;
+  unsigned int hash = 0x73E2;
+  for (size_t i = 0; i < call.length(); i++) {
+    unsigned char c = (unsigned char)call.charAt(i);
+    hash ^= ((i & 1) ? (unsigned int)c : ((unsigned int)c << 8));
+  }
+  return (int)(hash & 0x7FFF);
+}
+
 // WyĹ›lij login do APRS-IS
 void sendAPRSLogin() {
   if (!aprsConnected || !aprsClient.connected()) {
@@ -13599,10 +13640,20 @@ void sendAPRSLogin() {
   }
   
   // Format loginu: user Callsign pass 23123 vers ESP32-HAM-CLOCK 1.2
+  // Serwery aprs2.net odrzucaja login z passcode 0/-1 ("Login by user not
+  // allowed") i nie wysylaja wtedy ZADNYCH ramek - radar i panel APRS-IS
+  // zostaja puste, mimo poprawnego polaczenia TCP. Uzytkownik czesto zostawia
+  // domyslne 00000, wiec wyliczamy passcode z jego znaku (standardowy algorytm
+  // APRS-IS). Recznie wpisany passcode (>0) ma pierwszenstwo.
+  int effectivePasscode = aprsPasscode;
+  if (effectivePasscode <= 0) {
+    effectivePasscode = computeAprsPasscode(getAprsBaseCallsign());
+  }
+
   String login = "user ";
   login += getAprsTxCallsignWithSsid();
   login += " pass ";
-  login += String(aprsPasscode);
+  login += String(effectivePasscode);
   login += " vers ESP32-HAM-CLOCK 1.2";
   
   Serial.print("[APRS] WysyĹ‚anie loginu: ");

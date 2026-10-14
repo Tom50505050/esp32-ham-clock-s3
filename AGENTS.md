@@ -164,6 +164,31 @@ Poprawka:
   `action:saved` (juz nie `restart`). Zmiany TFT/APRS/pogody nadal bez restartu.
 - forward decl: `connectToCluster`, `connectToPotaCluster`, `updateNTPTime`.
 
+## APRS RADAR pusty — ROZWIAZANE (14.10.2026)
+Objaw: ekran APRS RADAR nie pokazywal zadnych stacji, panel APRS-IS "BLAD".
+Diagnoza (testy live na serwerach aprs2.net, skrypt `/tmp/aprstest`):
+1. **Serwer odrzucal login.** Domyslny `DEFAULT_APRS_PASSCODE` to `00000`, a
+   `rotate.aprs2.net` (i cala pula aprs2.net) odpowiada na `pass 0`/`pass -1`
+   komunikatem `# Login by user not allowed` i **nie wysyla ZADNYCH ramek** —
+   mimo poprawnego polaczenia TCP (`aprsConnected=true`). Z poprawnym
+   passcode (`pass 23472`) serwer odpowiada `# logresp ... verified` i sypie
+   ramkami. To jedyna przyczyna pustego radaru.
+2. Parsery firmware sa OK: port `parseAprsUncompressed/Compressed/Advanced`
+   do Pythona zdekodowal 88/106 zywych ramek (zawody to `>`, `T#`, `:`,
+   niepoprawny Mic-E — bez znaczenia dla pozycji).
+Poprawka w `main.cpp`:
+- `computeAprsPasscode(call)` — standardowy algorytm APRS-IS (xor 0x73E2),
+  liczony z `getAprsBaseCallsign()` (bez SSID).
+- `sendAPRSLogin()`: gdy `aprsPasscode <= 0` (domyslne 00000), passcode jest
+  wyliczany z wpisanego znaku; recznie ustawiony (>0) ma pierwszenstwo.
+Uwaga: `-1` jest zarezerwowane dla bram i aprs2.net je odrzuca.
+
+## APRS RADAR - panel w ramce (14.10.2026)
+- `aprsRadarRowValue()` skraca wartosci dluzsze niz szerokosc ramki i rysuje je
+  proporcjonalnym fontem 2 (przy tym samym lewym marginesie); dlugie
+  wspolrzedne SZER/DLUG i znak z SSID nie wychodza juz poza panel.
+- `ARP_COL_DIM = 0xBDF7` (jasny szary) — etykiety czytelne na czarnym tle.
+
 ## Piny (skrot) - pelna tabela w PINOUT.md
 TFT: SCLK=12, MOSI=11, MISO=14, CS=10, DC=9, RST=-1, BL=21.
 Dotyk XPT2046 (wspolne SPI): T_CS=15, T_IRQ=16, T_DIN=11, T_DO=14, T_CLK=12.
