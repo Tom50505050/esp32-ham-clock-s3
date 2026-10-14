@@ -5547,7 +5547,7 @@ static const uint16_t ARP_COL_BG    = 0x0000; // czarne tlo
 static const uint16_t ARP_COL_GRID  = 0x0320; // ciemna zielen (siatka)
 static const uint16_t ARP_COL_SWEEP = 0x07E0; // jaskrawa zielen (smuga)
 static const uint16_t ARP_COL_TEXT  = 0x07E0; // zielony tekst
-static const uint16_t ARP_COL_DIM   = 0x03E0; // przygaszony zielony
+static const uint16_t ARP_COL_DIM   = 0xBDF7; // jasny szary (etykiety/wartosci)
 static const uint16_t ARP_COL_MOBILE= 0xFFE0; // zolty  (pojazdy)
 static const uint16_t ARP_COL_WX    = 0x07FF; // cyjan  (pogoda)
 static const uint16_t ARP_COL_FIXED = 0xFFFF; // bialy  (stacje stale)
@@ -5608,7 +5608,7 @@ static void aprsRadarSection(int y, const char *txt) {
   aprsRadarSprite.setTextDatum(TL_DATUM);
   aprsRadarSprite.setTextSize(1);
   aprsRadarSprite.setTextColor(ARP_COL_TEXT, ARP_COL_PANEL);
-  aprsRadarSprite.drawString(txt, ARP_PANEL_X + 6, y, 2);
+  aprsRadarSprite.drawString(txt, ARP_PANEL_X + 6, y, 1);
   aprsRadarSprite.drawFastHLine(ARP_PANEL_X, y + 16, ARP_PANEL_W, ARP_COL_GRID);
 }
 
@@ -5860,7 +5860,7 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     sp.drawString(call, ARP_PANEL_X + 6, y, 1);
     snprintf(buf, sizeof(buf), "%4.1f", dist);
     sp.setTextDatum(TR_DATUM);
-    sp.setTextColor(ARP_COL_DIM, ARP_COL_PANEL);
+    sp.setTextColor(ARP_COL_TEXT, ARP_COL_PANEL);
     sp.drawString(buf, ARP_PANEL_X + ARP_PANEL_W - 8, y, 1);
     row++;
   }
