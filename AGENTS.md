@@ -964,15 +964,17 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Podglad starszego ukladu: `/workspace/share/hamclock-classic-preview.png`.
   Build oba env: SUCCESS.
 
-### Uwaga: styl nowoczesny = kod uzytkownika (bez zmian)
-- Ekran zegara w stylu nowoczesnym (styl 0) = `drawHamClockCode()` zbudowany
-  **dokladnie z kodu wzorcowego uzytkownika** (drawUI): naglowek "ESP32 - HAM - CLOCK"
-  (font 4, TC_DATUM 240,8) + linia (20,35,280), dolna ramka 300x85 w (10,150) z
-  cyjanowa obwodka i trescia MC_DATUM (x=160): HAM RADIO..., version, Autor, Base,
-  License, e-mail. Paleta HC_BG/HC_PANEL/HC_CYAN/HC_YELLOW/HC_TEXT.
-  Panele globus/tarcza/widmo w tej samej palecie.
+### Uwaga: ekran zegara - styl nowoczesny
+- Ekran zegara w stylu nowoczesnym (styl 0) = `drawHamClockModern()`: **wyglad jak
+  w wersji domyslnej (klasycznej)** - znak (callsign), "OPERATOR STATION", duzy
+  zegar cyfrowy, etykieta czasu, data, imieniny, adres IP i strzalki - ale w palecie
+  nowoczesnej: czarne tlo (`HC_BG 0x0000`), cyjanowe akcenty (`HC_CYAN 0x07FF`:
+  naglowek, linia, ramka 30/45/420/220, OPERATOR STATION, imieniny, strzalki) i
+  zolty zegar (`HC_YELLOW 0xFFE0`).
+- Naglowek "ESP32 - HAM - CLOCK" (font 4, TC_DATUM 240,8) + linia (20,35,280) - wg kodu.
 - `drawScreen()`: dla SCREEN_HAM_CLOCK NIE rysuje uiHeader/uiFooter/drawHamClockIp
   (oba style maja wlasny naglowek i stopke).
+- Aktualizacja: `updateScreen1ClockModern()` + `updateScreen1HeaderModern()`.
 - **Nie przerabiac** tego ukladu na wspolny styl ISS - uzytkownik tego nie chce.
 
 
