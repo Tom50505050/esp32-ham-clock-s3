@@ -85,6 +85,7 @@ void drawBootScreen();
 void tftBootPrintLine(const String &line);
 String formatDistanceOrCountry(const DXSpot &spot, size_t maxLen);
 void drawHamClock();
+void drawHamClockIp();
 void drawDxCluster();
 void drawSunSpots();
 void drawBandInfo();
@@ -2634,6 +2635,9 @@ void drawScreen(ScreenType screenNum) {
   if (!issFullBleed && screenNum != SCREEN_OFF) {
     uiFooter();
   }
+  if (screenNum == SCREEN_HAM_CLOCK) {
+    drawHamClockIp();  // IP nad "SWITCH SCREEN" (po stopce)
+  }
 }
 
 // Ekran 1: Startowy - Info
@@ -3316,7 +3320,7 @@ void drawHamClock() {
   int clockFrameW = 420;    // SzerokoĹ›Ä‡ ramki (szersza)
   int clockFrameY = 37;     // GĂłra ramki
   int clockFrameH = 220;    // WysokoĹ›Ä‡ ramki (powiÄ™kszona dla wiÄ™kszego zegara i imienin)
-  tft.drawRoundRect(clockFrameX, clockFrameY, clockFrameW, clockFrameH, 10, UI_COL_BORDER);
+  tft.drawRoundRect(clockFrameX, clockFrameY, clockFrameW, clockFrameH, 10, UI_COL_ACCENT2);
 
   // 3. CALLSIGN - WyĹ›rodkowany w ramce (dokĹ‚adne obliczenia)
   tft.setTextColor(callsignColor);
@@ -3444,7 +3448,19 @@ void drawHamClock() {
     }
   }
 
-  // 7. DOLNY PASEK - Adres IP
+  // 7. DOLNY PASEK - Adres IP: rysuje go drawHamClockIp() wolane po uiFooter()
+  // w drawScreen (stopka czysci pas od y=296, wiec kolejnosc ma znaczenie).
+
+  // 8. IKONA BATERII - od razu przy starcie (skipScreenCheck = true)
+#ifdef BATTERY_MONITORING_ENABLED
+  drawBatteryQuickUpdate(true);
+#endif
+}
+
+// Adres IP nad stopka. Rysowany PO uiFooter(), zeby napis "SWITCH SCREEN"
+// nie zamalowal adresu (stopka czysci caly pas od y=296 w dol).
+void drawHamClockIp() {
+  const int screenW = 480;
   IPAddress ip;
   bool connected = false;
   if (wifiConnected && WiFi.status() == WL_CONNECTED) {
@@ -3454,30 +3470,18 @@ void drawHamClock() {
     ip = WiFi.softAPIP();
     connected = true;
   }
-
+  tft.setTextSize(2);
   if (connected) {
-    tft.setTextColor(TFT_LIGHTGREY);
-    tft.setTextSize(2);
     String ipStr = ip.toString();
-    int ipWidth = ipStr.length() * 12;
-    int ipX = (screenW - ipWidth) / 2;
-    tft.setCursor(ipX, screenH - 14);
+    tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+    tft.setCursor((screenW - tft.textWidth(ipStr)) / 2, 280);
     tft.print(ipStr);
   } else {
-    tft.setTextColor(TFT_RED);
-    tft.setTextSize(2);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
     String noConn = "NO CONNECTION";
-    int ncWidth = noConn.length() * 12;
-    int ncX = (screenW - ncWidth) / 2;
-    tft.setCursor(ncX, screenH - 14);
+    tft.setCursor((screenW - tft.textWidth(noConn)) / 2, 280);
     tft.print(noConn);
   }
-  
-  
-  // 9. IKONA BATERII - od razu przy starcie (skipScreenCheck = true)
-#ifdef BATTERY_MONITORING_ENABLED
-  drawBatteryQuickUpdate(true);
-#endif
 }
 
 void updateScreen1Clock() {
