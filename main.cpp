@@ -2279,17 +2279,26 @@ void initTFT() {
   Serial.println("TFT begin()...");
   tft.begin();
   Serial.println("TFT begin() OK");
+  // Test kolorow (RED->GREEN->BLUE->WHITE) tylko na zadanie: domyslnie OFF.
+  // Sekwencja konczy sie bialym wypelnieniem i powtarza sie przy KAZDYM
+  // restarcie (zapis/import konfiguracji restartuje ESP), wiec wygladala jak
+  // "bialy migajacy ekran" / petla restartu. Wlacz przez -DTFT_BOOT_SELFTEST
+  // w platformio.ini przy diagnozie panelu.
+#ifdef TFT_BOOT_SELFTEST
   tft.fillScreen(TFT_RED);
   delay(2000);
   tft.fillScreen(TFT_GREEN);
   delay(2000);
   tft.fillScreen(TFT_BLUE);
   delay(2000);
-  
+  tft.fillScreen(TFT_WHITE);
+#endif
+
   applyTftRotation();
   applyTftInversion();
-  // Dla rotacji 1: szerokoĹ›ci 480, wysokoĹ›ci 320
-  tft.fillScreen(TFT_WHITE);
+  // Czarny (nie bialy) - init nie moze konczyc sie jasnym blyskiem, a ekran
+  // startowy i tak zaczyna od czarnego tla (drawBootScreen/drawSplashScreen).
+  tft.fillScreen(TFT_BLACK);
 
   // Dotyk XPT2046 na tej samej magistrali SPI co TFT (osobny CS).
 #if TOUCH_ENABLED

@@ -589,7 +589,7 @@
                     <label>Inwersja kolorów TFT:</label>
                     <select id="tft_invert" name="tft_invert">
                         <option value="0">Normalne</option>
-                        <option value="1">Odwrócone</option>
+                        <option value="1" selected>Odwrócone</option>
                     </select>
                     <small>Ustawia tft.invertDisplay() (domyślnie: włączone jak w User_Setup.h)</small>
                 </div>
@@ -1230,11 +1230,20 @@
             btn.addEventListener('click', () => {
                 const file = fileInput.files && fileInput.files[0];
                 if (!file) { status.textContent = "Wybierz plik PNG, JPG lub BMP."; return; }
-                const fd = new FormData();
-                fd.append('splash', file, file.name);
                 status.textContent = "Wgrywam... " + file.name;
                 btn.disabled = true;
-                fetch('/upload_splash', { method: 'POST', body: fd })
+                // Surowy korpus (RAW) zamiast multipart - parser multipart w
+                // WebServer gubi sie przy wiekszych plikach. Firmware czyta
+                // korpus wg Content-Length w blokach (patrz handleUpload()).
+                fetch('/upload_splash', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-Filename': file.name,
+                        'X-Upload-Target': 'splash'
+                    },
+                    body: file
+                })
                     .then(r => r.ok ? r.json() : Promise.reject(r.status))
                     .then(() => {
                         status.textContent = "OK - ekran startowy zapisany i pokazany na TFT.";
@@ -1335,7 +1344,7 @@
             const btn = document.getElementById('img-upload-btn');
             if (!imgConvertedBlob) { status.textContent = "Najpierw kliknij 'Konwertuj do RGB565'."; return; }
             const target = document.getElementById('img-target').value;
-            const url = (target === 'mapa') ? '/upload/mapa565' : '/upload/splash';
+            const url = (target === 'mapa') ? '/upload/mapa565' : '/upload_splash';
             status.textContent = "Wysylam na ESP32...";
             btn.disabled = true;
             // Surowe cialo (RAW) zamiast multipart - parser multipart w WebServer

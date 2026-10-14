@@ -589,7 +589,7 @@
                         <label>TFT Color Inversion:</label>
                         <select id="tft_invert" name="tft_invert">
                             <option value="0">Normal</option>
-                            <option value="1">Inverted</option>
+                            <option value="1" selected>Inverted</option>
                         </select>
                         <small>Controls tft.invertDisplay() (default matches User_Setup.h)</small>
                 </div>
@@ -1329,11 +1329,20 @@
             btn.addEventListener('click', () => {
                 const file = fileInput.files && fileInput.files[0];
                 if (!file) { status.textContent = "Choose a PNG, JPG or BMP file."; return; }
-                const fd = new FormData();
-                fd.append('splash', file, file.name);
                 status.textContent = "Uploading... " + file.name;
                 btn.disabled = true;
-                fetch('/upload_splash', { method: 'POST', body: fd })
+                // Raw body (not multipart): the WebServer multipart parser drops
+                // the connection on larger files. The firmware reads the body by
+                // Content-Length in blocks (see handleUpload()).
+                fetch('/upload_splash', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-Filename': file.name,
+                        'X-Upload-Target': 'splash'
+                    },
+                    body: file
+                })
                     .then(r => r.ok ? r.json() : Promise.reject(r.status))
                     .then(() => {
                         status.textContent = "OK - boot screen saved and shown on the TFT.";
@@ -1432,7 +1441,7 @@
             const btn = document.getElementById('img-upload-btn');
             if (!imgConvertedBlob) { status.textContent = "Click 'Convert to RGB565' first."; return; }
             const target = document.getElementById('img-target').value;
-            const url = (target === 'mapa') ? '/upload/mapa565' : '/upload/splash';
+            const url = (target === 'mapa') ? '/upload/mapa565' : '/upload_splash';
             status.textContent = "Sending to ESP32...";
             btn.disabled = true;
             // Raw body (not multipart): the WebServer multipart parser drops the

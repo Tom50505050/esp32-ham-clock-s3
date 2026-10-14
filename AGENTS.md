@@ -357,6 +357,23 @@ Podglad: /workspace/share/_sat-preview.html + _preview.html (mock API).
 - Multipart nadal dziala (np. `curl -F`), ale WWW korzysta z RAW. Endpointy bez zmian: `/upload_splash` (splash), `/upload/bmp` i `/upload/mapa565` (mapa).
 - Test reczny (curl RAW): `curl -X POST --data-binary @splash.bmp -H "Content-Type: application/octet-stream" -H "X-Filename: splash.bmp" -H "X-Upload-Target: splash" http://esp-ip/upload_splash`.
 
+### REGRESJA: "nie wgrywa obrazu startowego przez strone www" — ROZWIAZANE (14.10.2026)
+- **Objaw:** po commicie `002afdb` ("Wyslij na ESP32" w zakladce "Ekran TFT")
+  zwracalo "Blad wysylania (siec/format)" i nie zapisywalo splash.
+- **PRZYCZYNA:** literowka w sciezce. JS (`uploadConvertedImage`) wysylal na
+  `/upload/splash`, a firmware rejestruje `/upload_splash` (podkreslnik). Trasa
+  nie istniala -> 404 -> `Promise.reject(404)`. Drugi przycisk ("Wgraj ekran
+  startowy" w zakladce "Linki") mial poprawny `/upload_splash`, ale wysylal
+  **multipart** (`FormData`) — czyli ta sama, znana z powyzszego buga sciezka,
+  ktora resetuje polaczenie dla wiekszych plikow (PNG/JPG/BMP > ~kilka KB).
+- **FIX (WWW, `data/index.html` + `data/indexEN.html`):**
+  1. `uploadConvertedImage`: `/upload/splash` -> `/upload_splash`.
+  2. `initSplashUpload` (Linki): multipart `FormData` -> RAW body (`File` jako
+     `body`, `Content-Type: application/octet-stream`, `X-Filename`,
+     `X-Upload-Target: splash`), zgodnie z reszta uploadow.
+- Endpointy firmware bez zmian: `/upload_splash`, `/upload/bmp`, `/upload/mapa565`.
+- Po zmianie `data/` trzeba przebudowac LittleFS: `pio run -e esp32-s3-n16r8 -t buildfs`.
+
 ## ISS: predyktor nextpass() + plan kilku przelotow (13.10.2026)
 - PRZYCZYNA "brak odczytu nastepny przelot" na urzadzeniu: reczny skan orbity co 60 s
   w oknie 24 h (do ~1440 propagacji SGP4) byl (a) bardzo drogi na Core 0 i (b) zawodny
@@ -809,3 +826,33 @@ Cel: wszystkie ekrany wygladaja jak ekran ISS TRACKER, przy zachowaniu funkcji.
 - Full-bleed zachowane: MATRIX (wlasny motyw), SYSTEM_INFO (wlasna paleta
   SYS_COL_*), ISS TRACKER (wzorzec), PSK (mapa na pelnym ekranie).
 - Build: `pio run -e esp32-s3-n16r8 -e esp32-s3-n16r8-notouch` -> SUCCESS.
+
+
+## "Bialy migajacy ekran" po zapisie/importcie konfiguracji — ROZWIAZANE (14.10.2026)
+Objaw: po zapisie/importcie ustawien z WWW (config -> restart ESP32) ekran na
+stronie startowej jest bialy i migajacy (wyglada jak petla restartu).
+
+Przyczyna: `initTFT()` po `tft.begin()` robil bezwarunkowy test kolorow
+`fillScreen(RED) -> delay(2000) -> GREEN -> delay(2000) -> BLUE -> delay(2000)`,
+a po `applyTftInversion()` konczyl na `tft.fillScreen(TFT_WHITE)`. Kazdy zapis z
+WWW (`/api/save`) restartuje ESP (`requestRestart(1500)`), wiec sekwencja
+odpalala sie przy kazdym zapisie: ~6 s R/G/B + bialy blysk na koncu. Powtarzane
+przy kazdym restarcie = wizualnie "bialy migajacy ekran" (a nie prawdziwa petla
+restartu — nie bylo WDT/panic; sprawdzic `[SETUP] Powod restartu:` w logu).
+
+Fix (firmware `main.cpp`, `initTFT()`):
+1. Test kolorow przeniesiony za `#ifdef TFT_BOOT_SELFTEST` — domyslnie OFF.
+   Wlacz `-DTFT_BOOT_SELFTEST` w `platformio.ini` tylko przy diagnozie panelu.
+2. Ostatnie wypelnienie init zmienione z `TFT_WHITE` na `TFT_BLACK` — init nie
+   konczy sie jasnym blyskiem, a boot/splash i tak startuje od czarnego tla.
+
+Dodatkowo (WWW, `data/index.html` + `data/indexEN.html`): `<select tft_invert>`
+mial domyslnie zaznaczone "0" (Normalne), a firmware startuje z inwersja ON
+(`TFT_INVERSION_ON`). Wyslanie formularza zanim `loadConfig()` ustawil wartosc
+wysylalo `tft_invert:false` i gasilo inwersje -> ciemny splash (mean_lum 40)
+renderowal sie jako bialy. Teraz opcja "Odwrocone"/"Inverted" ma `selected`.
+
+Uwaga: `tft_style` ("light" = biale tlo) istnieje w WWW, ale firmware go NIE
+obsluguje (brak klucza w `main.cpp`) — opcja jest ignorowana, nie powoduje bieli.
+
+Build: `pio run -e esp32-s3-n16r8 -e esp32-s3-n16r8-notouch` -> SUCCESS.
