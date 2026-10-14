@@ -5791,18 +5791,33 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     if ((shown & 0x03) == 0) yield();
   }
 
-  // Wlasna stacja (QTH) w centrum: znak NAD znacznikiem, lokator POD nim.
+  // Wlasna stacja (QTH) w centrum: ZNAK wyzej, pod nim LOKATOR + SZER/DLUG.
   sp.fillCircle(ARP_CX, ARP_CY, 3, ARP_COL_TEXT);
   {
     String c = userCallsign.length() > 0 ? userCallsign : String("QTH");
     if (c.length() > 10) c = c.substring(0, 10);
     sp.setTextSize(1);
+    sp.setTextDatum(TC_DATUM);
+    // Znak wyzej nad znacznikiem (bylo BC_DATUM przy CY-6).
     sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
-    sp.setTextDatum(BC_DATUM);
-    sp.drawString(c, ARP_CX, ARP_CY - 6, 1);
-    if (userLocator.length() > 0) {
-      sp.setTextDatum(TC_DATUM);
-      sp.drawString(userLocator, ARP_CX, ARP_CY + 6, 1);
+    sp.drawString(c, ARP_CX, ARP_CY - 28, 1);
+    // Lokator i wspolrzedne nizej, kazdy z etykieta i danymi.
+    int my = ARP_CY + 8;
+    char lbl[32];
+    sp.setTextColor(ARP_COL_DIM, ARP_COL_BG);
+    snprintf(lbl, sizeof(lbl), "LOK: %s", userLocator.length() > 0 ? userLocator.c_str() : "--");
+    sp.drawString(lbl, ARP_CX, my, 1);
+    my += 10;
+    if (userLatLonValid) {
+      snprintf(lbl, sizeof(lbl), "SZER: %.4f", userLat);
+      sp.drawString(lbl, ARP_CX, my, 1);
+      my += 10;
+      snprintf(lbl, sizeof(lbl), "DLUG: %.4f", userLon);
+      sp.drawString(lbl, ARP_CX, my, 1);
+    } else {
+      sp.drawString("SZER: --", ARP_CX, my, 1);
+      my += 10;
+      sp.drawString("DLUG: --", ARP_CX, my, 1);
     }
     sp.setTextDatum(TL_DATUM);
   }
@@ -16195,6 +16210,8 @@ void loadPreferences() {
   menuThemeHue = (uint8_t)savedMenuHue;
   applyMenuThemeFromHue();
   callsignColor = preferences->getUInt("callsign_color", 65535); // Default white (0xFFFF)
+  // NVS nieustawione/0 daje czarny znak (niewidoczny na czarnym tle). Wymus biel.
+  if (callsignColor == 0) callsignColor = 65535;
   touchXMin = preferences->getInt("touch_xmin", TOUCH_X_MIN);
   touchXMax = preferences->getInt("touch_xmax", TOUCH_X_MAX);
   touchYMin = preferences->getInt("touch_ymin", TOUCH_Y_MIN);
@@ -17132,6 +17149,7 @@ void setupWebServer() {
       }
       if (doc["callsign_color"].is<int>()) {
         callsignColor = doc["callsign_color"].as<int>();
+        if (callsignColor == 0) callsignColor = 65535;  // 0 = czarny (niewidoczny) -> biel
       }
       
       // Konfiguracja filtrĂ„â€šĹ‚w CC-Cluster

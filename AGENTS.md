@@ -682,3 +682,15 @@ Log pokazal dwa realne problemy (PSK byl cicho, CALLOOK sypal 404):
    po 429. To naprawia tez "pierwszy fetch po wgraniu nic nie pobral" (przy
    poprzednim FW nie bylo zadnego auto-fetchu - fetch dzialal tylko przy wejsciu
    na ekran z lastPskFetchMs==0, co przy starcie na innym ekranie nie zachodzi).
+
+
+## Znak bialy + uklad QTH na radarze APRS (14.10.2026)
+1) Znak (callsign) domyslnie bialy, ale przy starcie bywal niewidoczny:
+   przyczyna - NVS "callsign_color" == 0 (czarny) traktowane jako poprawna
+   wartosc i rysowane czarnym na czarnym tle. Naprawa: w loadPreferences() oraz
+   w /api/save gdy odczyt == 0 -> wymus 65535 (biel). Wartosc domyslna 65535 juz
+   byla, wiec swiezy NVS dziala; problem dotyczyl zapisanego 0.
+2) Ekran APRS RADAR, znacznik QTH w centrum: znak byl tuz nad kropka i nachodzil
+   na lokator. Teraz: ZNAK wyzej (TC_DATUM na CY-28), pod znacznikiem kolejno
+   LOK: <lokator>, SZER: <lat>, DLUG: <lon> (kazdy z etykieta i danymi).
+   Szerokosc tekstu (~78 px) miesci sie w okregu radaru (promien 122 px).
