@@ -900,4 +900,23 @@ Build: `pio run -e esp32-s3-n16r8 -e esp32-s3-n16r8-notouch` -> SUCCESS.
 - Tekst na plycie: `HC_INK`/`HC_CYAN` na `HC_PANEL_BG` (kontrola tla przy kazdym print,
   bo tekst nie jest juz rysowany na czerni).
 
+### Przebudowa wg wzorca uzytkownika (14.10.2026) - OBOWIAZUJACA
+Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na 480x320:
+- **Naglowek**: cyjanowy `"ESP32 - HAM - CLOCK"` (font 4) wysrodkowany (`TC_DATUM`) +
+  `drawFastHLine(40,36,400,CYAN)`.
+- **Paleta wg wzorca**: `HC_BG` 0x0000, `HC_PANEL` 0x10A2, `HC_CYAN` 0x07FF,
+  `HC_YELLOW` 0xFFE0, `HC_WHITE` 0xFFFF, `HC_TEXT` 0xE73C. (Bez aluminium/srub.)
+- **Trzy panele** 42..206: GLOBE/SAT (15,120), zegar (150,172), 20m SPECTRUM (332,134).
+  Tytuly: cyjanowy znacznik + tekst + linia (`hamClockPanelTitle`), ramka fazowana.
+- **Zegar**: tarcza R=58, cyjanowa obwodka, wskazowki H=biala/M=cyjan/S=zolta,
+  cyfry 12/3/6/9 biale, data pod tarcza (`TC_DATUM`).
+- **Widmo**: paski + wodospad `hamClockWf[70][134]` (~18 kB), podpisy 14.000/14.35.
+- **Dolna ramka** (10,210 460x84): cyjanowa obwodka `drawRoundRect`, tresc wysrodkowana
+  (`MC_DATUM`): "HAM RADIO  -  AMATEUR RADIO STATION" (cyjan, font 1), potem zolte
+  "version v1.2" / "Autor: Tomasz SP9TNV" / "Base: Konrad SP3KON" / "License: MIT"
+  (font 2) i "SP9TNV@gmail.com" (font 1).
+- Uwaga: przy `MC_DATUM` + `drawString` nie uzywac `setTextPadding` (kalibruje pozycje).
+- Podglad: `/workspace/share/hamclock-preview.png`. Build oba env: SUCCESS.
+
+
 
