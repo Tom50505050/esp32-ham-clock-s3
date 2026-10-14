@@ -663,11 +663,16 @@
                 <div class="form-group" style="border-top:1px solid #2a3357;padding-top:12px;">
                     <label>Wgraj bezpośrednio jako JPG / PNG / BMP (bez konwersji):</label>
                     <input type="file" id="splash-direct-file" accept=".png,.jpg,.jpeg,.bmp">
-                    <small>Plik trafia na urządzenie 1:1 i <b>zastępuje</b> stary ekran startowy. Zalecane 480×320. Firmware dekoduje JPG (TJpg), PNG (pngle) i BMP.</small>
+                    <small>Zastępuje <b>ekran powitalny</b> (ekran z wersją i autorami programu) wgranym obrazem. Plik trafia na urządzenie 1:1. Zalecane 480×320. Firmware dekoduje JPG (TJpg), PNG (pngle) i BMP.</small>
                     <div style="margin-top:8px;">
-                        <button type="button" class="btn" id="splash-direct-btn" style="background:#2a4a6a;">⬆️ Wgraj i ustaw jako ekran startowy</button>
+                        <button type="button" class="btn" id="splash-direct-btn" style="background:#2a4a6a;">⬆️ Wgraj i ustaw jako ekran powitalny</button>
                     </div>
                     <div id="splash-direct-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
+                    <div style="margin-top:10px;">
+                        <small>Podgląd aktualnej grafiki ekranu powitalnego (jeśli wgrana):</small><br>
+                        <img id="welcome-preview" src="/welcome_preview" alt="" style="max-width:320px;margin-top:6px;border:1px solid #2a3357;display:none;"
+                             onload="this.style.display='block';" onerror="this.style.display='none';">
+                    </div>
                 </div>
             </div>
 
@@ -1282,17 +1287,24 @@
                 btn.disabled = true;
                 // Surowy korpus (RAW) z naglowkiem X-Filename - niezawodny dla
                 // duzych plikow (parser multipart bywa resetowany). Firmware
-                // zapisuje plik 1:1 jako /splash.<ext> i zastepuje stary splash.
+                // zapisuje plik 1:1 jako /welcome.<ext> i zastepuje stary ekran
+                // powitalny (z wersja/autorami).
                 fetch('/upload_splash', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/octet-stream',
                         'X-Filename': file.name,
-                        'X-Upload-Target': 'splash'
+                        'X-Upload-Target': 'welcome'
                     },
                     body: file
                 })
-                    .then(r => { window.location.href = '/'; })
+                    .then(r => {
+                        if (!r.ok) throw new Error('http ' + r.status);
+                        status.textContent = "Wgrano. Zrestartuj urządzenie, aby zobaczyć nowy ekran powitalny.";
+                        btn.disabled = false;
+                        const pv = document.getElementById('welcome-preview');
+                        if (pv) pv.src = '/welcome_preview?t=' + Date.now();
+                    })
                     .catch(() => { status.textContent = "Blad wgrywania (format/siec)."; btn.disabled = false; });
             });
         };

@@ -918,22 +918,23 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Uwaga: przy `MC_DATUM` + `drawString` nie uzywac `setTextPadding` (kalibruje pozycje).
 - Podglad: `/workspace/share/hamclock-preview.png`. Build oba env: SUCCESS.
 
-### Upload ekranu startowego (JPG/PNG/BMP) przez WWW (14.10.2026)
-- Zakladka TFT -> "Grafika na ekran": dodana sekcja "Wgraj bezposrednio jako
-  JPG/PNG/BMP" (id `splash-direct-file` / `splash-direct-btn`), obok istniejacego
-  konwertera do BMP565. Wysyla plik 1:1 przez RAW (`/upload_splash`, naglowki
-  `X-Filename` + `X-Upload-Target: splash`).
-- Firmware: `resolveUploadTarget()` zapisuje jako `/splash.<ext>` (jpg/png/bmp) i
-  usuwa stare warianty (`removeOldSplashVariants`) - nowy plik ZASTEPUJE stary splash.
-- `/upload_splash` (POST): jesli `Accept` zawiera `text/html` -> redirect 303 na `/`
-  (przegladarka robi GET /, ktory rysuje nowy splash); inaczej JSON (fetch/curl).
-- Usunieto odswiezanie splasha w `rawUploadFinish`/multipart END - zapobiega
-  miganiu/podwojnemu rysowaniu; splash odrysowuje GET /.
-- Domyslny splash w LittleFS zmieniony z `splash.bmp` na `splash.jpg` (nowy wyglad).
-  Priorytet: splash.png > splash.jpg > splash.jpeg > ... > splash.bmp.
-- Publish: `/workspace/share/flash/littlefs.bin` + `esp32-ham-clock-s3.zip` (zawiera
-  splash.jpg). Uwaga: nie zmieniac rozmiaru/typu istniejacego pliku na urzadzeniu -
-  LittleFS nie skasuje go bez pelnego formatu.
+### Upload ekranu POWITALNEGO (JPG/PNG/BMP) przez WWW (14.10.2026)
+- Cel: obraz ma zastepowac EKRAN POWITALNY z wersja i autorami
+  (`drawWelcomeScreenYellow`, wyswietlany na starcie PRZED splashem), a NIE splash.
+- Zakladka TFT -> "Grafika na ekran": sekcja "Wgraj bezposrednio jako
+  JPG/PNG/BMP" (id `splash-direct-file` / `splash-direct-btn`), obok konwertera
+  do BMP565. Wysyla plik 1:1 przez RAW (`/upload_splash`, naglowki `X-Filename`
+  + `X-Upload-Target: welcome`). Podglad: `<img src="/welcome_preview">`.
+- Firmware: `resolveUploadTarget()` dla target "welcome" zapisuje `/welcome.<ext>`
+  i wywoluje `removeOldWelcomeVariants()` - nowy plik ZASTEPUJE stary ekran powitalny.
+- `drawWelcomeScreenYellow()` na poczatku probuje `/welcome.{png,jpg,jpeg,bmp}`;
+  jesli plik istnieje i sie zdekoduje - rysuje go (zamiast grafiki masztu + tekstow
+  wersja/autor) i doklada "Kliknij ekran aby kontynuowac...". Bez pliku - stary ekran.
+- `/upload_splash` (POST): `Accept: text/html` -> 303 na `/`; inaczej JSON.
+- Domyslny `data/splash.bmp` (stary splash) PRZYWRÓCONY - nie zmieniamy splasha.
+- Uwaga: wgranie dziala od razu w LittleFS, ale nowy ekran widac po restarcie
+  (ekran powitalny rysuje sie tylko przy starcie). Podglad w WWW pokazuje plik.
+- Publish: `/workspace/share/flash/littlefs.bin` + `esp32-ham-clock-s3.zip`.
 
 
 

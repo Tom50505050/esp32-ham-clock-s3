@@ -663,11 +663,16 @@
                 <div class="form-group" style="border-top:1px solid #2a3357;padding-top:12px;">
                     <label>Upload directly as JPG / PNG / BMP (no conversion):</label>
                     <input type="file" id="splash-direct-file" accept=".png,.jpg,.jpeg,.bmp">
-                    <small>The file goes to the device 1:1 and <b>replaces</b> the old boot screen. 480×320 recommended. Firmware decodes JPG (TJpg), PNG (pngle) and BMP.</small>
+                    <small>Replaces the <b>welcome screen</b> (the screen showing the program version and authors) with your image. The file goes to the device 1:1. 480×320 recommended. Firmware decodes JPG (TJpg), PNG (pngle) and BMP.</small>
                     <div style="margin-top:8px;">
-                        <button type="button" class="btn" id="splash-direct-btn" style="background:#2a4a6a;">⬆️ Upload and set as boot screen</button>
+                        <button type="button" class="btn" id="splash-direct-btn" style="background:#2a4a6a;">⬆️ Upload and set as welcome screen</button>
                     </div>
                     <div id="splash-direct-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
+                    <div style="margin-top:10px;">
+                        <small>Preview of the current welcome-screen image (if uploaded):</small><br>
+                        <img id="welcome-preview" src="/welcome_preview" alt="" style="max-width:320px;margin-top:6px;border:1px solid #2a3357;display:none;"
+                             onload="this.style.display='block';" onerror="this.style.display='none';">
+                    </div>
                 </div>
             </div>
 
@@ -1381,17 +1386,24 @@
                 btn.disabled = true;
                 // Raw body + X-Filename header - reliable for large files (the
                 // multipart parser can be reset). The firmware stores the file 1:1
-                // as /splash.<ext> and replaces the old splash.
+                // as /welcome.<ext> and replaces the old welcome screen
+                // (the version/authors screen).
                 fetch('/upload_splash', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/octet-stream',
                         'X-Filename': file.name,
-                        'X-Upload-Target': 'splash'
+                        'X-Upload-Target': 'welcome'
                     },
                     body: file
                 })
-                    .then(r => { window.location.href = '/'; })
+                    .then(r => {
+                        if (!r.ok) throw new Error('http ' + r.status);
+                        status.textContent = "Uploaded. Restart the device to see the new welcome screen.";
+                        btn.disabled = false;
+                        const pv = document.getElementById('welcome-preview');
+                        if (pv) pv.src = '/welcome_preview?t=' + Date.now();
+                    })
                     .catch(() => { status.textContent = "Upload failed (format/network)."; btn.disabled = false; });
             });
         };

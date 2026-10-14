@@ -84,6 +84,8 @@ String getAPRSSymbolShort(const APRSStation &station);
 void drawBootScreen();
 void tftBootPrintLine(const String &line);
 String formatDistanceOrCountry(const DXSpot &spot, size_t maxLen);
+void drawWelcomeScreenYellow();
+void drawSplashScreen();
 void drawHamClock();
 void drawHamClockIp();
 void drawDxCluster();
@@ -2356,6 +2358,24 @@ void drawWelcomeScreenYellow() {
   if (!tftInitialized) {
     return;
   }
+
+  // Ekran powitalny moze byc zastapiony wlasna grafika (/welcome.<ext>),
+  // wgrana przez WWW (zakladka TFT -> "Grafika na ekran", cel "Ekran powitalny").
+  if (littleFsReady) {
+    for (const char *cand : {"/welcome.png", "/welcome.jpg", "/welcome.jpeg", "/welcome.bmp"}) {
+      if (!LittleFS.exists(cand)) continue;
+      if (drawImageFromFS(cand)) {
+        Serial.printf("[Welcome] Zaladowano ekran powitalny: %s\n", cand);
+        tft.setTextSize(1);
+        tft.setTextColor(TFT_LIGHTGREY);
+        tft.setCursor(240 - 80, 310);
+        tft.print("Kliknij ekran aby kontynuowac...");
+        return;
+      }
+      Serial.printf("[Welcome] Plik %s istnieje, ale dekodowanie nie udalo sie\n", cand);
+    }
+  }
+
   tft.fillScreen(UI_COL_BG);
   const int centerX = 240;
 
@@ -16961,11 +16981,12 @@ static String uploadExtOf(const String &name) {
 }
 
 // Zwraca sciezke docelowa lub "" gdy format nieobslugiwany.
-// target: "mapa" -> mapa PSK, inaczej (domyslnie) -> splash.
+// target: "mapa" -> mapa PSK, "welcome" -> ekran powitalny, inaczej splash.
 static String resolveUploadTarget(const String &target, const String &fname) {
   String ext = uploadExtOf(fname);
   if (ext != ".bmp" && ext != ".png" && ext != ".jpg" && ext != ".jpeg") return "";
   if (target == "mapa") return String(PSK_MAP_BMP_PATH);
+  if (target == "welcome") return "/welcome" + ext;
   return "/splash" + ext;
 }
 
@@ -16978,6 +16999,15 @@ static void removeOldSplashVariants() {
     "/boot.bmp", "/boot.png", "/logo.bmp", "/logo.png",
     "/start.bmp", "/start.png"};
   for (const char *o : oldSplashes) {
+    if (LittleFS.exists(o)) LittleFS.remove(o);
+  }
+}
+
+// Usuwa stare warianty ekranu powitalnego (zastepowanego grafika).
+static void removeOldWelcomeVariants() {
+  static const char *oldWelcome[] = {
+    "/welcome.png", "/welcome.jpg", "/welcome.jpeg", "/welcome.bmp"};
+  for (const char *o : oldWelcome) {
     if (LittleFS.exists(o)) LittleFS.remove(o);
   }
 }
@@ -17025,7 +17055,8 @@ static void handleUpload(const String &targetForced) {
       if (target.length() == 0) target = "splash";
       String path = resolveUploadTarget(target, upload.filename);
       if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format"); return; }
-      if (target != "mapa") removeOldSplashVariants();
+      if (target == "welcome") removeOldWelcomeVariants();
+      else if (target != "mapa") removeOldSplashVariants();
       LittleFS.remove(path);
       File f = LittleFS.open(path, "w");
       if (!f) { Serial.println("[UPLOAD] Nie moge otworzyc pliku"); return; }
@@ -17061,7 +17092,8 @@ static void handleUpload(const String &targetForced) {
     if (target.length() == 0) target = "splash";
     String path = resolveUploadTarget(target, fname);
     if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format (RAW)"); return; }
-    if (target != "mapa") removeOldSplashVariants();
+    if (target == "welcome") removeOldWelcomeVariants();
+    else if (target != "mapa") removeOldSplashVariants();
     LittleFS.remove(path);
     rawUploadFile = LittleFS.open(path, "w");
     if (!rawUploadFile) { Serial.println("[UPLOAD] Nie moge otworzyc pliku (RAW)"); return; }
@@ -18576,19 +18608,38 @@ void setupWebServer() {
   // Znajduje aktualny plik ekranu startowego (dowolne obslugiwane rozszerzenie).
   // (definiowane jako lambda, uzywana przez /splash_preview ponizej)
 
-  // Upload ekranu startowego (PNG/JPG/JPEG/BMP) -> LittleFS jako /splash.<ext>.
+  // Upload ekranu powitalnego (zastepuje ekran z wersja/autorami) oraz splash.
   // Odpowiedz zalezy od naglowka Accept: przegladarka (text/html) dostaje
-  // przekierowanie na "/" (GET / rysuje nowy splash na TFT), a fetch/curl JSON.
+  // przekierowanie na "/" (GET / rysuje nowy ekran), a fetch/curl JSON.
   server->on("/upload_splash", HTTP_POST, []() {
     String accept = server->header("Accept");
     if (accept.indexOf("text/html") >= 0) {
       server->sendHeader("Location", "/");
-      server->send(303, "text/plain", "splash uploaded");
+      server->send(303, "text/plain", "uploaded");
     } else {
-      server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"splash_uploaded\"}");
+      server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"uploaded\"}");
     }
   }, []() {
-    handleUpload("splash");
+    // Domyslnie cel = ekran powitalny (ekran z wersja/autorami). Nadpisywane
+    // naglowkiem X-Upload-Target (np. "splash").
+    handleUpload("welcome");
+  });
+
+  // Podglad wgranej grafiki ekranu powitalnego (dla WWW - zakladka TFT).
+  server->on("/welcome_preview", HTTP_GET, []() {
+    static const char *wcands[] = {
+      "/welcome.png", "/welcome.jpg", "/welcome.jpeg", "/welcome.bmp"};
+    for (const char *c : wcands) {
+      if (LittleFS.exists(c)) {
+        String lc = String(c);
+        lc.toLowerCase();
+        const char *ct = lc.endsWith(".png") ? "image/png"
+                       : lc.endsWith(".bmp") ? "image/bmp" : "image/jpeg";
+        if (streamLittleFsFile(c, ct)) return;
+        break;
+      }
+    }
+    server->send(404, "text/plain", "no welcome image");
   });
 
   // Podglad aktualnego ekranu startowego (dla WWW - zakladka Linki).
