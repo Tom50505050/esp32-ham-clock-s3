@@ -16749,11 +16749,155 @@ String getManualPL() {
   );
 }
 
+// ============================================================================
+//  Upload binarny przez "surowy" korpus (RAW) zamiast multipart/form-data.
+//  Powod: parser multipart w WebServer (core 2.x) czyta bajt-po-bajcie i przy
+//  wiekszych plikach (np. 300 KB BMP) potrafi zresetowac polaczenie (znany bug
+//  arduino-esp32 #9163). Sciezka RAW czyta korpus wg Content-Length w blokach
+//  po HTTP_RAW_BUFLEN (1436 B) - jest szybka i niezawodna dla plikow binarnych.
+//  WWW wysyla plik jako surowe cialo z naglowkami X-Filename i X-Upload-Target.
+// ============================================================================
+static String rawUploadPath = "";       // sciezka docelowa w LittleFS
+static bool   rawUploadIsSplash = false;
+static bool   rawUploadActive = false;
+static File   rawUploadFile;            // trzymany otwarty przez caly upload
+
+static String uploadExtOf(const String &name) {
+  String lc = name;
+  lc.toLowerCase();
+  int dot = lc.lastIndexOf('.');
+  return (dot >= 0) ? lc.substring(dot) : String("");
+}
+
+// Zwraca sciezke docelowa lub "" gdy format nieobslugiwany.
+// target: "mapa" -> mapa PSK, inaczej (domyslnie) -> splash.
+static String resolveUploadTarget(const String &target, const String &fname) {
+  String ext = uploadExtOf(fname);
+  if (ext != ".bmp" && ext != ".png" && ext != ".jpg" && ext != ".jpeg") return "";
+  if (target == "mapa") return String(PSK_MAP_BMP_PATH);
+  return "/splash" + ext;
+}
+
+// Usuwa stare warianty ekranu startowego (rozne nazwy/rozszerzenia), zeby
+// firmware nie wczytal starego pliku o wyzszym priorytecie.
+static void removeOldSplashVariants() {
+  static const char *oldSplashes[] = {
+    "/splash.png", "/splash.jpg", "/splash.jpeg", "/splash.bmp",
+    "/splash_16bit.bmp", "/splash16.bmp", "/icon50/splash.bmp",
+    "/boot.bmp", "/boot.png", "/logo.bmp", "/logo.png",
+    "/start.bmp", "/start.png"};
+  for (const char *o : oldSplashes) {
+    if (LittleFS.exists(o)) LittleFS.remove(o);
+  }
+}
+
+static void rawUploadReset() {
+  if (rawUploadFile) rawUploadFile.close();
+  rawUploadPath = "";
+  rawUploadIsSplash = false;
+  rawUploadActive = false;
+}
+
+static void rawUploadFinish() {
+  if (!rawUploadActive) return;
+  rawUploadActive = false;
+  if (rawUploadFile) rawUploadFile.close();
+  size_t sz = 0;
+  File f = LittleFS.open(rawUploadPath);
+  if (f) { sz = f.size(); f.close(); }
+  Serial.printf("[UPLOAD] Zakonczono: %s (%d B)\n", rawUploadPath.c_str(), (int)sz);
+  if (rawUploadIsSplash && tftInitialized) drawSplashScreen();
+  if (currentScreen == SCREEN_PSK_MAP) drawPskMap();
+}
+
+// Stan uploadu multipart (stara sciezka - zachowana dla kompatybilnosci).
+static String mpUploadPath = "";
+static bool   mpUploadIsSplash = false;
+static bool   mpUploadActive = false;
+
+// Wspolna obsluga uploadu. Rozpoznaje tryb po naglowku Content-Type:
+//  - multipart/form-data -> klasyczna sciezka WebServer::upload()
+//  - cokolwiek innego    -> RAW (surowe cialo wg Content-Length) - szybkie i
+//    niezawodne dla duzych plikow binarnych.
+// targetForced: "mapa" lub "splash"; gdy puste - bierzemy naglowek X-Upload-Target.
+static void handleUpload(const String &targetForced) {
+  if (!server) return;
+  String ctype = server->header("Content-Type");
+
+  if (ctype.startsWith("multipart/")) {
+    HTTPUpload &upload = server->upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      mpUploadActive = false;
+      if (!littleFsReady) return;
+      String target = targetForced.length() ? targetForced : server->header("X-Upload-Target");
+      if (target.length() == 0) target = "splash";
+      String path = resolveUploadTarget(target, upload.filename);
+      if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format"); return; }
+      if (target != "mapa") removeOldSplashVariants();
+      LittleFS.remove(path);
+      File f = LittleFS.open(path, "w");
+      if (!f) { Serial.println("[UPLOAD] Nie moge otworzyc pliku"); return; }
+      f.close();
+      mpUploadPath = path;
+      mpUploadIsSplash = (target != "mapa");
+      mpUploadActive = true;
+      Serial.printf("[UPLOAD] multipart: %s -> %s\n", upload.filename.c_str(), path.c_str());
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      if (!mpUploadActive) return;
+      File f = LittleFS.open(mpUploadPath, "a");
+      if (f) { f.write(upload.buf, upload.currentSize); f.close(); }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (!mpUploadActive) return;
+      mpUploadActive = false;
+      Serial.printf("[UPLOAD] multipart koniec: %s (%d B)\n", mpUploadPath.c_str(), (int)upload.totalSize);
+      if (mpUploadIsSplash && tftInitialized) drawSplashScreen();
+      if (currentScreen == SCREEN_PSK_MAP) drawPskMap();
+    } else if (upload.status == UPLOAD_FILE_ABORTED) {
+      mpUploadActive = false;
+      Serial.println("[UPLOAD] multipart przerwany");
+    }
+    return;
+  }
+
+  HTTPRaw &raw = server->raw();
+  if (raw.status == RAW_START) {
+    rawUploadReset();
+    if (!littleFsReady) return;
+    String fname = server->header("X-Filename");
+    if (fname.length() == 0) fname = (targetForced == "mapa") ? "Mapa swiata.bmp" : "splash.bmp";
+    String target = targetForced.length() ? targetForced : server->header("X-Upload-Target");
+    if (target.length() == 0) target = "splash";
+    String path = resolveUploadTarget(target, fname);
+    if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format (RAW)"); return; }
+    if (target != "mapa") removeOldSplashVariants();
+    LittleFS.remove(path);
+    rawUploadFile = LittleFS.open(path, "w");
+    if (!rawUploadFile) { Serial.println("[UPLOAD] Nie moge otworzyc pliku (RAW)"); return; }
+    rawUploadPath = path;
+    rawUploadIsSplash = (target != "mapa");
+    rawUploadActive = true;
+    Serial.printf("[UPLOAD] RAW: %s -> %s\n", fname.c_str(), path.c_str());
+  } else if (raw.status == RAW_WRITE) {
+    if (!rawUploadActive || !rawUploadFile) return;
+    rawUploadFile.write(raw.buf, raw.currentSize);
+  } else if (raw.status == RAW_END || raw.status == RAW_ABORTED) {
+    rawUploadFinish();
+  }
+}
+
+
 void setupWebServer() {
   // UtwĂ„â€šĹ‚rz serwer jeĂ„Ä…Ă˘â‚¬Ĺźli jeszcze nie istnieje
   if (server == nullptr) {
     server = new WebServer(80);
   }
+
+  // Naglowki potrzebne do uploadu RAW (nazwa pliku + cel) i rozpoznania trybu.
+  // MUSI byc przed begin(). Content-Type decyduje: multipart vs surowe cialo.
+  static const char *uploadHdrKeys[] = {"Content-Type", "X-Filename", "X-Upload-Target", "Content-Length"};
+  server->collectHeaders(uploadHdrKeys, 4);
+
+
   
   // Strona glowna - LittleFS jesli plik istnieje i jest kompletny, inaczej wbudowany HTML.
   server->on("/", HTTP_GET, []() {
@@ -18222,71 +18366,19 @@ void setupWebServer() {
 
   
   // Upload nowej mapy BMP (np. przez curl -X POST -F "file=@Mapa swiata.bmp" http://esp-ip/upload/bmp)
+  // Obsluguje multipart ORAZ surowe cialo (RAW) - patrz handleUpload().
   server->on("/upload/bmp", HTTP_POST, []() {
     server->send(200, "text/plain", "Upload complete");
   }, []() {
-    HTTPUpload& upload = server->upload();
-    if (upload.status == UPLOAD_FILE_START) {
-      String filename = upload.filename;
-      if (!filename.endsWith(".bmp") && !filename.endsWith(".BMP")) {
-        Serial.println("[UPLOAD] Invalid file type, must be .bmp");
-        return;
-      }
-      if (littleFsReady) {
-        LittleFS.remove(PSK_MAP_BMP_PATH); // UsuĹ„ starÄ… mapÄ™
-        File f = LittleFS.open(PSK_MAP_BMP_PATH, "w");
-        if (!f) {
-          Serial.println("[UPLOAD] Failed to open file for writing");
-          return;
-        }
-        f.close();
-        Serial.printf("[UPLOAD] Starting upload: %s\n", filename.c_str());
-      }
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-      if (littleFsReady) {
-        File f = LittleFS.open(PSK_MAP_BMP_PATH, "a");
-        if (f) {
-          f.write(upload.buf, upload.currentSize);
-          f.close();
-        }
-      }
-    } else if (upload.status == UPLOAD_FILE_END) {
-      Serial.printf("[UPLOAD] Done: %d bytes\n", upload.totalSize);
-      // OdĹ›wieĹĽ mapÄ™ jeĹ›li jesteĹ›my na ekranie PSK
-      if (currentScreen == SCREEN_PSK_MAP) {
-        drawPskMap();
-      }
-    }
+    handleUpload("mapa");
   });
 
   // Upload tla mapy (BMP 16-bit RGB565) wygenerowanego w przegladarce WWW.
-  // Zapisuje pod ta sama sciezka co /upload/bmp (PSK_MAP_BMP_PATH) - pole 'mapa'.
+  // Zapisuje pod ta sama sciezka co /upload/bmp (PSK_MAP_BMP_PATH).
   server->on("/upload/mapa565", HTTP_POST, []() {
     server->send(200, "text/plain", "Upload complete");
   }, []() {
-    HTTPUpload& upload = server->upload();
-    if (upload.status == UPLOAD_FILE_START) {
-      if (littleFsReady) {
-        LittleFS.remove(PSK_MAP_BMP_PATH);
-        File f = LittleFS.open(PSK_MAP_BMP_PATH, "w");
-        if (!f) {
-          Serial.println("[UPLOAD] Failed to open map for writing");
-          return;
-        }
-        f.close();
-        Serial.printf("[UPLOAD] Start mapy: %s\n", upload.filename.c_str());
-      }
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-      if (littleFsReady) {
-        File f = LittleFS.open(PSK_MAP_BMP_PATH, "a");
-        if (f) { f.write(upload.buf, upload.currentSize); f.close(); }
-      }
-    } else if (upload.status == UPLOAD_FILE_END) {
-      Serial.printf("[UPLOAD] Mapa gotowa: %d bytes\n", upload.totalSize);
-      if (currentScreen == SCREEN_PSK_MAP) {
-        drawPskMap();
-      }
-    }
+    handleUpload("mapa");
   });
   
   // Znajduje aktualny plik ekranu startowego (dowolne obslugiwane rozszerzenie).
@@ -18296,44 +18388,7 @@ void setupWebServer() {
   server->on("/upload_splash", HTTP_POST, []() {
     server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"splash_uploaded\"}");
   }, []() {
-    HTTPUpload& upload = server->upload();
-    static String splashTarget;
-    if (upload.status == UPLOAD_FILE_START) {
-      splashTarget = "";
-      if (!littleFsReady) return;
-      String name = upload.filename;
-      name.toLowerCase();
-      int dot = name.lastIndexOf('.');
-      String ext = (dot >= 0) ? name.substring(dot) : "";
-      if (ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".bmp") {
-        Serial.printf("[SPLASH] Nieobslugiwany format: %s\n", name.c_str());
-        return;
-      }
-      // Usun poprzednie ekrany startowe (rozne nazwy/rozszerzenia), zeby
-      // firmware nie wczytal starego pliku o wyzszym priorytecie.
-      static const char *oldSplashes[] = {
-        "/splash.png", "/splash.jpg", "/splash.jpeg", "/splash.bmp",
-        "/splash_16bit.bmp", "/splash16.bmp", "/icon50/splash.bmp",
-        "/boot.bmp", "/boot.png", "/logo.bmp", "/logo.png",
-        "/start.bmp", "/start.png"};
-      for (const char *o : oldSplashes) {
-        if (LittleFS.exists(o)) LittleFS.remove(o);
-      }
-      splashTarget = "/splash" + ext;
-      File f = LittleFS.open(splashTarget, "w");
-      if (f) f.close();
-      Serial.printf("[SPLASH] Start uploadu: %s\n", splashTarget.c_str());
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-      if (splashTarget == "" || !littleFsReady) return;
-      File f = LittleFS.open(splashTarget, "a");
-      if (f) { f.write(upload.buf, upload.currentSize); f.close(); }
-    } else if (upload.status == UPLOAD_FILE_END) {
-      Serial.printf("[SPLASH] Zapisano %s (%d B)\n", splashTarget.c_str(), upload.totalSize);
-      if (tftInitialized) {
-        drawSplashScreen();  // pokaz nowy ekran na TFT od razu
-      }
-      splashTarget = "";
-    }
+    handleUpload("splash");
   });
 
   // Podglad aktualnego ekranu startowego (dla WWW - zakladka Linki).

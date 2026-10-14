@@ -1433,19 +1433,27 @@
             if (!imgConvertedBlob) { status.textContent = "Click 'Convert to RGB565' first."; return; }
             const target = document.getElementById('img-target').value;
             const url = (target === 'mapa') ? '/upload/mapa565' : '/upload/splash';
-            const field = (target === 'mapa') ? 'mapa' : 'splash';
-            const fd = new FormData();
-            fd.append(field, imgConvertedBlob, imgConvertedName);
             status.textContent = "Sending to ESP32...";
             btn.disabled = true;
-            fetch(url, { method: 'POST', body: fd })
+            // Raw body (not multipart): the WebServer multipart parser drops the
+            // connection on larger files. The firmware reads the body by
+            // Content-Length in chunks.
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'X-Filename': imgConvertedName,
+                    'X-Upload-Target': target
+                },
+                body: imgConvertedBlob
+            })
                 .then(r => r.ok ? r.text() : Promise.reject(r.status))
                 .then(() => {
                     status.textContent = "OK - image saved and shown on the TFT.";
                     const pv = document.getElementById('splash-preview');
                     if (target === 'splash' && pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
                 })
-                .catch(() => { status.textContent = "Upload failed (network/format)."; })
+                .catch((e) => { status.textContent = "Upload failed (network/format): " + e; })
                 .finally(() => { btn.disabled = false; });
         };
 

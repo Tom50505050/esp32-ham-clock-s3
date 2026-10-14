@@ -1336,19 +1336,27 @@
             if (!imgConvertedBlob) { status.textContent = "Najpierw kliknij 'Konwertuj do RGB565'."; return; }
             const target = document.getElementById('img-target').value;
             const url = (target === 'mapa') ? '/upload/mapa565' : '/upload/splash';
-            const field = (target === 'mapa') ? 'mapa' : 'splash';
-            const fd = new FormData();
-            fd.append(field, imgConvertedBlob, imgConvertedName);
             status.textContent = "Wysylam na ESP32...";
             btn.disabled = true;
-            fetch(url, { method: 'POST', body: fd })
+            // Surowe cialo (RAW) zamiast multipart - parser multipart w WebServer
+            // gubi sie przy wiekszych plikach (reset polaczenia). Firmware czyta
+            // korpus wg Content-Length w blokach.
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'X-Filename': imgConvertedName,
+                    'X-Upload-Target': target
+                },
+                body: imgConvertedBlob
+            })
                 .then(r => r.ok ? r.text() : Promise.reject(r.status))
                 .then(() => {
                     status.textContent = "OK - obraz zapisany i pokazany na TFT.";
                     const pv = document.getElementById('splash-preview');
                     if (target === 'splash' && pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
                 })
-                .catch(() => { status.textContent = "Blad wysylania (siec/format)."; })
+                .catch((e) => { status.textContent = "Blad wysylania (siec/format): " + e; })
                 .finally(() => { btn.disabled = false; });
         };
 

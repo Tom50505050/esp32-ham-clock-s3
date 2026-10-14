@@ -349,6 +349,14 @@ Podglad: /workspace/share/_sat-preview.html + _preview.html (mock API).
 - UWAGA: UI nie wymaga już Pillow; firmware NIE dekoduje PNG/JPG samodzielnie w tym miejscu — konwersję robi przeglądarka/skrypt. (Istniejący `/upload_splash` przyjmuje PNG/JPG dzięki dekoderom pngle/TJpgDec w `drawImageFromFS`, ale konwerter i tak wysyła gotowy BMP.)
 - Wbudowany `getMainHTML()` NIE zawiera tej sekcji (to tylko skrócony zapas).
 
+## Upload binarny: RAW vs multipart — ROZWIAZANE (14.10.2026)
+- **Objaw:** „Blad wysylania (siec/format)" przy wysylaniu grafiki z WWW (plik BMP ~300 KB).
+- **PRZYCZYNA:** parser `multipart/form-data` w `WebServer` (core Arduino-ESP32 2.x, tu 2.0.17) czyta korpus bajt-po-bajcie (`_uploadReadByte`) i dla wiekszych plikow potrafi zresetowac polaczenie / zgubic koncowa granice (znany bug espressif/arduino-esp32 #9163). Dotyczylo to WSZYSTKICH endpointow uploadu (`/upload_splash`, `/upload/bmp`, `/upload/mapa565`).
+- **FIX:** WWW wysyla plik jako **surowe cialo** (RAW) z naglowkami `X-Filename` i `X-Upload-Target`, `Content-Type: application/octet-stream`. Firmware czyta je sciezka `HTTPRaw` (wg `Content-Length`, bloki po `HTTP_RAW_BUFLEN`=1436 B) - szybko i niezawodnie dla binariow.
+- **Implementacja:** `handleUpload(targetForced)` w `main.cpp` rozpoznaje tryb po `Content-Type` (multipart -> stara sciezka `upload()`, inaczej -> `raw()`). Rejestracja: `server->collectHeaders({"Content-Type","X-Filename","X-Upload-Target","Content-Length"},4)` **przed** `begin()`. Plik trzymany otwarty przez caly upload (`rawUploadFile`).
+- Multipart nadal dziala (np. `curl -F`), ale WWW korzysta z RAW. Endpointy bez zmian: `/upload_splash` (splash), `/upload/bmp` i `/upload/mapa565` (mapa).
+- Test reczny (curl RAW): `curl -X POST --data-binary @splash.bmp -H "Content-Type: application/octet-stream" -H "X-Filename: splash.bmp" -H "X-Upload-Target: splash" http://esp-ip/upload_splash`.
+
 ## ISS: predyktor nextpass() + plan kilku przelotow (13.10.2026)
 - PRZYCZYNA "brak odczytu nastepny przelot" na urzadzeniu: reczny skan orbity co 60 s
   w oknie 24 h (do ~1440 propagacji SGP4) byl (a) bardzo drogi na Core 0 i (b) zawodny
