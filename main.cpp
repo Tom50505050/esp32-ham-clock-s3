@@ -2355,7 +2355,7 @@ void drawBootScreen() {
     return;
   }
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_GREEN);
+  tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
   bootLogY = 2;
   tft.setCursor(2, bootLogY);
@@ -2365,7 +2365,8 @@ void tftBootPrintLine(const String &line) {
   if (!tftInitialized) {
     return;
   }
-  tft.setTextColor(TFT_GREEN);
+  // Napisy inicjalizacji (TFT, WiFi, LittleFS itd.) - biale na czarnym tle.
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(1);
   tft.setCursor(2, bootLogY);
   tft.print(line);
