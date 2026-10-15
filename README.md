@@ -1,4 +1,4 @@
-# ESP32-HAM-CLOCK v1.2 — ESP32-S3 N16R8 + ILI9488 3.5"
+# ESP32-HAM-CLOCK v1 — ESP32-S3 N16R8 + ILI9488 3.5"
 
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-esp32--s3--n16r8-orange?logo=platformio&logoColor=white)](platformio.ini)
 [![ESP32-S3](https://img.shields.io/badge/MCU-ESP32--S3%20N16R8-red?logo=espressif&logoColor=white)](platformio.ini)
@@ -102,14 +102,14 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
 | **v1.2** | 15.10.2026 | Nowy ekran **APRS RADAR** i **Informacje systemowe** (zamiast Unlis Hunter) · **ISS Pass Tracking** przebudowany (n2yo visualpasses, mapa+radar+metryki, flagi kraju) · **GPS** (NMEA UART2 + automatyczny lokator Maidenhead) · **kolory w TFT**: kolor znaku (menu HSV + picker WWW) i **kolor zegara** · **globalny przełącznik stylu** KLASYCZNY/nowoczesny · **wspólny styl „ISS TRACKER"** na wszystkich ekranach · nowy **ekran startowy** (karta QSL → emblemat ESP32-HAM-CLOCK + VERSION 1.2) i **ekran powitalny** (godło PZK, czcionka VLW) · **WWW**: upload grafiki JPG/PNG/BMP, 14 pozycji, ikony SVG, naprawa „Instrukcja" · **WiFi**: przypinanie do BSSID AP, drabinka mocy TX (AUTH_EXPIRE) |
-| **v1.1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
+| **v1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
 
 ---
 
-## Zmiany między v1.1 a v1.2
+## Zmiany między v1 a v1.2
 
-Poniżej pełne zestawienie zmian wprowadzonych od wydania **v1.1** do **v1.2**
-(99 commitów).
+Poniżej pełne zestawienie zmian wprowadzonych od wydania **v1** do **v1.2**
+(100 commitów).
 
 ### Nowe ekrany
 - **APRS RADAR (ekran 9)** — ekran taktyczny: sprite w PSRAM, animowana smuga,
