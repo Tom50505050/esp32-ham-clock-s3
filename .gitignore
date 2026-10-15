@@ -8,3 +8,7 @@ download/esp32-ham-clock-repo.bundle
 
 # Klucz prywatny GPG wydania (NIE commitowac; trwaly miedzy resetami srodowiska)
 .gpg-release-key
+
+# Zapis rozmow (eksport dziennika zdarzen) - trzymamy tylko wersje skrocona
+conversations/*.md
+!conversations/*-dialog.md

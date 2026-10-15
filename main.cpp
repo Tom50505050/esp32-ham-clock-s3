@@ -36,7 +36,7 @@ void normalizePolish(String &text);
 #endif
 
 // Wersja firmware
-#define FIRMWARE_VERSION "1.2"
+#define FIRMWARE_VERSION "1.2.1"
 
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -150,14 +150,58 @@ struct PskSpot {
   int snr;        // opcjonalnie
 };
 
-const int PSK_MAX_SPOTS = 50;
+const int PSK_MAX_SPOTS = 200;
 PskSpot pskSpots[PSK_MAX_SPOTS];
 int pskSpotCount = 0;
+// Ile spotow jest juz narysowanych na mapie. Sluzy do przyrostowego
+// odswiezania (rysujemy tylko nowe), zeby nie przerysowywac chromu.
+int lastPskSpotCount = 0;
+
+// Dopisuje spot na koncu tablicy, jesli takiego jeszcze nie ma (ten sam znak
+// + pasmo + tryb). Spoty KUMULUJA sie - czyszczone przyciskiem RESET albo
+// automatycznie po osiagnieciu PSK_MAX_SPOTS (auto-RESET: licznik wraca do 0,
+// a pierwszy spot z kolejnej porcji startuje nowy cykl).
+static bool pskAddSpot(const String &call, float lat, float lon, int band,
+                       const String &mode, int snr, unsigned long ts) {
+  if (call.length() == 0) return false;
+  for (int i = 0; i < pskSpotCount; i++) {
+    if (pskSpots[i].callsign == call && pskSpots[i].band == band &&
+        pskSpots[i].mode == mode) {
+      return false;  // juz mamy taki spot
+    }
+  }
+  if (pskSpotCount >= PSK_MAX_SPOTS) {
+    // Auto-RESET: mapa pelna - czyscimy ja i zaczynamy zbierac od nowa.
+    Serial.printf("[PSK] AUTO-RESET: osiagnieto %d spotow - czyszcze mape\n",
+                  PSK_MAX_SPOTS);
+    pskSpotCount = 0;
+    lastPskSpotCount = 0;  // wymus pelne przerysowanie (wyczysc stare spoty)
+  }
+  pskSpots[pskSpotCount].callsign = call;
+  pskSpots[pskSpotCount].lat = lat;
+  pskSpots[pskSpotCount].lon = lon;
+  pskSpots[pskSpotCount].band = band;
+  pskSpots[pskSpotCount].mode = mode;
+  pskSpots[pskSpotCount].snr = snr;
+  pskSpots[pskSpotCount].timestamp = ts;
+  pskSpotCount++;
+  return true;
+}
 unsigned long lastPskFetchMs = 0;
 bool pskRateLimited = false;      // PSKReporter odrzucil zapytanie (limit zapytan)
 unsigned long pskBackoffUntilMs = 0; // do kiedy nie pytamy API po 429/limicie
 const unsigned long PSK_FETCH_INTERVAL_MS = 900000; // co 15 minut
-const unsigned long PSK_RATE_LIMIT_BACKOFF_MS = 300000; // 5 min przerwy po HTTP 429
+// Po limicie zapytan (HTTP 429 LUB 200 z komunikatem "too many queries")
+// czekamy wyraznie dluzej niz oficjalne zalecenie "nie czesciej niz raz na
+// 5 min" - PSKReporter blokuje IP na dluzej i zbyt krotki backoff tylko
+// przedluza blokade (kazda kolejna proba ja odswieza).
+const unsigned long PSK_RATE_LIMIT_BACKOFF_MS = 600000; // 10 min przerwy po limicie
+// Twarda podloga miedzy realnymi pobraniami (niezaleznie od zdarzen/dotyku),
+// zeby nie powtarzac tego samego zapytania - PSKReporter tego wprost zabrania.
+const unsigned long PSK_MIN_FETCH_INTERVAL_MS = 300000; // min. 5 min
+// Gorny limit eskalowanego backoffu przy powtarzajacych sie limitach.
+const unsigned long PSK_MAX_BACKOFF_MS = 1800000; // 30 min
+int pskLimitStreak = 0;  // ile razy z rzedu trafilismy na limit (eskalacja backoffu)
 
 // Konfiguracja PSKReporter (zapisana w NVS)
 String pskReceiverCallsign = "";  // znak odbiornika do filtrowania
@@ -173,10 +217,14 @@ int pskReportDays = 0;
 int pskAutoRefreshMinutes = 5;
 
 // MQTT PSK Reporter - alternatywny tryb
-bool pskMqttEnabled = false;              // Czy uĹĽywaÄ‡ MQTT zamiast HTTP
+bool pskMqttEnabled = true;               // Domyslnie MQTT (start od razu, bez HTTP)
 String pskMqttServer = "mqtt.pskreporter.info";  // Serwer MQTT
 int pskMqttPort = 1883;                   // Port MQTT (1883 dla plain, 8883 dla TLS)
+String pskMqttSubscribedTopic = "";       // aktualnie zasubskrybowany temat (do resubskrypcji)
 String pskMqttCallsign = "";             // Znak do monitorowania (jeĹ›li pusty - monitoruje receiver)
+bool pskMqttDirty = false;                // sa nowe spoty MQTT do narysowania (petla glowna)
+unsigned long lastPskMqttDrawMs = 0;      // ostatnie przerysowanie mapy z danych MQTT
+const unsigned long PSK_MQTT_DRAW_INTERVAL_MS = 1500; // min. odstep przerysowan [ms]
 
 WiFiClient pskMqttWifiClient;
 PubSubClient pskMqttClient(pskMqttWifiClient);
@@ -187,6 +235,8 @@ void loopPskMqtt();
 void pskMqttCallback(char* topic, byte* payload, unsigned int length);
 void reconnectPskMqtt();
 void processPskMqttBuffer();
+void copyPskMqttToDisplay();
+void resetPskMapSpots();
 
 // Menu PSK Map (tymczasowe ustawienia podczas edycji na ekranie)
 bool pskMapMenuOpen = false;
@@ -195,7 +245,7 @@ String pskTempBand = "";
 String pskTempMode = "";
 int pskTempMaxSpots = 50;
 int pskTempReportDays = 3;
-bool pskTempMqttEnabled = false;
+bool pskTempMqttEnabled = true;
 String pskTempMqttServer = "";
 String pskTempMqttCallsign = "";
 String pskTempLocator = "";
@@ -1913,6 +1963,9 @@ void issTask(void *pvParameters) {
     // nie byly puste zaraz po wejsciu na ekran.
     if (issForceNextPassRefresh) {
       issForceNextPassRefresh = false;
+      // Jesli nie mamy jeszcze TLE, sprobuj je teraz pobrac - inaczej ekran
+      // ISS pokazywalby "brak danych" przez caly czas do kolejnej proby TLE.
+      if (!issTleValid) fetchIssTLE();
       if (n2yoApiKey.length() > 0) {
         if (!fetchIssNextPassFromN2yo() && issTleValid) updateIssNextPassEstimate();
       } else if (issTleValid) {
@@ -2197,6 +2250,8 @@ void writeQrzNegativeCache(const String &callsign);
 // Forward declarations
 void drawSystemInfo();
 void drawPskMap();
+void drawPskMapSpotsOnly();
+bool pskFetchAllowed(unsigned long now);
 void drawIssPassTracking();
 
 // ========== INICJALIZACJA TFT (ESP32-S3 N16R8 + ILI9488) ==========
@@ -11058,6 +11113,109 @@ static bool drawBmp16FromFS(const String &filename, int16_t x, int16_t y) {
   return true;
 }
 
+// ===== TLO MAPY PSK W PSRAM (bez migotania) =====
+// drawPskMap() bylo wolane co ~1.5 s i za kazdym razem robilo fillScreen +
+// dekodowanie BMP 460 kB z LittleFS (~1 s). Stad "Screen cleared" niemal
+// bez przerwy i miganie mapy. Dekodujemy raz do bufora w PSRAM i potem
+// wysylamy jednym pushImage (szybko, bez migotania). Uzywamy surowego bufora
+// (nie sprite) i pushImage z swapBytes=true - dokladnie tak, jak dzialal
+// sprawdzony dekoder drawBmp16FromFS/drawBmpFromFS.
+static uint16_t* pskMapBgBuf = nullptr;
+static bool pskMapBgLoaded = false;
+static bool pskMapBgFailed = false;
+static uint16_t pskMapBgW = 0, pskMapBgH = 0;
+
+static void pskMapBgInvalidate() {
+  if (pskMapBgBuf) { free(pskMapBgBuf); pskMapBgBuf = nullptr; }
+  pskMapBgLoaded = false;
+  pskMapBgFailed = false;
+  pskMapBgW = pskMapBgH = 0;
+}
+
+// Dekoduje /Mapa swiata.bmp do bufora (row 0 = gora obrazu). Zwraca false,
+// gdy sie nie uda (wtedy rysujemy zaslepke jak dawniej).
+static bool pskMapBgLoad() {
+  if (pskMapBgLoaded || pskMapBgFailed) return pskMapBgLoaded;
+  if (!littleFsReady || !LittleFS.exists(PSK_MAP_BMP_PATH)) { pskMapBgFailed = true; return false; }
+
+  fs::File f = LittleFS.open(PSK_MAP_BMP_PATH, "r");
+  if (!f) { pskMapBgFailed = true; return false; }
+
+  uint32_t seekOffset; uint16_t w, h;
+  if (readBmp16(f) != 0x4D42) { f.close(); pskMapBgFailed = true; return false; }
+  readBmp32(f); readBmp32(f);
+  seekOffset = readBmp32(f);
+  readBmp32(f);
+  w = readBmp32(f); h = readBmp32(f);
+  if (w == 0 || h == 0 || w > 1024 || h > 1024) { f.close(); pskMapBgFailed = true; return false; }
+  uint16_t planes = readBmp16(f);
+  uint16_t bpp = readBmp16(f);
+  uint32_t compression = readBmp32(f);
+  bool is16 = (planes == 1 && bpp == 16 && (compression == 0 || compression == 3));
+  bool is24 = (planes == 1 && bpp == 24 && compression == 0);
+  if (!is16 && !is24) { f.close(); pskMapBgFailed = true; return false; }
+  if (compression == 3) { readBmp32(f); readBmp32(f); readBmp32(f); }
+
+  size_t bufBytes = (size_t)w * h * 2;
+  uint16_t* buf = (uint16_t*)heap_caps_malloc(bufBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!buf) buf = (uint16_t*)malloc(bufBytes);  // fallback: pamiec wewnetrzna
+  if (!buf) {
+    Serial.println("[PSK MAP] Brak pamieci na tlo mapy - rysuje bezposrednio");
+    f.close(); pskMapBgFailed = true; return false;
+  }
+  f.seek(seekOffset);
+
+  if (is16) {
+    uint16_t rowSize = ((16 * w + 31) / 32) * 4;
+    uint8_t* line = (uint8_t*)malloc(rowSize);
+    if (!line) { free(buf); f.close(); pskMapBgFailed = true; return false; }
+    for (uint16_t row = 0; row < h; row++) {
+      f.read(line, rowSize);
+      memcpy(buf + (uint32_t)(h - 1 - row) * w, line, (size_t)w * 2);
+    }
+    free(line);
+  } else {
+    uint16_t padding = (4 - ((w * 3) & 3)) & 3;
+    uint8_t* line = (uint8_t*)malloc((size_t)w * 3 + padding);
+    if (!line) { free(buf); f.close(); pskMapBgFailed = true; return false; }
+    for (uint16_t row = 0; row < h; row++) {
+      f.read(line, (size_t)w * 3 + padding);
+      uint8_t* b = line;
+      uint16_t* d = buf + (uint32_t)(h - 1 - row) * w;
+      for (uint16_t col = 0; col < w; col++) {
+        uint8_t bl = *b++, g = *b++, r = *b++;
+        *d++ = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (bl >> 3);
+      }
+    }
+    free(line);
+  }
+  f.close();
+  pskMapBgBuf = buf;
+  pskMapBgW = w; pskMapBgH = h;
+  pskMapBgLoaded = true;
+  Serial.printf("[PSK MAP] Tlo mapy wczytane do PSRAM: %ux%u (%u B)\n", w, h, (unsigned)bufBytes);
+  return true;
+}
+
+// Rysuje tlo mapy PSK (bez fillScreen - tlo jest pelnoekranowe).
+static void drawPskMapBackground() {
+  if (pskMapBgLoad()) {
+    bool oldSwap = tft.getSwapBytes();
+    tft.setSwapBytes(true);
+    tft.pushImage(MAP_DISPLAY_X, MAP_DISPLAY_Y, pskMapBgW, pskMapBgH, pskMapBgBuf);
+    tft.setSwapBytes(oldSwap);
+    return;
+  }
+  // Fallback (brak pliku/PSRAM): czarne tlo + zaslepka kontynentow.
+  tft.fillRect(MAP_DISPLAY_X, MAP_DISPLAY_Y, MAP_DISPLAY_W, MAP_DISPLAY_H, 0x0011);
+  tft.fillRect(220, 80, 80, 100, 0x2222);
+  tft.fillRect(200, 140, 100, 80, 0x2222);
+  tft.fillRect(300, 60, 120, 80, 0x2222);
+  tft.fillRect(60, 50, 100, 90, 0x2222);
+  tft.fillRect(80, 150, 70, 90, 0x2222);
+  tft.fillRect(380, 160, 60, 40, 0x2222);
+}
+
 // ===================== UNIWERSALNE RYSOWANIE OBRAZU =====================
 // Ekran 480x320. Obraz jest skalowany (letterbox) tak, by zmiescil sie w
 // calosci i byl wysrodkowany na czarnym tle. Dekodery rysuja wierszami do
@@ -17272,7 +17430,7 @@ void loadPreferences() {
   if (pskAutoRefreshMinutes > 60) pskAutoRefreshMinutes = 60;
 
   // MQTT PSK Reporter settings
-  pskMqttEnabled = preferences->getBool("psk_mqtt_en", false);
+  pskMqttEnabled = preferences->getBool("psk_mqtt_en", true);
   pskMqttServer = preferences->getString("psk_mqtt_srv", "mqtt.pskreporter.info");
   pskMqttPort = preferences->getInt("psk_mqtt_port", 1883);
   if (pskMqttPort <= 0 || pskMqttPort > 65535) pskMqttPort = 1883;
@@ -17657,6 +17815,7 @@ static void handleUpload(const String &targetForced) {
       if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format"); return; }
       if (target == "welcome") removeOldWelcomeVariants();
       else if (target != "mapa") removeOldSplashVariants();
+      if (target == "mapa") pskMapBgInvalidate();  // nowa mapa - przebuduj tlo w PSRAM
       LittleFS.remove(path);
       File f = LittleFS.open(path, "w");
       if (!f) { Serial.println("[UPLOAD] Nie moge otworzyc pliku"); return; }
@@ -17696,6 +17855,7 @@ static void handleUpload(const String &targetForced) {
     if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format (RAW)"); return; }
     if (target == "welcome") removeOldWelcomeVariants();
     else if (target != "mapa") removeOldSplashVariants();
+    if (target == "mapa") pskMapBgInvalidate();  // nowa mapa - przebuduj tlo w PSRAM
     LittleFS.remove(path);
     rawUploadFile = LittleFS.open(path, "w");
     if (!rawUploadFile) { Serial.println("[UPLOAD] Nie moge otworzyc pliku (RAW)"); return; }
@@ -20349,15 +20509,28 @@ void uiTaskLoop(void *parameter) {
           !pskMapMenuOpen && !aprsAlertScreenActive && !pskMqttEnabled &&
           pskAutoRefreshMinutes > 0 && lastPskFetchMs != 0) {
         unsigned long pskIntervalMs = (unsigned long)pskAutoRefreshMinutes * 60UL * 1000UL;
-        if (millis() >= pskBackoffUntilMs && (millis() - lastPskFetchMs) >= pskIntervalMs) {
+        if (pskFetchAllowed(millis()) && (millis() - lastPskFetchMs) >= pskIntervalMs) {
           drawPskMap();
         }
       }
 
       
-      // ObsĹ‚uga MQTT dla PSK Reporter (gdy aktywny ekran PSK i wĹ‚Ä…czony MQTT)
-      if (pskMqttEnabled && currentScreen == SCREEN_PSK_MAP && !pskMapMenuOpen) {
-        loopPskMqtt();
+      // Odswiezanie ekranu PSK po nowych spotach z MQTT. Flage ustawia
+      // processPskMqttBuffer() (petla glowna), a rysujemy TU (UI_Task) - tak jak
+      // pozostale ekrany. Wczesniej MQTT wolano z UI_Task i z loop() naraz
+      // (wyscig -> crash) oraz drawPskMap() z wnetrza processPskMqttBuffer()
+      // (reentrancja -> lawina odswiezen).
+      if (tftInitialized && pskMqttEnabled && currentScreen == SCREEN_PSK_MAP &&
+          !pskMapMenuOpen && !inMenu && !aprsAlertScreenActive && pskMqttDirty) {
+        // Ogranicz czestotliwosc przerysowan (jak wczesniej co 1.5 s) - inaczej
+        // przy ~10 msg/s mapa migalaby i blokowala odczyt dotyku.
+        unsigned long n2 = millis();
+        if (n2 - lastPskMqttDrawMs >= PSK_MQTT_DRAW_INTERVAL_MS) {
+          lastPskMqttDrawMs = n2;
+          pskMqttDirty = false;
+          copyPskMqttToDisplay();  // przenies bufor MQTT do pskSpots (tylko UI_Task)
+          drawPskMapSpotsOnly();   // tylko nowe spoty - chrom zostaje bez zmian
+        }
       }
     }
 
@@ -20414,6 +20587,19 @@ static void latLonToScreen(float lat, float lon, int &x, int &y) {
 }
 
 // Pobieranie danych z PSK Reporter
+// Czy wolno teraz wykonac REALNE zapytanie do PSKReporter? Wspolny warunek dla
+// wszystkich miejsc pobrania (auto-refresh, tap, ZAPISZ). Blokuje:
+//  - gdy trwa backoff po limicie zapytan (millis() < pskBackoffUntilMs),
+//  - gdy od ostatniego pobrania minelo mniej niz PSK_MIN_FETCH_INTERVAL_MS
+//    (nie powtarzamy tego samego zapytania - PSKReporter tego zabrania).
+// Bez tego kazde zdarzenie (tap na mape, ZAPISZ, wejscie) moglo wystrzelic
+// kolejne zapytanie i podtrzymywac blokade IP ("too many queries").
+bool pskFetchAllowed(unsigned long now) {
+  if (pskBackoffUntilMs != 0 && now < pskBackoffUntilMs) return false;
+  if (lastPskFetchMs != 0 && (now - lastPskFetchMs) < PSK_MIN_FETCH_INTERVAL_MS) return false;
+  return true;
+}
+
 bool fetchPskReporterData() {
   if (!wifiConnected) return false;
 
@@ -20477,7 +20663,18 @@ bool fetchPskReporterData() {
     Serial.println(httpCode);
     // 429 = zbyt wiele zapytan. Bez przerwy kolejne redrawy natychmiast
     // dostaja 429 ponownie i limit nigdy nie mija (petla 429 -> fetch -> 429).
-    if (httpCode == 429) pskBackoffUntilMs = millis() + PSK_RATE_LIMIT_BACKOFF_MS;
+    // Ustaw tez pskRateLimited, zeby naglowek pokazal "LIMIT PSKReporter"
+    // (wczesniej przy samym 429 flaga zostawala stara/false).
+    if (httpCode == 429) {
+      pskLimitStreak++;
+      unsigned long backoff = PSK_RATE_LIMIT_BACKOFF_MS;
+      for (int i = 1; i < pskLimitStreak && backoff < PSK_MAX_BACKOFF_MS; i++) backoff *= 2;
+      if (backoff > PSK_MAX_BACKOFF_MS) backoff = PSK_MAX_BACKOFF_MS;
+      pskBackoffUntilMs = millis() + backoff;
+      pskRateLimited = true;
+      Serial.printf("[PSK] LIMIT (429) x%d - wstrzymuje zapytania na %lu min\n",
+                    pskLimitStreak, backoff / 60000);
+    }
     http.end();
     return false;
   }
@@ -20510,7 +20707,8 @@ bool fetchPskReporterData() {
     return false;
   }
 
-  pskSpotCount = 0;
+  // UWAGA: nie zerujemy pskSpotCount - spoty kumuluja sie miedzy pobraniami
+  // (czyszczone przyciskiem RESET albo auto-RESET po PSK_MAX_SPOTS - patrz pskAddSpot()).
 
   // PSKReporter przy zbyt czestych zapytaniach zwraca sam komunikat JSON
   // ({"message": "Your IP has made too many queries too often..."}) bez tablicy
@@ -20520,18 +20718,23 @@ bool fetchPskReporterData() {
     Serial.print("[PSK] Brak danych: ");
     Serial.println(msg ? msg : "brak pola receptionReport");
     pskRateLimited = true;
-    pskBackoffUntilMs = millis() + PSK_RATE_LIMIT_BACKOFF_MS;
+    pskLimitStreak++;
+    unsigned long backoff = PSK_RATE_LIMIT_BACKOFF_MS;
+    for (int i = 1; i < pskLimitStreak && backoff < PSK_MAX_BACKOFF_MS; i++) backoff *= 2;
+    if (backoff > PSK_MAX_BACKOFF_MS) backoff = PSK_MAX_BACKOFF_MS;
+    pskBackoffUntilMs = millis() + backoff;
+    Serial.printf("[PSK] LIMIT (200+message) x%d - wstrzymuje zapytania na %lu min\n",
+                  pskLimitStreak, backoff / 60000);
     return false;
   }
   pskRateLimited = false;
   pskBackoffUntilMs = 0;  // odpowiedz OK - limit minal
+  pskLimitStreak = 0;     // udana odpowiedz - reset eskalacji backoffu
 
   JsonArray reports = doc["receptionReport"].as<JsonArray>();
 
   if (!reports.isNull()) {
     for (JsonObject report : reports) {
-      if (pskSpotCount >= PSK_MAX_SPOTS) break;
-
       const char* callsign = report["senderCallsign"];
       const char* locator = report["senderLocator"];
       const char* mode = report["mode"];
@@ -20564,22 +20767,15 @@ bool fetchPskReporterData() {
         double lat, lon;
         locatorToLatLon(String(locator), lat, lon);
 
-        pskSpots[pskSpotCount].callsign = String(callsign);
-        pskSpots[pskSpotCount].lat = (float)lat;
-        pskSpots[pskSpotCount].lon = (float)lon;
-        pskSpots[pskSpotCount].mode = modeStr;
-        pskSpots[pskSpotCount].snr = snr;
-        pskSpots[pskSpotCount].timestamp = millis();
-        pskSpots[pskSpotCount].band = band;
-
-        pskSpotCount++;
+        // Kumuluj (dedup: znak+pasmo+tryb); kolejne pobrania uzupelniaja mape.
+        pskAddSpot(String(callsign), (float)lat, (float)lon, band, modeStr, snr, millis());
       }
     }
   }
 
   Serial.print("[PSK] Pobrano ");
   Serial.print(pskSpotCount);
-  Serial.println(" spotĂłw");
+  Serial.println(" spotĂłw (lacznie na mapie)");
 
   return pskSpotCount > 0;
 }
@@ -20618,18 +20814,38 @@ static void drawPskMapHeader() {
     tft.setTextColor(UI_COL_ACCENT, UI_COL_BG);
     tft.setCursor(12, 30);
     tft.print("Spoty: " + String(pskSpotCount));
+  } else {
+    // Brak spotow i brak limitu - pokaz, za ile mozna odswiezyc. Bez tego tap
+    // na mape wygladal na zepsuty, bo straznik PSK_MIN_FETCH_INTERVAL_MS
+    // celowo blokuje powtarzanie tego samego zapytania.
+    tft.setTextColor(UI_COL_WARN, UI_COL_BG);
+    tft.setCursor(12, 30);
+    unsigned long untilMs = 0;
+    if (pskBackoffUntilMs != 0 && millis() < pskBackoffUntilMs) {
+      untilMs = pskBackoffUntilMs;
+    } else if (lastPskFetchMs != 0 && (millis() - lastPskFetchMs) < PSK_MIN_FETCH_INTERVAL_MS) {
+      untilMs = lastPskFetchMs + PSK_MIN_FETCH_INTERVAL_MS;
+    }
+    if (untilMs != 0) {
+      unsigned long sec = (untilMs - millis()) / 1000;
+      tft.print("Odswiez. za " + String((sec + 59) / 60) + " min");
+    } else {
+      tft.print("Brak spotow - tap: odswiez");
+    }
   }
 }
 
 // Rysowanie przycisku menu w lewym gĂłrnym rogu
 static void drawPskMenuButton() {
-  // Przycisk menu 30x26 w lewym gĂłrnym rogu (pomaraĹ„czowy jak nagĹ‚Ăłwek)
-  tft.fillRect(2, 2, 30, 26, TFT_RADIO_ORANGE);
-  tft.drawRect(2, 2, 30, 26, TFT_BLACK);
+  // Przycisk menu w lewym gĂłrnym rogu (pomaraĹ„czowy jak nagĹ‚Ăłwek).
+  // PowiÄ™kszony 44x36: przy 30x26 rezystancyjny XPT2046 czÄ™sto chybiaĹ‚
+  // (trzeba byĹ‚o kilku prĂłb, ĹĽeby otworzyÄ‡ menu) - patrz teĹĽ obszar w handlePskMapTouch.
+  tft.fillRect(2, 2, 44, 36, TFT_RADIO_ORANGE);
+  tft.drawRect(2, 2, 44, 36, TFT_BLACK);
   // Trzy poziome kreski (hamburger menu)
-  tft.fillRect(6, 8, 22, 3, TFT_BLACK);
-  tft.fillRect(6, 13, 22, 3, TFT_BLACK);
-  tft.fillRect(6, 18, 22, 3, TFT_BLACK);
+  tft.fillRect(10, 11, 28, 4, TFT_BLACK);
+  tft.fillRect(10, 18, 28, 4, TFT_BLACK);
+  tft.fillRect(10, 25, 28, 4, TFT_BLACK);
 }
 
 // Rysowanie klawiatury ekranowej
@@ -20876,17 +21092,24 @@ static void drawPskSettingsMenu() {
   
   // Przyciski
   // Zapisz
-  tft.fillRect(100, 210, 80, 30, TFT_GREEN);
-  tft.drawRect(100, 210, 80, 30, TFT_WHITE);
+  tft.fillRect(70, 210, 70, 30, TFT_GREEN);
+  tft.drawRect(70, 210, 70, 30, TFT_WHITE);
   tft.setTextColor(TFT_BLACK);
-  tft.setCursor(115, 220);
+  tft.setCursor(82, 220);
   tft.print("ZAPISZ");
   
+  // Reset spotow na mapie (czysci pskSpots + bufor MQTT, nie rusza ustawien)
+  tft.fillRect(150, 210, 70, 30, TFT_ORANGE);
+  tft.drawRect(150, 210, 70, 30, TFT_WHITE);
+  tft.setTextColor(TFT_BLACK);
+  tft.setCursor(160, 220);
+  tft.print("RESET");
+
   // Anuluj
-  tft.fillRect(300, 210, 80, 30, TFT_RED);
-  tft.drawRect(300, 210, 80, 30, TFT_WHITE);
+  tft.fillRect(230, 210, 70, 30, TFT_RED);
+  tft.drawRect(230, 210, 70, 30, TFT_WHITE);
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(310, 220);
+  tft.setCursor(240, 220);
   tft.print("ANULUJ");
   
   // PodpowiedĹş
@@ -20916,7 +21139,40 @@ static uint16_t getDxColor(float distance) {
   else return TFT_MAGENTA;                     // DX (Transatlantyki itp.)
 }
 
-// Rysowanie legendy
+// Panel informacyjny po prawej stronie mapy: licznik spotow + lista najnowszych
+// (znak, pasmo, tryb). Rysowany jako nakladka na mape.
+static void drawPskSpotListPanel() {
+  const int px = 310, py = 40, pw = 166, ph = 250;
+  const uint16_t bg = 0x18E3;  // ciemne tlo (jak menu ustawien)
+  tft.fillRect(px, py, pw, ph, bg);
+  tft.drawRect(px, py, pw, ph, UI_COL_ACCENT);
+
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_ACCENT, bg);
+  tft.setCursor(px + 6, py + 5);
+  tft.print("SPOTY: " + String(pskSpotCount));
+
+  // Najnowsze na gorze (tablica jest w kolejnosci dodawania).
+  const int maxRows = 22;
+  int shown = 0;
+  for (int i = pskSpotCount - 1; i >= 0 && shown < maxRows; i--, shown++) {
+    int ry = py + 18 + shown * 10;
+    tft.fillRect(px + 4, ry + 1, 6, 6, getPskBandColor(pskSpots[i].band));
+
+    String row = pskSpots[i].callsign;
+    if (row.length() > 9) row = row.substring(0, 9);
+    while (row.length() < 9) row += " ";
+    row += " " + String(pskSpots[i].band) + "m";
+    String m = pskSpots[i].mode;
+    if (m.length() > 3) m = m.substring(0, 3);
+    if (m.length() > 0) row += " " + m;
+
+    tft.setTextColor(TFT_WHITE, bg);
+    tft.setCursor(px + 14, ry);
+    tft.print(row);
+  }
+}
+
 static void drawPskMapLegend() {
   int y = 300, x = 10, boxSize = 8, gap = 45;
   tft.setTextSize(1);
@@ -20937,31 +21193,21 @@ static void drawPskMapLegend() {
 void drawPskMap() {
   Serial.printf("[PSK] drawPskMap start, pskMapMenuOpen=%d\n", pskMapMenuOpen);
   if (!tftInitialized) return;
-  tft.fillScreen(TFT_BLACK);
-  Serial.println("[PSK] Screen cleared");
-  bool mapLoaded = false;
-  if (littleFsReady) {
-    // Obsluz zarowno 24-bit BMP, jak i 16-bit RGB565 BMP (ten drugi generuje
-    // konwerter w WWW - patrz /upload/mapa565).
-    mapLoaded = drawBmpFromFS(PSK_MAP_BMP_PATH, MAP_DISPLAY_X, MAP_DISPLAY_Y)
-             || drawBmp16FromFS(PSK_MAP_BMP_PATH, MAP_DISPLAY_X, MAP_DISPLAY_Y);
-  }
-  if (!mapLoaded) {
-    tft.fillRect(MAP_DISPLAY_X, MAP_DISPLAY_Y, MAP_DISPLAY_W, MAP_DISPLAY_H, 0x0011);
-    tft.fillRect(220, 80, 80, 100, 0x2222);
-    tft.fillRect(200, 140, 100, 80, 0x2222);
-    tft.fillRect(300, 60, 120, 80, 0x2222);
-    tft.fillRect(60, 50, 100, 90, 0x2222);
-    tft.fillRect(80, 150, 70, 90, 0x2222);
-    tft.fillRect(380, 160, 60, 40, 0x2222);
-  }
-  unsigned long now = millis();
+  // Tlo mapy z bufora PSRAM (dekodowane raz) - zamiast fillScreen + odczyt
+  // 460 kB BMP przy kazdym odswiezeniu (to powodowalo miganie).
+  drawPskMapBackground();
+  // Pelne przerysowanie: rysujemy WSZYSTKIE spoty od zera (reset licznika
+  // przyrostowego - inaczej stare spoty zostalyby na mapie po RESET/auto-RESET).
+  lastPskSpotCount = 0;
   
-  // Wybierz tryb pracy: MQTT lub HTTP
-  if (pskMqttEnabled) {
-    // Tryb MQTT - loop obsĹ‚uguje wszystko w tle
-    loopPskMqtt();
-  } else {
+  unsigned long now = millis();
+
+  // Wybierz tryb pracy: MQTT lub HTTP.
+  // WAZNE: MQTT obsluguje WYLACZNIE loop() (jedno zadanie). Wczesniej wolalismy
+  // loopPskMqtt() takze tutaj, co dawalo: (a) wyscig na kliencie MQTT i buforze
+  // (crash), (b) reentrancje drawPskMap -> loopPskMqtt -> processPskMqttBuffer ->
+  // drawPskMap, czyli lawine pelnych przerysowan ("ekran sie co chwile odswieza").
+  if (!pskMqttEnabled) {
     // Tryb HTTP - auto-odĹ›wieĹĽanie PSKReporter.
     // Pierwszy fetch zawsze (takze gdy auto-refresh wylaczone) - inaczej ekran
     // zostaje pusty az do recznego tapniecia. Kolejne tylko po interwale.
@@ -20970,15 +21216,28 @@ void drawPskMap() {
     bool neverFetched = (lastPskFetchMs == 0);
     bool intervalElapsed = (pskAutoRefreshMinutes > 0) &&
                            (now - lastPskFetchMs > (unsigned long)pskAutoRefreshMinutes * 60 * 1000);
-    if (millis() >= pskBackoffUntilMs && (neverFetched || intervalElapsed)) {
+    if (pskFetchAllowed(now) && (neverFetched || intervalElapsed)) {
       fetchPskReporterData();
-      lastPskFetchMs = now;
+      lastPskFetchMs = millis();
+    } else {
+      // Diagnostyka: dlaczego NIE pytamy API. Bez tego w logu nie bylo widac,
+      // ze pobranie jest wstrzymane (tap/menu wygladaly jak brak reakcji).
+      unsigned long nowMs = millis();
+      if (pskBackoffUntilMs != 0 && nowMs < pskBackoffUntilMs) {
+        Serial.printf("[PSK] Fetch wstrzymany: backoff po limicie, jeszcze %lu s\n",
+                      (pskBackoffUntilMs - nowMs) / 1000);
+      } else if (lastPskFetchMs != 0 && (nowMs - lastPskFetchMs) < PSK_MIN_FETCH_INTERVAL_MS) {
+        Serial.printf("[PSK] Fetch wstrzymany: min. interwal, jeszcze %lu s\n",
+                      (PSK_MIN_FETCH_INTERVAL_MS - (nowMs - lastPskFetchMs)) / 1000);
+      } else {
+        Serial.println("[PSK] Fetch wstrzymany: interwal auto-refresh jeszcze nie minal");
+      }
     }
   }
   drawPskMapHeader();
   // Rysowanie linii od pozycji uĹĽytkownika do stacji
-  Serial.printf("[PSK] drawPskMap START: userLat=%.4f, userLon=%.4f, valid=%d, locator='%s'\n",
-                userLat, userLon, userLatLonValid, userLocator.c_str());
+  Serial.printf("[PSK] drawPskMap START: userLat=%.4f, userLon=%.4f, valid=%d, locator='%s', spotow=%d\n",
+                userLat, userLon, userLatLonValid, userLocator.c_str(), pskSpotCount);
   // Pozycja uzytkownika: jesli nie ma bezposrednich LAT/LON, wylicz z lokatora.
   // Bez tego fallbacku linie nigdy sie nie rysowaly (kazdy inny ekran go ma).
   double pskUserLat = userLat;
@@ -21028,6 +21287,8 @@ void drawPskMap() {
                   pskUserHasPos, userLocator.c_str(), pskUserLat, MAP_LAT_MIN, MAP_LAT_MAX, pskUserLon, MAP_LON_MIN, MAP_LON_MAX);
   }
   drawPskMapLegend();
+  // Panel ze spotami po prawej stronie (pod menu - patrz nizej).
+  drawPskSpotListPanel();
   drawSwitchScreenFooter();
   // Przycisk menu w lewym gĂłrnym rogu
   drawPskMenuButton();
@@ -21036,7 +21297,60 @@ void drawPskMap() {
     Serial.println("[PSK] Drawing settings menu");
     drawPskSettingsMenu();
   }
+  lastPskSpotCount = pskSpotCount;  // wszystko narysowane - patrz drawPskMapSpotsOnly()
   Serial.println("[PSK] drawPskMap end");
+}
+
+// Przyrostowe odswiezanie: rysuje TYLKO nowe spoty (te dodane od ostatniego
+// rysowania), bez przerysowywania tla, naglowka, legendy, panelu, stopki,
+// przycisku menu ani ikony baterii. Dzieki temu "odswiezaja sie tylko spoty".
+// Zaklada, ze spoty wylacznie sie dodaja i nie znikaja bez pelnego
+// przerysowania (RESET/auto-RESET i zmiana filtra wolaja drawPskMap()).
+void drawPskMapSpotsOnly() {
+  if (!tftInitialized || currentScreen != SCREEN_PSK_MAP || pskMapMenuOpen) return;
+  // Auto-RESET / RESET wyzerowaly tablice - potrzebne pelne przerysowanie.
+  if (pskSpotCount < lastPskSpotCount) { drawPskMap(); return; }
+  if (pskSpotCount == lastPskSpotCount) return;
+
+  double pskUserLat = userLat, pskUserLon = userLon;
+  bool pskUserHasPos = userLatLonValid;
+  if (!pskUserHasPos && userLocator.length() >= 4) {
+    locatorToLatLon(userLocator, pskUserLat, pskUserLon);
+    pskUserHasPos = true;
+  }
+  int userX = 0, userY = 0;
+  bool userOnMap = false;
+  if (pskUserHasPos && pskUserLat >= MAP_LAT_MIN && pskUserLat <= MAP_LAT_MAX &&
+      pskUserLon >= MAP_LON_MIN && pskUserLon <= MAP_LON_MAX) {
+    latLonToScreen(pskUserLat, pskUserLon, userX, userY);
+    userOnMap = true;
+  }
+
+  for (int i = lastPskSpotCount; i < pskSpotCount; i++) {
+    if (pskSpots[i].lat < MAP_LAT_MIN || pskSpots[i].lat > MAP_LAT_MAX ||
+        pskSpots[i].lon < MAP_LON_MIN || pskSpots[i].lon > MAP_LON_MAX) continue;
+    int x, y;
+    latLonToScreen(pskSpots[i].lat, pskSpots[i].lon, x, y);
+    if (userOnMap) {
+      float dist = calculateDistance(pskUserLat, pskUserLon, pskSpots[i].lat, pskSpots[i].lon);
+      tft.drawLine(userX, userY, x, y, getDxColor(dist));
+    }
+    tft.fillCircle(x, y, 3, getPskBandColor(pskSpots[i].band));
+    tft.drawCircle(x, y, 3, TFT_BLACK);
+  }
+
+  // Panel po prawej musi pokazac nowe spoty - przerysowujemy tylko jego obszar.
+  drawPskSpotListPanel();
+
+  // Kropka uzytkownika i przycisk menu na wierzchu (nowe linie mogly je przykryc).
+  if (userOnMap) {
+    tft.fillCircle(userX, userY, 3, TFT_RED);
+    tft.drawCircle(userX, userY, 4, TFT_WHITE);
+  }
+  drawPskMenuButton();
+
+  lastPskSpotCount = pskSpotCount;
+  Serial.printf("[PSK] Przyrostowo dorysowano spoty (razem %d)\n", pskSpotCount);
 }
 
 // ObsĹ‚uga dotyku klawiatury
@@ -21205,7 +21519,7 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
     
     // SprawdĹş czy dotkniÄ™to przycisk ZAPISZ (100,210,80,30)
     Serial.printf("[PSK] Checking ZAPISZ button at x=%d, y=%d, pskMapMenuOpen=%d\n", x, y, pskMapMenuOpen);
-    if (x >= 100 && x < 180 && y >= 210 && y < 240) {
+    if (x >= 70 && x < 140 && y >= 210 && y < 240) {
       Serial.println("[PSK] ZAPISZ button pressed!");
       // Zapisz ustawienia
       pskReceiverCallsign = pskTempReceiver;
@@ -21250,7 +21564,7 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       // backoffu po 429). Nie polegamy na bramce drawPskMap, bo przy
       // auto-refresh=0 zaleznosc od interwalu blokowalaby pobranie danych.
       Serial.printf("[PSK] Before drawPskMap, pskMapMenuOpen=%d\n", pskMapMenuOpen);
-      if (millis() >= pskBackoffUntilMs) {
+      if (pskFetchAllowed(millis())) {
         fetchPskReporterData();
         lastPskFetchMs = millis();
       }
@@ -21268,8 +21582,17 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       drawPskMap();  // OdĹ›wieĹĽ ponownie aby usunÄ…Ä‡ napis
       return;
     }
-    // SprawdĹş czy dotkniÄ™to przycisk ANULUJ (300,210,80,30)
-    if (x >= 300 && x < 380 && y >= 210 && y < 240) {
+    // Sprawdz czy dotknieto przycisk RESET (150,210,70,30) - czysci spoty z mapy
+    if (x >= 150 && x < 220 && y >= 210 && y < 240) {
+      Serial.println("[PSK] RESET button pressed!");
+      resetPskMapSpots();
+      pskMapMenuOpen = false;
+      pskActiveField = PSK_FIELD_NONE;
+      drawPskMap();
+      return;
+    }
+    // Sprawdz czy dotknieto przycisk ANULUJ (230,210,70,30)
+    if (x >= 230 && x < 300 && y >= 210 && y < 240) {
       Serial.println("[PSK] ANULUJ button pressed!");
       pskMapMenuOpen = false;
       pskActiveField = PSK_FIELD_NONE;
@@ -21362,8 +21685,9 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
     return;
   }
   
-  // SprawdĹş czy dotkniÄ™to przycisk menu (2,2,30,26)
-  if (x >= 2 && x < 32 && y >= 2 && y < 28) {
+  // Sprawdz czy dotknieto przycisk menu (gorny lewy rog). Obszar z zapasem
+  // (0..50 x 0..44) na przycisk 44x36 - rezystancyjny panel trafia niedokladnie.
+  if (x < 50 && y < 44) {
     Serial.println("[PSK] Menu button pressed - opening menu");
     pskMapMenuOpen = true;
     pskActiveField = PSK_FIELD_NONE;
@@ -21395,11 +21719,13 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
     return;
   }
   
-  // DotkniÄ™cie mapy odĹ›wieĹĽa dane (ale tylko jeĹ›li nie w rogach).
-  // W trakcie backoffu po 429 nie pytamy API - samo przerysowanie z komunikat.
+  // Dotkniecie mapy odswieza dane. W trybie MQTT dane plyna same - nie pytamy
+  // HTTP (osobna sciezka), tylko odrysowujemy biezace spoty z bufora.
   if (x >= MAP_DISPLAY_X && x < MAP_DISPLAY_X + MAP_DISPLAY_W &&
       y >= MAP_DISPLAY_Y && y < MAP_DISPLAY_Y + MAP_DISPLAY_H) {
-    if (millis() >= pskBackoffUntilMs) {
+    if (pskMqttEnabled) {
+      copyPskMqttToDisplay();
+    } else if (pskFetchAllowed(millis())) {
       fetchPskReporterData();
       lastPskFetchMs = millis();
     }
@@ -21422,11 +21748,43 @@ void drawIssIconProcedural(int16_t x, int16_t y, uint32_t color) {
   tft.drawPixel(x, y, TFT_RED); // Czerwony punkt Ĺ›rodkowy
 }
 
-// Pobiera aktualny zestaw TLE (dane orbitalne) ISS z Celestrak i
-// inicjalizuje propagator SGP4 (issSat). Zwraca true przy sukcesie.
-// TLE trzeba odĹ›wieĹĽaÄ‡ co jakiĹ› czas (co kilka godzin) - im starszy TLE,
-// tym wiÄ™kszy bĹ‚Ä…d propagacji; dla ISS (ktĂłry regularnie koryguje orbitÄ™)
-// dokĹ‚adnoĹ›Ä‡ zauwaĹĽalnie spada juĹĽ po 1-2 dniach.
+// Wyciaga 3 linie TLE ISS (nazwa, linia 1, linia 2) z dowolnego tekstu, w
+// ktorym wystepuje blok "1 25544..." + "2 25544...". Dziala zarowno dla
+// celestrak gp.php (dokladnie 3 linie), jak i dla listy AMSAT nasabare.txt
+// (wiele satelitow - szukamy bloku ISS).
+static bool extractIssTleFromText(const String &payload, String &name, String &l1, String &l2) {
+  String prevLine = "";
+  int pos = 0;
+  const int len = (int)payload.length();
+  while (pos < len) {
+    int nl = payload.indexOf('\n', pos);
+    String line = (nl < 0) ? payload.substring(pos) : payload.substring(pos, nl);
+    pos = (nl < 0) ? len : nl + 1;
+    line.trim();
+    if (line.startsWith("1 25544")) {
+      int nl2 = payload.indexOf('\n', pos);
+      String line2 = (nl2 < 0) ? payload.substring(pos) : payload.substring(pos, nl2);
+      line2.trim();
+      if (line2.startsWith("2 25544") && line.length() >= 60 && line2.length() >= 60) {
+        l1 = line;
+        l2 = line2;
+        name = (prevLine.length() > 0) ? prevLine : "ISS (ZARYA)";
+        return true;
+      }
+    }
+    if (line.length() > 0) prevLine = line;
+  }
+  return false;
+}
+
+// Pobiera aktualny zestaw TLE (dane orbitalne) ISS i inicjalizuje propagator
+// SGP4 (issSat). Zwraca true przy sukcesie.
+// TLE trzeba odswiezac co jakis czas (co kilka godzin) - im starszy TLE,
+// tym wiekszy blad propagacji; dla ISS (ktory regularnie koryguje orbite)
+// dokladnosc zauwazalnie spada juz po 1-2 dniach.
+// Probuje KOLEJNO kilku niezaleznych zrodel - pojedyncze zrodlo bywa
+// nieosiagalne z sieci uzytkownika (na urzadzeniu celestrak.org zwracalo
+// HTTP -1, podczas gdy wheretheiss.at dzialalo). Pierwsze udane wygrywa.
 bool fetchIssTLE() {
   if (WiFi.status() != WL_CONNECTED) {
     return false;
@@ -21434,54 +21792,90 @@ bool fetchIssTLE() {
 
   static WiFiClientSecure client;
   client.setInsecure();
-  HTTPClient http;
-  // CATNR=25544 to numer NORAD MiÄ™dzynarodowej Stacji Kosmicznej (ISS).
-  String url = "https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE";
-  http.begin(client, url);
-  http.setTimeout(4000);
-  http.addHeader("User-Agent", "ESP32-HAM-CLOCK/1.2 (TLE fetch)");
-  int httpCode = http.GET();
 
-  bool ok = false;
-  if (httpCode == 200) {
-    String payload = http.getString();
-    // OdpowiedĹş to 3 linie: nazwa satelity, TLE linia 1, TLE linia 2.
-    int firstNl = payload.indexOf('\n');
-    int secondNl = payload.indexOf('\n', firstNl + 1);
-    int thirdNl = payload.indexOf('\n', secondNl + 1);
-    if (firstNl > 0 && secondNl > firstNl) {
-      String nameLine = payload.substring(0, firstNl);
-      String l1 = payload.substring(firstNl + 1, secondNl);
-      String l2 = (thirdNl > secondNl) ? payload.substring(secondNl + 1, thirdNl)
-                                        : payload.substring(secondNl + 1);
-      nameLine.trim();
-      l1.trim();
-      l2.trim();
-      if (l1.startsWith("1 ") && l2.startsWith("2 ") && l1.length() >= 60 && l2.length() >= 60) {
-        if (issTleMutex != NULL && xSemaphoreTake(issTleMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
-          if (nameLine.length() > 0) {
-            nameLine.toCharArray(issTleName, sizeof(issTleName));
-          }
-          l1.toCharArray(issTleLine1, sizeof(issTleLine1));
-          l2.toCharArray(issTleLine2, sizeof(issTleLine2));
-          issSat.init(issTleName, issTleLine1, issTleLine2);
-          issTleValid = true;
-          issForceNextPassRefresh = true;  // swieze TLE - przelicz przeloty od razu
-          xSemaphoreGive(issTleMutex);
-          ok = true;
-          Serial.println("[ISS TLE] Zaktualizowano dane orbitalne (SGP4)");
-        }
+  String name, l1, l2;
+  bool got = false;
+
+  const char *textUrls[] = {
+    "https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE",
+    "https://www.amsat.org/tle/current/nasabare.txt",
+  };
+  const char *textNames[] = { "celestrak", "amsat" };
+  for (int i = 0; i < 2 && !got; i++) {
+    HTTPClient http;
+    http.begin(client, textUrls[i]);
+    http.setTimeout(5000);
+    http.addHeader("User-Agent", "ESP32-HAM-CLOCK/1.2 (TLE fetch)");
+    int code = http.GET();
+    if (code == 200) {
+      String payload = http.getString();
+      if (extractIssTleFromText(payload, name, l1, l2)) {
+        got = true;
+        Serial.printf("[ISS TLE] Zrodlo OK: %s\n", textNames[i]);
       } else {
-        Serial.println("[ISS TLE] Nieprawidlowy format odpowiedzi");
+        Serial.printf("[ISS TLE] %s: brak bloku TLE ISS (%d B)\n", textNames[i], (int)payload.length());
       }
     } else {
-      Serial.println("[ISS TLE] Nieoczekiwany format odpowiedzi (za malo linii)");
+      Serial.printf("[ISS TLE] %s: HTTP kod %d\n", textNames[i], code);
     }
-  } else {
-    Serial.printf("[ISS TLE] HTTP kod: %d (oczekiwano 200)\n", httpCode);
+    http.end();
+    vTaskDelay(pdMS_TO_TICKS(1));  // yield/watchdog miedzy probami
   }
-  http.end();
-  return ok;
+
+  // Trzecie zrodlo: SatNOGS (JSON) - tablica z tle0/tle1/tle2.
+  if (!got) {
+    HTTPClient http;
+    http.begin(client, "https://db.satnogs.org/api/tle/?norad_cat_id=25544");
+    http.setTimeout(5000);
+    int code = http.GET();
+    if (code == 200) {
+      DynamicJsonDocument filter(256);
+      filter[0]["tle0"] = true; filter[0]["tle1"] = true; filter[0]["tle2"] = true;
+      DynamicJsonDocument doc(1024);
+      DeserializationError err = deserializeJson(doc, *http.getStreamPtr(), DeserializationOption::Filter(filter));
+      if (!err) {
+        JsonArray arr = doc.as<JsonArray>();
+        if (arr.size() > 0) {
+          String t0 = arr[0]["tle0"] | "";
+          String t1 = arr[0]["tle1"] | "";
+          String t2 = arr[0]["tle2"] | "";
+          t0.trim(); t1.trim(); t2.trim();
+          if (t1.startsWith("1 25544") && t2.startsWith("2 25544") &&
+              t1.length() >= 60 && t2.length() >= 60) {
+            name = (t0.length() > 0) ? t0 : "ISS (ZARYA)";
+            l1 = t1; l2 = t2;
+            got = true;
+            Serial.println("[ISS TLE] Zrodlo OK: satnogs");
+          }
+        }
+      } else {
+        Serial.printf("[ISS TLE] satnogs: blad JSON: %s\n", err.c_str());
+      }
+    } else {
+      Serial.printf("[ISS TLE] satnogs: HTTP kod %d\n", code);
+    }
+    http.end();
+  }
+
+  if (!got) {
+    Serial.println("[ISS TLE] Wszystkie zrodla TLE zawiodly");
+    return false;
+  }
+
+  if (issTleMutex != NULL && xSemaphoreTake(issTleMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+    if (name.length() > 0) {
+      name.toCharArray(issTleName, sizeof(issTleName));
+    }
+    l1.toCharArray(issTleLine1, sizeof(issTleLine1));
+    l2.toCharArray(issTleLine2, sizeof(issTleLine2));
+    issSat.init(issTleName, issTleLine1, issTleLine2);
+    issTleValid = true;
+    issForceNextPassRefresh = true;  // swieze TLE - przelicz przeloty od razu
+    xSemaphoreGive(issTleMutex);
+    Serial.println("[ISS TLE] Zaktualizowano dane orbitalne (SGP4)");
+    return true;
+  }
+  return false;
 }
 
 void calculateIssTrajectory() {
@@ -22213,6 +22607,8 @@ static const uint16_t ISS_COL_BORDER  = 0x298A; // #2a3357 (obramowanie)
 static const uint16_t ISS_COL_ACCENT  = 0x3697; // #35d0ba (akcent - teal)
 static const uint16_t ISS_COL_ACCENT2 = 0x4D5F; // #4ea8ff (akcent - blue)
 static const uint16_t ISS_COL_WARN    = 0xFE4A; // #ffc857 (zloty)
+static const uint16_t ISS_COL_RED     = 0xF800; // #ff0000 (czerwony - kropka "NA ZYWO")
+static const uint16_t ISS_COL_RED_DIM = 0x8800; // #880000 (poswiata wokol kropki)
 static const uint16_t ISS_COL_TEXT    = 0xEF7E; // #e8eef7
 static const uint16_t ISS_COL_DIM     = 0x9D98; // #9fb0c6
 static const uint16_t ISS_COL_FAINT   = 0x6BF2; // #6c7d94
@@ -22411,7 +22807,16 @@ static void issRenderFrame(double lat, double lng, double alt, double speed,
   issSprite.drawString("ISS TRACKER", 240, 14, 2);
   issSprite.setTextDatum(TL_DATUM);
   bool live = hasData;
-  issSprite.fillCircle(410, 15, 4, live ? ISS_COL_ACCENT : ISS_COL_FAINT);
+  // Kropka "NA ZYWO": czerwona i "swiecaca" (poswiata + jasny rdzen + biala obwodka)
+  // gdy dane pobrane; szara i mala, gdy czekamy. Kolory rozne, zeby stan byl
+  // czytelny na pierwszy rzut oka.
+  if (live) {
+    issSprite.fillCircle(410, 15, 6, ISS_COL_RED_DIM); // poswiata
+    issSprite.fillCircle(410, 15, 4, ISS_COL_RED);     // rdzen
+    issSprite.drawCircle(410, 15, 4, ISS_COL_TEXT);    // biala obwodka = "swieci"
+  } else {
+    issSprite.fillCircle(410, 15, 4, ISS_COL_FAINT);
+  }
   issSprite.setTextColor(live ? ISS_COL_ACCENT : ISS_COL_FAINT, ISS_COL_CARD);
   issSprite.drawString(live ? "NA ZYWO" : "CZEKAJ", 420, 10, 1);
 
@@ -22687,8 +23092,11 @@ typedef struct {
 #define PSK_MQTT_SPOT_BUFFER_SIZE 30
 PskSpotMqtt pskMqttSpotBuffer[PSK_MQTT_SPOT_BUFFER_SIZE];
 int pskMqttSpotCount = 0;
-unsigned long lastPskMqttDrawMs = 0;
-const unsigned long PSK_MQTT_DRAW_INTERVAL_MS = 1500; // Rysuj co 1.5 sekundy
+// Chroni pskMqttSpotBuffer/pskMqttSpotCount. Callback MQTT (uruchamiany przez
+// pskMqttClient.loop() w petli glownej) zapisuje, a procesor bufora (to samo
+// zadanie) kopiuje. Mimo jednego zadania trzymamy mutex - gdyby kiedys MQTT
+// trafil do innego kontekstu, nie zrobimy cichej korupcji.
+SemaphoreHandle_t pskMqttBufferMutex = NULL;
 bool pskMqttConnected = false;
 unsigned long lastPskMqttReconnectAttempt = 0;
 const unsigned long PSK_MQTT_RECONNECT_INTERVAL_MS = 5000; // Co 5 sekund prĂłba reconnect
@@ -22700,8 +23108,24 @@ const unsigned long PSK_MQTT_RECONNECT_INTERVAL_MS = 5000; // Co 5 sekund prĂł
 // i ekran zostawal pusty), wiec subskrybujemy cala galeź i filtrujemy w
 // callbacku po lokatorze.
 static String getPskMqttTopicForLocator(const String& locator) {
-  (void)locator;
-  return "pskr/filter/v2/#";
+  // Temat "v2_field" jest dedykowany filtrowaniu po POLU lokatora (2 znaki):
+  //   pskr/filter/v2_field/<pasmo>/<tryb>/<pole nadawcy>/<pole odbiorcy>
+  // Daje ~20-70 msg/s dla naszego pola (JO) zamiast ~500+ msg/s z "v2/#"
+  // (CALY swiat), ktorego ESP32 nie zdazy parsowac JSON-em. Zostawiamy spoty
+  // odebrane w NASZYM polu (odbiorca blisko nas), rysujemy nadawce (DX).
+  String field;
+  if (locator.length() >= 2) {
+    field = locator.substring(0, 2);
+    field.toUpperCase();
+  }
+  if (field.length() < 2) {
+    // Brak lokatora - nie da sie zawezic po polu. Fallback: caly swiat
+    // (bardzo ciezki; uzytkownik powinien ustawic lokator w Ustawieniach).
+    return "pskr/filter/v2/#";
+  }
+  String band = (pskFilterBand.length() > 0) ? pskFilterBand : String("+");
+  String mode = (pskFilterMode.length() > 0) ? pskFilterMode : String("+");
+  return "pskr/filter/v2_field/" + band + "/" + mode + "/+/" + field;
 }
 
 // Zwraca idx-ty segment tematu MQTT (rozdzielony '/'), np. idx=8 to lokator
@@ -22726,18 +23150,21 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
-  // Broker sypie ~240 spotami/s. Zanim sparsujemy JSON (drogie), odrzucamy
-  // spoty po lokatorze odbiorcy wyczytanym wprost z tematu - zostaje tylko
-  // garstka odebranych w naszym kwadracie.
-  if (userLocator.length() >= 4) {
-    String rl4 = pskMqttTopicSegment(topic, 8);
-    if (rl4.length() >= 4) {
-      rl4 = rl4.substring(0, 4);
-      rl4.toUpperCase();
-      String loc4 = userLocator.substring(0, 4);
-      loc4.toUpperCase();
-      if (rl4 != loc4) return;
-    }
+  // Tematy maja rozny uklad segmentow, wiec lokator odbiorcy czytamy z INNEGO
+  // indeksu zaleznie od subskrypcji:
+  //   pskr/filter/v2_field/<pasmo>/<tryb>/<nad>/<odb>          -> idx 6 (odb, 2 znaki)
+  //   pskr/filter/v2/<pasmo>/<tryb>/<nad>/<odb>/<lN>/<lO>/...  -> idx 8 (kwadrat)
+  // Zanim sparsujemy JSON (drogie), odrzucamy spoty po tym lokatorze.
+  // Porownujemy tyle znakow, ile ma segment tematu (2 dla v2_field, 4+ dla v2).
+  int rlIdx = (String(topic).indexOf("v2_field/") >= 0) ? 6 : 8;
+  if (userLocator.length() >= 2) {
+    String topicLoc = pskMqttTopicSegment(topic, rlIdx);
+    topicLoc.toUpperCase();
+    String userLoc = userLocator;
+    userLoc.toUpperCase();
+    int cmp = topicLoc.length();
+    if (cmp > userLoc.length()) cmp = userLoc.length();
+    if (cmp >= 2 && topicLoc.substring(0, cmp) != userLoc.substring(0, cmp)) return;
   }
 
   // Parsuj JSON. Broker uzywa krotkich kluczy: sc=nadawca, sl=lokator nadawcy,
@@ -22758,14 +23185,15 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
   if (!sender || !senderLocator) return;
 
   // Na mapie rysujemy NADAWCE (DX) - tak jak tryb HTTP. Zeby mapa byla
-  // lokalnie istotna, zostawiamy tylko spoty odebrane w naszym kwadracie
-  // lokatora (odbiorca blisko nas), a nie nadawca.
-  if (userLocator.length() >= 4 && receiverLocator && receiverLocator[0]) {
-    String loc4 = userLocator.substring(0, 4);
-    loc4.toUpperCase();
-    String rl4 = String(receiverLocator).substring(0, 4);
-    rl4.toUpperCase();
-    if (rl4 != loc4) return;
+  // lokalnie istotna, zostawiamy tylko spoty odebrane w NASZYM POLU lokatora
+  // (odbiorca blisko nas), a nie nadawca. Porownujemy 2 znaki (pole) - zgodnie
+  // z subskrypcja v2_field. (Przy fallbacku "v2/#" to samo zawęża do pola.)
+  if (userLocator.length() >= 2 && receiverLocator && receiverLocator[0]) {
+    String loc2 = userLocator.substring(0, 2);
+    loc2.toUpperCase();
+    String rl2 = String(receiverLocator).substring(0, 2);
+    rl2.toUpperCase();
+    if (rl2 != loc2) return;
   }
 
   // Konwersja lokatora na lat/lon
@@ -22804,20 +23232,29 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
     if (senderCall != monitorCall) return;
   }
 
-  // Dodaj do bufora
-  if (pskMqttSpotCount < PSK_MQTT_SPOT_BUFFER_SIZE) {
-    pskMqttSpotBuffer[pskMqttSpotCount].callsign = String(sender);
-    pskMqttSpotBuffer[pskMqttSpotCount].lat = (float)lat;
-    pskMqttSpotBuffer[pskMqttSpotCount].lon = (float)lon;
-    pskMqttSpotBuffer[pskMqttSpotCount].band = band;
-    pskMqttSpotBuffer[pskMqttSpotCount].mode = modeStr;
-    pskMqttSpotBuffer[pskMqttSpotCount].receivedAt = millis();
-    pskMqttSpotCount++;
+  // Dodaj do bufora. Budujemy wpis LOKALNIE (jego String-i rosna na stosie
+  // callbacku), a dopiero gotowy wstawiamy pod mutexem - dzieki temu zadne
+  // alokacje/deserializacje nie dzieja sie w trakcie trzymania blokady.
+  PskSpotMqtt entry;
+  entry.callsign = String(sender);
+  entry.lat = (float)lat;
+  entry.lon = (float)lon;
+  entry.band = band;
+  entry.mode = modeStr;
+  entry.receivedAt = millis();
 
-    // Debug co 10 spotĂłw
-    if (pskMqttSpotCount % 10 == 0) {
-      Serial.printf("[PSK MQTT] Bufor: %d spotĂłw\n", pskMqttSpotCount);
+  if (pskMqttBufferMutex != NULL &&
+      xSemaphoreTake(pskMqttBufferMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+    if (pskMqttSpotCount < PSK_MQTT_SPOT_BUFFER_SIZE) {
+      pskMqttSpotBuffer[pskMqttSpotCount] = entry;
+      pskMqttSpotCount++;
+
+      // Debug co 10 spotĂłw
+      if (pskMqttSpotCount % 10 == 0) {
+        Serial.printf("[PSK MQTT] Bufor: %d spotĂłw\n", pskMqttSpotCount);
+      }
     }
+    xSemaphoreGive(pskMqttBufferMutex);
   }
 }
 
@@ -22860,12 +23297,14 @@ void reconnectPskMqtt() {
     Serial.println(" poĹ‚Ä…czono!");
     pskMqttConnected = true;
 
-    // Subskrybuj cala galeź pskr/filter/v2/# - filtrowanie po lokatorze
-    // odbywa sie w pskMqttCallback (broker nie grupuje tematow po lokatorze).
+    // Subskrybuj temat "v2_field" zawezony do NASZEGO pola lokatora (i opcjonalnie
+    // pasma/trybu). Broker nie grupuje po pelnym lokatorze, wiec kwadrat nadal
+    // odsiewamy w callbacku, ale i tak spada ~10x mniej ruchu niz z "v2/#".
     String topic = getPskMqttTopicForLocator(userLocator);
 
     Serial.printf("[PSK MQTT] Subskrypcja: %s\n", topic.c_str());
     pskMqttClient.subscribe(topic.c_str());
+    pskMqttSubscribedTopic = topic;
   } else {
     Serial.println(" nieudane, ponowiÄ™ za 5s");
     pskMqttConnected = false;
@@ -22894,45 +23333,61 @@ void loopPskMqtt() {
   // ObsĹ‚uga MQTT loop
   if (pskMqttClient.connected()) {
     pskMqttClient.loop();
+
+    // Resubskrypcja po zmianie ustawien (lokator/pasmo/tryb) - inaczej temat
+    // zostaje stary az do rozlaczenia i mapa przestaje pasowac do ustawien.
+    String desired = getPskMqttTopicForLocator(userLocator);
+    if (desired != pskMqttSubscribedTopic) {
+      pskMqttClient.subscribe(desired.c_str());
+      Serial.printf("[PSK MQTT] Zmiana subskrypcji: %s\n", desired.c_str());
+      pskMqttSubscribedTopic = desired;
+    }
   }
 
   // Przetwarzanie bufora i rysowanie co zadany interwaĹ‚
   processPskMqttBuffer();
 }
 
-// Przetwarza bufor i kopiuje do gĹ‚Ăłwnej tablicy spotĂłw dla wyĹ›wietlenia
+// Wolane z loop(): sygnalizuje tylko, ze sa nowe spoty MQTT do pokazania.
+// Kopiowanie do glownej tablicy robi UI_Task (copyPskMqttToDisplay), bo
+// pskSpots czyta WYLACZNIE drawPskMap w UI_Task - pisanie do niej z loop()
+// bylo wyscigiem danych (loop i UI_Task dziela rdzen, ale nie sa atomowe).
 void processPskMqttBuffer() {
-  unsigned long now = millis();
+  if (pskMqttSpotCount > 0) pskMqttDirty = true;
+}
 
-  // SprawdĹş czy czas na rysowanie
-  if (now - lastPskMqttDrawMs < PSK_MQTT_DRAW_INTERVAL_MS) {
-    return;
-  }
-  lastPskMqttDrawMs = now;
-
+// Kopiuje bufor MQTT do glownej tablicy spotow (KUMULUJE - nie nadpisuje).
+// WOLANE TYLKO Z UI_Task, tuz przed drawPskMap().
+void copyPskMqttToDisplay() {
   if (pskMqttSpotCount == 0) return;
 
-  // Kopiuj do gĹ‚Ăłwnej tablicy spotĂłw
+  if (pskMqttBufferMutex != NULL &&
+      xSemaphoreTake(pskMqttBufferMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+    for (int i = 0; i < pskMqttSpotCount && i < PSK_MQTT_SPOT_BUFFER_SIZE; i++) {
+      // Dedup (znak+pasmo+tryb) - te same stacje wracaja w kolejnych oknach.
+      pskAddSpot(pskMqttSpotBuffer[i].callsign,
+                 pskMqttSpotBuffer[i].lat, pskMqttSpotBuffer[i].lon,
+                 pskMqttSpotBuffer[i].band, pskMqttSpotBuffer[i].mode,
+                 0, pskMqttSpotBuffer[i].receivedAt);
+    }
+    pskMqttSpotCount = 0; // czysc bufor MQTT
+    xSemaphoreGive(pskMqttBufferMutex);
+  }
+}
+
+// Czysci spoty z mapy (przycisk RESET w menu PSK). Zeruje zarowno wyswietlane
+// pskSpots, jak i bufor MQTT - inaczej kolejny cykl rysowania natychmiast
+// wczytalby z powrotem te same spoty. WOLANE TYLKO Z UI_Task.
+void resetPskMapSpots() {
   pskSpotCount = 0;
-  for (int i = 0; i < pskMqttSpotCount && i < PSK_MAX_SPOTS; i++) {
-    pskSpots[pskSpotCount].callsign = pskMqttSpotBuffer[i].callsign;
-    pskSpots[pskSpotCount].lat = pskMqttSpotBuffer[i].lat;
-    pskSpots[pskSpotCount].lon = pskMqttSpotBuffer[i].lon;
-    pskSpots[pskSpotCount].band = pskMqttSpotBuffer[i].band;
-    pskSpots[pskSpotCount].mode = pskMqttSpotBuffer[i].mode;
-    pskSpots[pskSpotCount].snr = 0; // MQTT nie daje SNR
-    pskSpots[pskSpotCount].timestamp = pskMqttSpotBuffer[i].receivedAt;
-    pskSpotCount++;
+  lastPskSpotCount = 0;  // pelne przerysowanie po RESET (wyczysc stare spoty)
+  if (pskMqttBufferMutex != NULL &&
+      xSemaphoreTake(pskMqttBufferMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+    pskMqttSpotCount = 0;
+    xSemaphoreGive(pskMqttBufferMutex);
   }
-
-  // CzyĹ›Ä‡ bufor
-  pskMqttSpotCount = 0;
-
-  // OdĹ›wieĹĽ wyĹ›wietlacz jeĹ›li na ekranie PSK
-  if (currentScreen == SCREEN_PSK_MAP && tftInitialized && !pskMapMenuOpen) {
-    Serial.printf("[PSK MQTT] Rysowanie %d spotĂłw\n", pskSpotCount);
-    drawPskMap();
-  }
+  pskMqttDirty = false;
+  Serial.println("[PSK] RESET: wyczyszczono spoty z mapy");
 }
 
 // Setup MQTT - wywoĹ‚ywane przy starcie
@@ -22949,6 +23404,7 @@ void setup() {
   Serial.begin(115200);
   delay(100);
   Serial.println("\n\n[SETUP] START");
+  Serial.println("===== ESP32-HAM-CLOCK v" FIRMWARE_VERSION " =====");
   
   // Powod restartu - kluczowe dla diagnozy "ekran zgasl / WiFi sie rozlacza":
   // ESP_RST_BROWNOUT = za slabe zasilanie, ESP_RST_TASK_WDT = zablokowana petla,
@@ -23016,6 +23472,11 @@ void setup() {
   // miejsc naraz (np. rysowanie trajektorii i przewidywanie przelotu).
   if (issTleMutex == nullptr) {
     issTleMutex = xSemaphoreCreateMutex();
+  }
+
+  // Mutex na bufor spotow MQTT (callback zapisuje, UI_Task kopiuje).
+  if (pskMqttBufferMutex == nullptr) {
+    pskMqttBufferMutex = xSemaphoreCreateMutex();
   }
 
   initStatusRgbLed();

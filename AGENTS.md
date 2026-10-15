@@ -2,6 +2,171 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## ISS: "brak danych" najblizszy/nastepny przelot — PRZYCZYNA = TLE z celestrak (15.10.2026)
+- OBJAW: na ekranie ISS TRACKER panele "NAJBLIZSZY PRZELOT"/"NASTEPNE
+  PRZELOTY" pokazywaly "brak danych", mimo ze pozycja ISS i kraj dzialaly.
+- PRZYCZYNA (potwierdzona logiem szeregowym z urzadzenia): `fetchIssTLE()`
+  pobieral TLE TYLKO z `https://celestrak.org/...gp.php?CATNR=25544`, a to
+  zrodlo z sieci uzytkownika zwracalo **HTTP kod -1** (brak polaczenia) przy
+  KAZDEJ probie. `wheretheiss.at` (pozycja) dzialal, wiec to nie byl brak
+  sieci. Bez TLE `issTleValid=false`, wiec `updateIssNextPassEstimate()`
+  wychodzilo wczesnie ("TLE jeszcze niedostepne") i UI pokazywalo "brak
+  danych". Matematyka SGP4 byla OK - zweryfikowane na hoscie na prawdziwym
+  TLE (initpredpoint+nextpass zwracalo przeloty).
+- POPRAWKA: `fetchIssTLE()` probuje teraz KOLEJNO kilku niezaleznych zrodel
+  (pierwsze udane wygrywa):
+  1. celestrak gp.php (jak dotad),
+  2. AMSAT `https://www.amsat.org/tle/current/nasabare.txt` (lista wielu
+     satelitow - nowy `extractIssTleFromText()` wyciaga blok "1 25544"/"2 25544"),
+  3. SatNOGS `https://db.satnogs.org/api/tle/?norad_cat_id=25544` (JSON: tle0/1/2).
+  Kazde zrodlo loguje `[ISS TLE] <nazwa>: HTTP kod N` / `Zrodlo OK: <nazwa>`.
+- Dodatkowo: wejscie na ekran ISS (`issForceNextPassRefresh`) probuje teraz
+  pobrac TLE, jesli `!issTleValid`, zamiast czekac na kolejna probe w issTask.
+- Uwaga diagnostyczna: `HTTP kod: -1` = nie udalo sie POLACZYC (nie 4xx/5xx).
+  Gdy pozycja dziala a TLE nie, to problem jest specyficzny dla danego hosta
+  (blokada IP / geo / TLS), dlatego rozwiazaniem jest lancuch zrodel zapasowych.
+
+## PSK Reporter: "nie dziala" = limit IP po stronie PSKReporter (15.10.2026)
+- OBJAW: ekran PSK MAP rysuje mape + czerwona kropke usera, ale zero spotow
+  i zero linii DX.
+- PRZYCZYNA (potwierdzona logiem z urzadzenia ORAZ reprodukcja z hosta):
+  PSKReporter dlawi IP, ktore zadaje zapytania zbyt czesto. Serwer odpowiada
+  wtedy **HTTP 200 z samym `{"message":"Your IP has made too many queries too
+  often..."}`** (bez `receptionReport`) albo **HTTP 429**. Kod rozpoznawal to
+  jako "Brak danych: brak pola receptionReport". W logach urzadzenia widac
+  dokladnie ten komunikat i serie `[PSK] HTTP error: 429`.
+  Uwaga: `receiverCallsign` + `flowStartSeconds` dzialaja - ten sam URL z hosta
+  zwraca 57 raportow (wszystkie z senderLocator i sNR). Czyli parser i URL sa
+  OK; blokada jest po stronie API/IP, nie kodu.
+- CO POGARSZALO SPRAWE: kazde zdarzenie (tap na mape, ZAPISZ, wejscie) moglo
+  wystrzelic OSOBNE zapytanie. Kilka zapytan w sekunde = natychmiastowy limit,
+  a kolejne proby tylko odswiezaja blokade (limit nigdy nie mija).
+- ZASADY PSKReporter (pskreporter.info/pskdev.html): nie pobierac czesciej niz
+  raz na 5 min, NIE powtarzac tego samego zapytania, dodawac `appcontact=<email>`.
+- POPRAWKA (hardening na kodzie z 14.10):
+  1. Wspolny straznik `pskFetchAllowed(now)` dla WSZYSTKICH miejsc pobrania:
+     blokuje, gdy trwa backoff po limicie ORAZ gdy od ostatniego pobrania
+     minelo mniej niz `PSK_MIN_FETCH_INTERVAL_MS` (5 min). Tap/ZAPISZ/auto-refresh
+     nie moga juz powtorzyc tego samego zapytania.
+  2. `PSK_RATE_LIMIT_BACKOFF_MS` 5 min -> 10 min (limit IP trzyma dluzej niz 5 min).
+  3. Naglowek mapy przy braku spotow pokazuje "Odswiez. za N min" zamiast pustki
+     (tap w trakcie straznika wygladal na zepsuty).
+  4. Log diagnostyczny: przy kazdym pominiętym pobraniu `[PSK] Fetch wstrzymany:
+     ...` z powodem i licznikiem sekund; przy limicie `[PSK] LIMIT (429|200+message)`.
+  5. Eskalacja backoffu: kolejne limity z rzedu 10 -> 20 -> 30 min (max
+     `PSK_MAX_BACKOFF_MS`), zeby IP mialo czas "odpoczac" - dobijanie co 10 min
+     tylko przedluzalo blokade.
+  6. 429 ustawia tez `pskRateLimited=true` (wczesniej flaga zostawala stara,
+     wiec naglowek nie pokazywal limitu).
+  7. Banner wersji przy starcie (`===== ESP32-HAM-CLOCK v1.2.1 =====`) - pozwala
+     potwierdzic, ze wgrany jest nowy firmware (FIRMWARE_VERSION 1.2 -> 1.2.1).
+- DIAGNOSTYKA: "Spoty: 0" + brak "LIMIT PSKReporter" = zapytanie poszlo, ale
+  zero wynikow (zly `receiverCallsign` / pusty lokator / okno czasu). "LIMIT
+  PSKReporter - poczekaj" = IP zablokowane, odczekac. Po restarcie domowego IP
+  (albo po prostu po odczekaniu) i odpytywaniu z umiarem mapa zaskoczy.
+
+## PSK Reporter tryb MQTT: zly temat = 500+ msg/s (16.10.2026)
+- OBJAW: tryb MQTT (`psk_mqtt_en=1`) tez nie pokazywal spotow.
+- PRZYCZYNA: firmware subskrybowal `pskr/filter/v2/#` = CALY swiat, ~565 msg/s.
+  ESP32 nie nadaza parsowac JSON-a z takiego strumienia (callback + deserializeJson
+  na kazdej wiadomosci), kolejka sie zapycha i nic nie dochodzi do bufora.
+- FORMAT TEMATOW (ustalone empirycznie, broker mqtt.pskreporter.info:1883):
+  - `pskr/filter/v2_field/<pasmo>/<tryb>/<poleNadawcy>/<poleOdbiorcy>`  (~10 msg/s dla JO)
+  - `pskr/filter/v2/<pasmo>/<tryb>/<nad>/<odb>/<lokN>/<lokO>/<az>/<az>`  (~565 msg/s - za ciezki)
+  - `pskr/filter/v2_field/#` = wszystkie pola swiata (~250 msg/s)
+  - `pskr/rxinfo/<call>` = metadane odbiornikow (bez spotow)
+  - Segmenty v2_field: [0]pskr [1]filter [2]v2_field [3]pasmo [4]tryb [5]nad [6]odb
+  - Segmenty v2:        [0]pskr [1]filter [2]v2       [3]pasmo [4]tryb [5]nad [6]odb [7]lokN [8]lokO
+- POPRAWKA:
+  1. `getPskMqttTopicForLocator()` buduje `pskr/filter/v2_field/<pasmo>/<tryb>/+/<pole>`
+     z ustawien (pasmo/tryb z NVS, pole = 2 pierwsze znaki lokatora). Gdy brak
+     pasma/trybu -> `+`; gdy brak lokatora -> fallback `pskr/filter/v2/#`.
+  2. Callback czyta lokator odbiorcy z idx 6 (v2_field) lub idx 8 (v2) i porownuje
+     tyle znakow, ile ma segment (2 dla pola, 4 dla kwadratu) - wczesniej na sztywno
+     idx 8 + 4 znaki, co dla v2_field nie pasowalo do niczego.
+  3. Resubskrypcja w `loopPskMqtt()` gdy zmieni sie temat (lokator/pasmo/tryb) -
+     bez tego zmiana ustawien nie dzialala az do rozlaczenia.
+- Uwaga: JSON spotu uzywa krotkich kluczy `sc/sl/rc/rl/md/f/rp/b` - kod juz je czyta.
+
+## PSK MQTT: crash + lawina odswiezen + gubiony dotyk (16.10.2026)
+- OBJAWY: po wlaczeniu MQTT ekran PSK odswiezal sie w kolko (pelne przerysowania
+  z "Screen cleared" kilka razy na sekunde), mapa migala, a po chwili
+  `Guru Meditation / LoadProhibited` (PC w taskSelectHighestPriorityTaskSMP =
+  uszkodzony stos). Dodatkowo przycisk menu trzeba bylo dotykac kilka razy.
+- PRZYCZYNY (trzy, nakladajace sie):
+  1. REENTRANCJA: `drawPskMap()` wolalo `loopPskMqtt()` -> `processPskMqttBuffer()`
+     -> `drawPskMap()` (dopoki bufor niepusty). Przy ~10 msg/s = lawina pelnych
+     przerysowan ("ekran sie co chwile odswieza").
+  2. WYSCIG MIEDZY ZADANIAMI: `loopPskMqtt()` wolano z DWOCH zadan - `loop()`
+     (petla glowna, rdzen 1) i `UI_Task` (rdzen 1, prio 2). PubSubClient i bufor
+     spotow nie sa bezpieczne watkowo -> korupcja sterty -> crash w schedulerze.
+  3. WYSCIG NA DANYCH: `pskSpots[]` pisane z `loop()` (kopiowanie bufora) i
+     czytane w `UI_Task` (`drawPskMap`) - wyscig na String-ach = korupcja sterty.
+- DODATKOWO: `reconnectPskMqtt()` blokuje do 5 s (`delay(100)` w petli), a
+  wczesniej wolane bylo z `UI_Task` - blokowalo odczyt dotyku (XPT2046 dzieli
+  SPI z TFT), przez co tapniecia przepadaly (menu trzeba bylo dotykac kilka razy).
+- POPRAWKA:
+  1. MQTT obsluguje WYLACZNIE `loop()` (jedno zadanie). Z `drawPskMap()` i z
+     `UI_Task` usunieto wolania `loopPskMqtt()`.
+  2. `processPskMqttBuffer()` (loop) tylko ustawia `pskMqttDirty`.
+     Kopiowanie bufora -> `pskSpots` robi `copyPskMqttToDisplay()` WYLACZNIE w
+     `UI_Task`, tuz przed `drawPskMap()`.
+  3. Bufor MQTT pod mutexem `pskMqttBufferMutex` (callback zapisuje, UI_Task kopiuje).
+  4. Przerysowanie z MQTT ograniczone do `PSK_MQTT_DRAW_INTERVAL_MS` (1.5 s) -
+     inaczej miganie i blokada dotyku.
+  5. Przycisk menu powiekszony 30x26 -> 44x36, obszar dotyku 0..50 x 0..44
+     (rezystancyjny panel trafial niedokladnie).
+  6. Dodano przycisk RESET w menu PSK (czysci pskSpots + bufor MQTT, nie rusza
+     ustawien) - `resetPskMapSpots()` wolane z UI_Task. Przyciski menu:
+     ZAPISZ (70,210,70,30), RESET (150,210,70,30), ANULUJ (230,210,70,30).
+  7. Log `drawPskMap START` zawiera teraz `spotow=N` - pozwala od razu
+     stwierdzic, czy mapa dostaje spoty z bufora MQTT.
+  8. Tlo mapy PSK buforowane w PSRAM (raz) - `pskMapBgLoad()`/`drawPskMapBackground()`.
+     Wczesniej KAZDE odswiezenie robilo `fillScreen` + dekodowanie BMP 460 kB z
+     LittleFS (~1 s) => ciagle "Screen cleared" i miganie. Teraz jeden
+     `pushImage(swapBytes=true)` z bufora PSRAM (~60 ms). Cache unieważnia
+     `pskMapBgInvalidate()` przy uploadzie mapy (/upload/bmp, /upload/mapa565).
+     UWAGA: TFT_eSprite::pushSprite() wymusza swapBytes(false); dla surowego
+     RGB565 z BMP trzeba uzyc pushImage z swapBytes(true) (jak drawBmp16FromFS).
+  9. MQTT jest teraz DOMYSLNIE WLACZONE (`pskMqttEnabled = true`,
+     `pskTempMqttEnabled = true`, getBool("psk_mqtt_en", true)) - start od razu
+     bez HTTP. Ustawienie zapisane w NVS nadal ma priorytet.
+ 10. Spoty KUMULUJA sie na mapie (dedup: znak+pasmo+tryb, `pskAddSpot()`),
+     czyszczone przyciskiem RESET albo AUTO-RESET po `PSK_MAX_SPOTS = 200`.
+     - Auto-RESET jest w `pskAddSpot()`: gdy licznik dojdzie do 200, zeruje
+       `pskSpotCount` i pierwszy spot z kolejnej porcji startuje nowy cykl
+       (log: "[PSK] AUTO-RESET: osiagnieto 200 spotow - czyszcze mape").
+     - `fetchPskReporterData()` NIE zeruje juz `pskSpotCount` (bylo na 20675)
+       i NIE przerywa petli na limicie (break usuniety - inaczej auto-RESET
+       nigdy by sie nie wyzwolil).
+     - `copyPskMqttToDisplay()` dopisuje zamiast nadpisywac (bylo `pskSpotCount=0`).
+     - Bez tego liczba spotow skakala (30 -> 2 -> 1 -> 11), bo kazde okno MQTT
+       nadpisywalo tablice.
+ 11. Panel informacyjny po prawej stronie mapy (`drawPskSpotListPanel()`,
+     obszar 310,40 166x250): licznik "SPOTY: N" + lista najnowszych (znak,
+     pasmo, tryb). Nakladka rysowana PO spotach, PRZED stopka/menu.
+ 12. Odswiezanie przyrostowe (`drawPskMapSpotsOnly()`): przy nowych spotach z
+     MQTT rysujemy TYLKO nowe spoty + panel + kropke uzytkownika + przycisk
+     menu. Naglowek, pasek, ikona baterii, napisy, legenda i stopka zostaja
+     nietkniete (bez migania). Klucz: `lastPskSpotCount` (ile juz narysowano).
+     - `drawPskMap()` = pelne przerysowanie, ustawia `lastPskSpotCount = 0`
+       na starcie i `= pskSpotCount` na koncu.
+     - RESET i auto-RESET ustawiaja `lastPskSpotCount = 0` (wymuszaja pelne
+       przerysowanie, zeby wyczyscic stare spoty).
+     - `drawPskMapSpotsOnly()` robi `drawPskMap()` gdy `pskSpotCount <
+       lastPskSpotCount` (po RESET/auto-RESET) oraz gdy `pskMapMenuOpen`.
+     - Zalety: brak migania chromu + mniej pracy SPI niz pelny redraw.
+- UWAGA: "SSB" NIE wystepuje na PSK Reporter (to glownie FT8/FT4/WSPR/CW).
+  Filtr trybu SSB => zero spotow i pusty bufor MQTT (brak logow "Bufor: N").
+  Jesli mapa pusta - najpierw sprawdz, czy Tryb = (wszystkie) albo FT8.
+- DIAGNOSTYKA: crash z PC w `taskSelectHighestPriorityTaskSMP`/`_frxt_dispatch`
+  i `EXCVADDR` ~0x48 to niemal zawsze korupcja sterty/wyscig, nie blad logiki.
+  Adresy dekoduj: `xtensa-esp32s3-elf-addr2line -f -C -e .pio/build/<env>/firmware.elf <PC>`.
+
+
+
+
+
 ## KOLOR ZEGARA (cyfry zegara, styl nowoczesny) — 15.10.2026
 - Nowa zmienna globalna `clockDigitsColor` (RGB565, domyslnie `0xFFE0` = zolty jak
   `HC_YELLOW`). Ustawia kolor **duzego zegara cyfrowego** HH:MM:SS na ekranie
