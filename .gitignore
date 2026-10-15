@@ -5,3 +5,6 @@ compile_commands.json
 TFT_eSPI.d
 download/esp32-ham-clock-repo.bundle
 *.bundle
+
+# Klucz prywatny GPG wydania (NIE commitowac; trwaly miedzy resetami srodowiska)
+.gpg-release-key

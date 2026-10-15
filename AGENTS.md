@@ -26,12 +26,23 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
   `#clock_color_picker` (domyslnie `#ffff00`), konwersja hex<->RGB565 jak dla znaku.
 
 ## EKRAN STARTOWY (splash) — 15.10.2026
-- `data/splash.bmp` (480x320, 24-bit RGB, bottom-up) w stylu **karty QSL**:
-  duzy znak, "POTWIERDZAM QSO", ramka airmail, godlo PZK, dane stacji,
-  delikatna mapa swiata w tle. Rysowany przez `drawSplashScreen()` (po ekranie
-  powitalnym; dotyk pomija).
-- Generator: `tools/make_qsl_splash.py` (Pillow, fonty DejaVu) -> `data/splash.bmp`
-  + podglad `/workspace/share/podglad-qsl-splash.png`.
+- `data/splash.bmp` (480x320, 24-bit RGB, bottom-up) w stylu **karty QSL**,
+  **bez znaku wywolawczego**:
+  - glowny emblemat: **`ESP32-HAM-CLOCK`** (serif bold 36 pt, zloty cien +
+    bialy napis + poswiata) z podpisem **`VERSION 1.2`** (cyjan) pod spodem
+    (wczesniej byl duzy „QSL" — zastapiony),
+  - ramka airmail (skosne paski czerwono-niebieskie), wewnetrzna zlota ramka,
+    delikatna mapa swiata w tle, godlo PZK, stopka „ESP32-HAM-CLOCK ... 73!",
+  - prawy gorny rog: **flaga PL** (bialy pas U GORY, czerwony U DOLU) + „POLAND"
+    — poprzednio flaga byla podzielona pionowo (blad), poprawiona,
+  - pola danych: `QTH=Poland`, `VERSION=1.2` (pole „LOCATOR/JO90AA" usuniete),
+    `ORGANIZATION=PZK`, `BAND=HF / VHF / UHF`.
+  - Rysowany przez `drawSplashScreen()` (po ekranie powitalnym; dotyk pomija).
+- Generator: `tools/make_qsl_splash.py` (Pillow + fonty DejaVu; wymaga
+  `data/Mapa swiata.bmp` i `data/pzk-logo.bmp`). Regeneracja:
+  `python3 tools/make_qsl_splash.py` -> `data/splash.bmp`
+  + podglad `/workspace/share/podglad-qsl-splash.png`. Wyjscie jest
+  deterministyczne (identyczny md5 przy powtornej generacji).
 - **Wgrywanie wlasnej grafiki bez zmian**: WWW (Linki -> "Wgraj ekran startowy")
   lub pliki `/splash.png|.jpg|.jpeg|.bmp` w LittleFS maja pierwszenstwo nad
   `splash.bmp` (patrz `splashCandidates` w `drawSplashScreen()`). Ten sam mechanizm
