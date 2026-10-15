@@ -1052,6 +1052,21 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   `merged-flash*.bin`, `esp32-ham-clock-s3.zip` (580 wpisow) - w `dist/`
   i `/workspace/share/` (+ `/workspace/share/flash/`). Build oba env: SUCCESS.
 
+## Ekran powitalny: wieksza czcionka + polskie znaki (15.10.2026)
+- `drawWelcomeScreenYellow()` laduje teraz font VLW `data/fonts/Welcome-Regular21.vlw`
+  (DejaVu Sans 21 pt, 319 glifow z polskimi ogonkami) i rysuje nim 5 linii bialego
+  tekstu - WIEKSZE niz poprzedni ROM Font 2 (16 px). Linia bazowa 20 px, wiersz 25 px,
+  najdluzsza linia 465 px (miesci sie w 480). Blok przesuniety o +18 px w dol
+  (litera bazowa lezy w dolnej czesci wiersza) - content 100..219 px, wysrodkowany.
+- Tekst z polskimi znakami: "Projekt bazowy: Konrad Wiśniewski SP3KON",
+  "Adaptacja i rozwój: Tomasz SP9TNV.", "Projekt udostępniany na licencji MIT.".
+  Wymaga UTF-8 w zrodle (PlatformIO/GCC domyslnie UTF-8) + glifow w foncie.
+- Fallback (brak pliku fontu / malo pamieci): ROM Font 2, tekst bez diakrytykow.
+- Generator fontow: `tools/make_vlw_font.py <ttf> <pt> <out.vlw> [xscale]`
+  (format VLW big-endian, zakres ASCII+Latin-1+Latin Extended-A).
+- Podglad: `tools/render_welcome_preview.py` -> `/workspace/share/welcome-preview.png`.
+- Artefakty: oba env SUCCESS, merged-flash*.bin, zip 583 wpisy - w `dist/` i `/workspace/share/`.
+
 ## Ekran powitalny: 20 s + czarny/bialy + usuniecie "Postaw kawe" (15.10.2026)
 - `drawWelcomeScreenYellow()` (main.cpp ~2369) - gdy brak wlasnej grafiki
   `/welcome.<ext>` - renderuje teraz CZARNE tlo (`TFT_BLACK`) i 5 linii BIALEGO

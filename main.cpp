@@ -802,6 +802,10 @@ uint8_t dxTableSizeMode = DX_TABLE_SIZE_NORMAL;
 #define ROBOTO_FONT24_NAME "/fonts/Inter-Regular24"
 #define ROBOTO_FONT24_FILE "/fonts/Inter-Regular24.vlw"
 
+// Wiekszy font z polskimi znakami dla ekranu powitalnego (VLW, DejaVu Sans 21 pt).
+#define WELCOME_FONT_NAME "/fonts/Welcome-Regular21"
+#define WELCOME_FONT_FILE "/fonts/Welcome-Regular21.vlw"
+
 enum TrKey : uint8_t {
   TR_TIME_SHORT = 0,
   TR_CALL_SHORT,
@@ -2392,21 +2396,45 @@ void drawWelcomeScreenYellow() {
   tft.fillScreen(TFT_BLACK);
 
   // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2").
+  // Polskie znaki - wymaga UTF-8 w zrodle (--utf8-source).
   String lines[5];
   lines[0] = "ESP32-HAM-CLOCK v" FIRMWARE_VERSION;
-  lines[1] = "Projekt bazowy: Konrad Wisniewski SP3KON";
-  lines[2] = "Adaptacja i rozwoj: Tomasz SP9TNV.";
+  lines[1] = "Projekt bazowy: Konrad Wiśniewski SP3KON";
+  lines[2] = "Adaptacja i rozwój: Tomasz SP9TNV.";
   lines[3] = "Kontakt: SP9TNV@gmail.com";
-  lines[4] = "Projekt udostepniany na licencji MIT.";
+  lines[4] = "Projekt udostępniany na licencji MIT.";
 
-  // Font 2 (16 px, 1 bajt/znak) daje najwieksza czytelna czcionke dla
-  // najdluzszej linii; brak polskich ogonkow (ROM font) -> tekst bez diakrytykow.
+  // Wiekszy font VLW (DejaVu Sans 21 pt, polskie znaki). Gdy brak pliku/pamieci,
+  // spadamy na ROM Font 2 (16 px, bez diakrytykow) - i tak sie zmiesci.
+  bool smooth = littleFsReady && LittleFS.exists(WELCOME_FONT_FILE) && ESP.getFreeHeap() > 80000;
+  if (smooth) {
+    tft.loadFont(WELCOME_FONT_NAME, LittleFS);
+    int lineH = tft.fontHeight() + 2;
+    // Litera bazowa lezy w dolnej czesci wiersza (ogonki schodza ponizej),
+    // wiec przesuwamy calosc w dol, zeby optycznie wysrodkowac w 320 px.
+    int y = (320 - lineH * 5) / 2 + 18;
+    for (int i = 0; i < 5; i++) {
+      tft.setTextColor(TFT_WHITE, TFT_BLACK);
+      tft.setCursor((480 - tft.textWidth(lines[i])) / 2, y);
+      tft.print(lines[i]);
+      y += lineH;
+    }
+    tft.unloadFont();
+    return;
+  }
+
+  // Fallback: ROM Font 2 (16 px), tekst bez polskich ogonkow.
+  const char *ascii[5] = {
+    "ESP32-HAM-CLOCK v" FIRMWARE_VERSION,
+    "Projekt bazowy: Konrad Wisniewski SP3KON",
+    "Adaptacja i rozwoj: Tomasz SP9TNV.",
+    "Kontakt: SP9TNV@gmail.com",
+    "Projekt udostepniany na licencji MIT."
+  };
   const int lineH = 24;
-  const int totalH = 5 * lineH;
-  int y = (320 - totalH) / 2 + 4;
-
+  int y = (320 - lineH * 5) / 2 + 4;
   for (int i = 0; i < 5; i++) {
-    uiWelcomeText(y, lines[i].c_str(), 2, TFT_WHITE);
+    uiWelcomeText(y, ascii[i], 2, TFT_WHITE);
     y += lineH;
   }
 }
