@@ -50,7 +50,7 @@ def airmail_border(im, x0, y0, x1, y1, band=7, stripe=10):
     im.paste(Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB"), (0, 0))
 
 
-def make_card(locator="JO90AA"):
+def make_card(version="V1.2"):
     im = Image.new("RGB", (W, H), NAVY)
     d = ImageDraw.Draw(im)
 
@@ -129,9 +129,9 @@ def make_card(locator="JO90AA"):
     f_val = font(FONT_BOLD, 15)
     y0 = 208
     d.text((30, y0), "OPERATOR", font=f_lbl, fill=GOLD)
-    d.text((30, y0 + 13), "Tomasz", font=f_val, fill=WHITE)
-    d.text((30, y0 + 36), "LOCATOR", font=f_lbl, fill=GOLD)
-    d.text((30, y0 + 49), locator, font=f_val, fill=WHITE)
+    d.text((30, y0 + 13), "ESP32-HAM-CLOCK", font=f_val, fill=WHITE)
+    d.text((30, y0 + 36), "VERSION", font=f_lbl, fill=GOLD)
+    d.text((30, y0 + 49), version, font=f_val, fill=WHITE)
 
     d.text((190, y0), "QTH", font=f_lbl, fill=GOLD)
     d.text((190, y0 + 13), "Poland", font=f_val, fill=WHITE)
