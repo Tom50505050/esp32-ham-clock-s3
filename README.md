@@ -1,4 +1,4 @@
-# ESP32-HAM-CLOCK — wersja dla ESP32-S3 N16R8 + ILI9488 3.5"
+# ESP32-HAM-CLOCK v1.2 — ESP32-S3 N16R8 + ILI9488 3.5"
 
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-esp32--s3--n16r8-orange?logo=platformio&logoColor=white)](platformio.ini)
 [![ESP32-S3](https://img.shields.io/badge/MCU-ESP32--S3%20N16R8-red?logo=espressif&logoColor=white)](platformio.ini)
@@ -101,7 +101,70 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
-| **v1.2** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
+| **v1.2** | 15.10.2026 | Nowy ekran **APRS RADAR** i **Informacje systemowe** (zamiast Unlis Hunter) · **ISS Pass Tracking** przebudowany (n2yo visualpasses, mapa+radar+metryki, flagi kraju) · **GPS** (NMEA UART2 + automatyczny lokator Maidenhead) · **kolory w TFT**: kolor znaku (menu HSV + picker WWW) i **kolor zegara** · **globalny przełącznik stylu** KLASYCZNY/nowoczesny · **wspólny styl „ISS TRACKER"** na wszystkich ekranach · nowy **ekran startowy** (karta QSL → emblemat ESP32-HAM-CLOCK + VERSION 1.2) i **ekran powitalny** (godło PZK, czcionka VLW) · **WWW**: upload grafiki JPG/PNG/BMP, 14 pozycji, ikony SVG, naprawa „Instrukcja" · **WiFi**: przypinanie do BSSID AP, drabinka mocy TX (AUTH_EXPIRE) |
+| **v1.1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
+
+---
+
+## Zmiany między v1.1 a v1.2
+
+Poniżej pełne zestawienie zmian wprowadzonych od wydania **v1.1** do **v1.2**
+(99 commitów).
+
+### Nowe ekrany
+- **APRS RADAR (ekran 9)** — ekran taktyczny: sprite w PSRAM, animowana smuga,
+  kafelki zakresu, QTH „Moja Stacja", tarcza azymut/elewacja, naprawa fałszywej
+  pozycji (0,0).
+- **Informacje systemowe (ekran 11)** — zastąpił **Unlis Hunter**.
+- **PSK MAP** — tryb **MQTT (PSK Reporter)**, pole lokatora, poprawiony parser API.
+- **ISS Pass Tracking** — przebudowany w stylu strony WWW (mapa + radar + metryki),
+  plan przelotów, przejście na **n2yo visualpasses** (widoczność, czas lokalny,
+  flagi kraju), niezawodny odczyt przelotów.
+
+### Nowe funkcje
+- **GPS** — obsługa modułu NMEA po UART2 + **automatyczny lokator Maidenhead**.
+- **Kolory w TFT**:
+  - **Kolor znaku** — menu HSV (przytrzymanie palca na znaku) + color-picker WWW,
+    skalowanie HSV, zapis w NVS, API.
+  - **Kolor zegara** (cyfry zegara) — pozycja w menu „ODCIEŃ"/„HUE", picker WWW.
+- **Globalny przełącznik stylu** — KLASYCZNY / nowoczesny dla wszystkich ekranów.
+- **Ekran powitalny** — czarne tło, biały wyśrodkowany tekst, godło PZK, większa
+  czcionka VLW z polskimi znakami, wydłużony do 20 s.
+- **Ekran startowy** — grafika krótkofalarska → karta **QSL** → emblemat
+  **ESP32-HAM-CLOCK** + **VERSION 1.2**, poprawiona flaga PL.
+
+### Wygląd (TFT)
+- **Wspólny styl „ISS TRACKER"** na wszystkich ekranach: paleta `UI_COL_*` oraz
+  funkcje `uiHeader()`, `uiFooter()`, `uiHamburger()` — ciemna belka nagłówka
+  z teal linią, hamburger i ikony WiFi/baterii, wspólna stopka. Usunięto
+  pomarańczowe belki i duplikaty ikon.
+- Zegar: nowy nagłówek (czarny pasek, biały napis `ESP32-HAM-CLOCK`), UTC w lewym
+  górnym rogu, zegar analogowy + globus + widmo.
+- Naprawy: migający biały ekran, wyśrodkowanie Matrix, nagłówek POTA,
+  wyśrodkowanie odczytów LAT/LON/ALT/SPEED.
+
+### WWW
+- **Upload grafiki (JPG/PNG/BMP)** — bezpośredni upload ekranu startowego
+  i powitalnego, auto-konwersja do 480×320 RGB565, naprawa uploadu (surowe ciało
+  RAW zamiast multipart).
+- **14 pozycji** w UI, kafelki SVG, pasek statusu i metryki ISS (PL i EN).
+- Naprawa zakładki „Instrukcja" (`/instrukcja.txt` jako zwykły tekst), usunięty
+  przycisk „Postaw kawę".
+
+### WiFi (stabilność)
+- Przypinanie do **BSSID AP** (band steering / Smart Connect).
+- **Drabinka mocy TX** jako obejście `AUTH_EXPIRE`, diagnostyka łączenia.
+- Nie kasuje konfiguracji przy imporcie ustawień z pliku TXT.
+
+### Narzędzia (`tools/`)
+- Nowe skrypty: `gen_worldmask.py`, `img_to_bmp565.py`, `make_vlw_font.py`,
+  `make_qsl_splash.py`, `render_clock_color_preview.py`, `render_menu_preview.py`,
+  `render_welcome_preview.py`; `serve.sh` (setsid — serwer nie pada).
+
+### Nowe pliki danych
+- `data/pzk-logo.bmp`, `data/fonts/Welcome-Regular21.vlw`, `iss_worldmask.h`.
+
+---
 
 ### Wgrywanie z wydania
 
