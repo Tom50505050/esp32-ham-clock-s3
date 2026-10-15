@@ -767,9 +767,8 @@ enum Screen1TimeMode {
   SCREEN1_TIME_LOCAL = 1
 };
 uint8_t screen1TimeMode = SCREEN1_TIME_UTC;
-// Styl ekranu 1 (zegara): 0 = nowy uklad (panele: globus/zegar/widmo),
-// 1 = starsza wersja (callsign + duzy zegar cyfrowy + data + imieniny).
-uint8_t screen1ClockStyle = 1;
+// Styl ekranu 1 (zegara): 0 = nowoczesny (domyslny), 1 = klasyczny.
+uint8_t screen1ClockStyle = 0;
 
 enum TftLang : uint8_t {
   TFT_LANG_PL = 0,
@@ -6910,8 +6909,8 @@ void drawHamClockTimeMenu() {
   tft.setCursor(startX, 104);
   tft.print((tftLanguage == TFT_LANG_EN) ? "CLOCK STYLE" : "WYGLAD ZEGARA");
   const int styleY = 120;
-  drawFilterTile(startX, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "NEW" : "NOWY", screen1ClockStyle == 0);
-  drawFilterTile(startX + tileW + gap, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "OLD" : "STARY", screen1ClockStyle == 1);
+  drawFilterTile(startX, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "MODERN" : "NOWOCZESNY", screen1ClockStyle == 0);
+  drawFilterTile(startX + tileW + gap, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "CLASSIC" : "KLASYCZNY", screen1ClockStyle == 1);
 
   const int closeW = 100;
   const int closeH = 26;
@@ -9980,15 +9979,17 @@ void drawMatrixFrame() {
     drawMatrixBackground(0, SCREEN10_HEIGHT);
   }
   
-  // Zegar w stylu Matrix - wiÄ™kszy i na Ĺ›rodku
+  // Zegar w stylu Matrix - wiekszy i wysrodkowany.
   String timeLocal = getTimezoneTimeString("%H:%M:%S", 9);
-  const int MATRIX_TEXT_SIZE = 4; // WiÄ™kszy rozmiar
-  const int timeCharW = 8 * MATRIX_TEXT_SIZE;
+  const int MATRIX_TEXT_SIZE = 4;
+  // Szerokosc liczymy z realnych metryk fontu (wbudowany font GLCD = 6 px/znak,
+  // nie 8 px), inaczej zegar i data byly przesuniete w lewo.
+  tft.setTextSize(MATRIX_TEXT_SIZE);
+  const int timeWidth = tft.textWidth(timeLocal);
   const int timeCharH = 8 * MATRIX_TEXT_SIZE;
-  const int timeWidth = 8 * timeCharW;
   const int timeHeight = timeCharH;
   const int timeX = (SCREEN10_WIDTH - timeWidth) / 2;
-  const int timeY = (SCREEN10_HEIGHT - timeHeight) / 2; // WyĹ›rodkowany
+  const int timeY = (SCREEN10_HEIGHT - timeHeight) / 2; // Wysrodkowany
   
   // Rysuj zegar tylko gdy siÄ™ zmieniĹ‚
   if (timeLocal != lastClockText) {
@@ -10024,11 +10025,15 @@ void drawMatrixFrame() {
       char dateStr[20];
       strftime(dateStr, sizeof(dateStr), "%d.%m.%Y", &timeinfo);
       
-      int dateTextSize = 2;
-      int dateCharW = 8 * dateTextSize;
-      int dateWidth = strlen(dateStr) * dateCharW;
-      int dateX = (SCREEN10_WIDTH - dateWidth) / 2;
-      int dateY = timeY + timeHeight + 20;
+      const int dateTextSize = 2;
+      tft.setTextSize(dateTextSize);
+      const int dateWidth = tft.textWidth(dateStr);
+      const int dateX = (SCREEN10_WIDTH - dateWidth) / 2;
+      const int dateY = timeY + timeHeight + 20;
+      const int dateH = 8 * dateTextSize;
+
+      // Wyczysc obszar daty (bez tego zostawaly resztki przy zmianie tekstu).
+      tft.fillRect(dateX - 5, dateY - 5, dateWidth + 10, dateH + 10, TFT_BLACK);
       
       // CieĹ„ daty
       tft.setTextSize(dateTextSize);
@@ -16973,7 +16978,7 @@ void loadPreferences() {
 
   screen1TimeMode = (uint8_t)preferences->getInt("screen1_time", SCREEN1_TIME_UTC);
   if (screen1TimeMode > SCREEN1_TIME_LOCAL) screen1TimeMode = SCREEN1_TIME_UTC;
-  screen1ClockStyle = (uint8_t)preferences->getInt("screen1_style", 1);
+  screen1ClockStyle = (uint8_t)preferences->getInt("screen1_style", 0);
   if (screen1ClockStyle > 1) screen1ClockStyle = 0;
   
   // Konfiguracja wygaszacza ekranu (Matrix)
