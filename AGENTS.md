@@ -1052,12 +1052,6 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   `merged-flash*.bin`, `esp32-ham-clock-s3.zip` (580 wpisow) - w `dist/`
   i `/workspace/share/` (+ `/workspace/share/flash/`). Build oba env: SUCCESS.
 
-## Napisy inicjalizacji TFT na bialo (15.10.2026)
-- Ekran inicjalizacji (`drawBootScreen()` + `tftBootPrintLine()`, main.cpp ~2353)
-  pisze teraz BIALE napisy na czarnym tle (`TFT_WHITE`), wczesniej zielone.
-  Dotyczy to takze logu bootowania (`bootLogLine()` -> WiFi, LittleFS, config itd.).
-- Zmiana tylko koloru tekstu; rozmiar (Font 1/2), pozycje i czyszczenie ekranu bez zmian.
-
 ## Godlo PZK na ekranie powitalnym (15.10.2026)
 - Nad tekstem ekranu powitalnego rysowany jest znak PZK (Polski Zwiazek
   Krotkofalowcow) - niebieski romb 46x96 px, `data/pzk-logo.bmp` (BMP 24-bit,
