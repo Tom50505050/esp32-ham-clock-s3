@@ -994,7 +994,9 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Menu czasu (WYGLAD ZEGARA: NOWOCZESNY/KLASYCZNY) w obu stylach otwiera sie
   kliknieciem w prawy gorny rog (x > 285 && y < 35).
 - **Domyslny styl = NOWOCZESNY** (`screen1ClockStyle = 0`); klasyczny jest opcja.
-- **Nie przerabiac** tego ukladu na wspolny styl ISS - uzytkownik tego nie chce.
+- Styl zegara (`screen1ClockStyle`) jest teraz stylem GLOBALNYM - patrz sekcja
+  "STYL GLOBALNY + MENU NOWOCZESNE" nizej. Przycisk KLASYCZNY w menu czasu
+  przelacza WSZYSTKIE ekrany (akcent naglowka, kolor menu, kolor znaku).
 
 ## EKRAN 10 (MATRIX) - wysrodkowanie zegara i daty (15.10.2026)
 - `drawMatrixFrame()` liczy szerokosc tekstu z realnej metryki `tft.textWidth()`,
@@ -1004,6 +1006,39 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Data: czyszczona (`fillRect`) przed rysowaniem - wczesniej zostawaly resztki
   przy zmianie tekstu (rysowanie tylko gdy `timeLocal != lastClockText`).
 - Podglad: `/workspace/share/matrix-zegar-srodek.png`.
+
+## STYL GLOBALNY + MENU NOWOCZESNE (15.10.2026)
+- `screen1ClockStyle` (0 = nowoczesny, 1 = klasyczny) jest teraz **stylem
+  globalnym**, nie tylko zegara. Przycisk `KLASYCZNY`/`NOWOCZESNY` w menu
+  "TIME MODE" (ekran zegara, prawy gorny rog) przelacza od razu **wszystkie**
+  ekrany: akcent naglowka, kolor menu (`menuThemeColor`) i kolor znaku.
+  Wybor jest zapisywany (`screen1_style`) w `savePreferences()`.
+- `applyMenuThemeFromHue()`: nowoczesny = `UI_COL_ACCENT` (teal, wspolny styl
+  ISS), klasyczny = `colorWheel(menuThemeHue)` (domyslnie pomaranczowy). Suwak
+  motywu (`menu_hue`) dziala tylko w trybie klasycznym; jego wartosc jest
+  zapamietywana, wiec powrot do klasycznego odtwarza kolor.
+- `screen1ClockStyle` jest wczytywany **przed** `applyMenuThemeFromHue()` w
+  `loadPreferences()` - inaczej kolor menu bylby zly po restarcie.
+- **Menu nowoczesne:** wspolny helper `uiMenuHeader(title)` (ciemna karta
+  `UI_COL_CARD` + linia akcentu, tytul po lewej). Uzywaja go: TIME MODE,
+  FILTERS (DX), POTA FILTERS, HAMALERT FILTR, APRS, WEATHER MENU, USTAWIENIA TFT,
+  KOLOR ZNAKU, WYGASZACZ EKRANU, USPIENIE EKRANU.
+- `drawFilterTile()`: nowoczesny = ciemna karta + teal (aktywne wypelnienie,
+  nieaktywne obramowanie `UI_COL_BORDER`); klasyczny = stare wypelnienie
+  `TFT_DARKGREY`/motyw. Szerokosc etykiety liczona z `tft.textWidth()`
+  (wczesniej `strlen*6` - zle dla szerokich znakow).
+- `uiHeader()` automatycznie dopasowuje tytul: Font 2 (16 px) gdy sie miesci
+  miedzy hamburgerem (x~34) a WiFi (x~415), inaczej Font 1, w ostatecznosci
+  przycina. Naprawia to m.in. "POTA.app" i dluzsze tytuly ("SOLAR PROPAGATION
+  INDEX", "Prognoza pogody").
+- **Nadal nie przerabiac** samego ekranu zegara na wspolny styl ISS - ma wlasne
+  naglowki (nowoczesny/klasyczny). Zmiana dotyczy tylko podmenu i akcentu.
+- Podglad ukladu: `/workspace/share/podglad-menu-nowoczesny.png`
+  (renderer: `tools/render_menu_preview.py`, uzywa realnych bitmap fontow
+  TFT_eSPI Font16.c + glcdfont.c).
+- Artefakty po zmianie: `firmware.bin` / `firmware-notouch.bin`,
+  `merged-flash*.bin`, `esp32-ham-clock-s3.zip` (579 wpisow) - w `dist/`
+  i `/workspace/share/` (+ `/workspace/share/flash/`). Build oba env: SUCCESS.
 
 
 

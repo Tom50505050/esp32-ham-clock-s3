@@ -359,6 +359,12 @@ public:
     return textWidth(String(string));
   }
 
+  // Szerokosc tekstu dla konkretnego fontu (1..8), niezalezna od setTextSize().
+  // Uzywane przez uiHeader(), ktore wybiera font zamiast skalowac rozmiar.
+  int16_t textWidthFont(const char *string, uint8_t font) {
+    return unscaleX(TFT_eSPI::textWidth(string, font));
+  }
+
   int16_t fontHeight() {
     return unscaleY(TFT_eSPI::fontHeight());
   }
@@ -768,7 +774,10 @@ enum Screen1TimeMode {
 };
 uint8_t screen1TimeMode = SCREEN1_TIME_UTC;
 // Styl ekranu 1 (zegara): 0 = nowoczesny (domyslny), 1 = klasyczny.
+// UWAGA: to jest teraz styl GLOBALNY - przycisk KLASYCZNY w menu czasu
+// przelacza wszystkie ekrany (kolor znaku/tlo menu) na klasyczny.
 uint8_t screen1ClockStyle = 0;
+static bool uiStyleClassic() { return screen1ClockStyle == 1; }
 
 enum TftLang : uint8_t {
   TFT_LANG_PL = 0,
@@ -2778,7 +2787,11 @@ uint16_t colorWheel(uint8_t pos) {
 }
 
 void applyMenuThemeFromHue() {
-  menuThemeColor = colorWheel(menuThemeHue);
+  // W trybie nowoczesnym menu ma zawsze teal (wspolny styl ISS), niezaleznie od
+  // suwaka motywu; w trybie klasycznym uzywamy koloru z kolowego (domyslnie
+  // pomaranczowy). Zapisujemy suwak do menuThemeHue, wiec powrot do klasycznego
+  // odtwarza wybrany wczesniej kolor.
+  menuThemeColor = uiStyleClassic() ? colorWheel(menuThemeHue) : UI_COL_ACCENT;
 }
 
 // Definicja koloru "Radio Orange" - dynamiczny motyw
@@ -5918,16 +5931,69 @@ static void uiHamburger(int x, int y) {
 
 // Naglowek ekranu w stylu ISS: ciemna karta + teal linia, tytul wysrodkowany,
 // opcjonalny hamburger po lewej, ikony WiFi/baterii po prawej.
+// Tytul jest automatycznie dopasowywany fontem: najpierw Font 2 (16 px), a gdy
+// nie miesci sie miedzy ikona menu (x~34) a WiFi (x~420), schodzimy do Font 1.
 static void uiHeader(const char *title, bool showMenu) {
+  const uint16_t accent = uiStyleClassic() ? TFT_RADIO_ORANGE : UI_COL_ACCENT;
   tft.fillRect(0, 0, 480, UI_HEADER_H, UI_COL_CARD);
-  tft.drawFastHLine(0, UI_HEADER_H - 1, 480, UI_COL_ACCENT);
+  tft.drawFastHLine(0, UI_HEADER_H - 1, 480, accent);
   if (showMenu) uiHamburger(5, 4);
-  tft.setTextDatum(TC_DATUM);
   tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
-  tft.drawString(title, 240, 5, 2);  // Font 2 (16 px) - proporcjonalny, miesci sie w ramce
+  const int leftLimit = 34;
+  const int rightLimit = 415;
+  const int availW = rightLimit - leftLimit;
+  // textWidthFont() jest niezalezne od setTextSize() - mierzymy realna szerokosc
+  // napisu w danym foncie (Font 2 = 16 px, Font 1 = 8 px).
+  const int w2 = tft.textWidthFont(title, 2);
+  const int w1 = tft.textWidthFont(title, 1);
+  if (w2 <= availW) {
+    tft.setTextDatum(TC_DATUM);
+    tft.drawString(title, 240, 5, 2);
+  } else if (w1 <= availW) {
+    tft.setTextDatum(TC_DATUM);
+    tft.drawString(title, 240, 9, 1);
+  } else {
+    // Ostatecznosc: przytnij Font 2 tak, zeby zmiescil sie w naglowku.
+    String t(title);
+    while (t.length() > 1 && tft.textWidthFont(t.c_str(), 2) > availW) {
+      t.remove(t.length() - 1);
+    }
+    tft.setTextDatum(TC_DATUM);
+    tft.drawString(t, 240, 5, 2);
+  }
   tft.setTextDatum(TL_DATUM);
   drawWifiSignalBars(445, 1);
   drawBatteryIcon(420, 1);
+}
+
+// Naglowek MENU w stylu nowoczesnym: ciemna karta + teal linia, tytul po lewej.
+// Uzywany przez wszystkie podmenu (filtry DX/POTA/HamAlert, APRS, pogoda, czas,
+// jasnosc, kolor znaku, uspienie). Kolorem akcentu jest TFT_RADIO_ORANGE
+// (teal w trybie nowoczesnym, kolor z kolowego w klasycznym).
+static void uiMenuHeader(const char *title) {
+  tft.fillRect(0, 0, 480, 30, UI_COL_CARD);
+  tft.drawFastHLine(0, 29, 480, TFT_RADIO_ORANGE);
+  tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+  tft.setTextSize(1);
+  int w1 = tft.textWidth(title);
+  if (w1 <= 450) {
+    tft.setCursor(10, 11);
+    tft.print(title);
+  } else {
+    tft.setTextSize(2);
+    int w2 = tft.textWidth(title);
+    if (w2 <= 460) {
+      tft.setCursor(10, 7);
+      tft.print(title);
+    } else {
+      String t(title);
+      tft.setTextSize(2);
+      while (t.length() > 1 && tft.textWidth(t) > 460) t.remove(t.length() - 1);
+      tft.setCursor(10, 7);
+      tft.print(t);
+    }
+  }
+  tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
 }
 
 // Zegar UTC w lewym gornym rogu naglowka (mniejszy, obok hamburgera przy menu).
@@ -6459,13 +6525,19 @@ static void aprsRadarTick() {
 }
 
 void drawFilterTile(int x, int y, int w, int h, const char *label, bool active) {
-  uint16_t fill = active ? TFT_RADIO_ORANGE : TFT_DARKGREY;
-  uint16_t text = active ? TFT_BLACK : TFT_WHITE;
+  // Styl nowoczesny: ciemna karta, aktywne = teal (wypelnienie), nieaktywne =
+  // ciemna karta z obramowaniem. Klasyczny: wypelnienie kolorem motywu.
+  const bool classic = uiStyleClassic();
+  uint16_t fill = classic ? (active ? TFT_RADIO_ORANGE : TFT_DARKGREY)
+                          : (active ? TFT_RADIO_ORANGE : UI_COL_CARD);
+  uint16_t border = classic ? TFT_BLACK : (active ? TFT_RADIO_ORANGE : UI_COL_BORDER);
+  uint16_t text = classic ? (active ? TFT_BLACK : TFT_WHITE)
+                          : (active ? TFT_BLACK : UI_COL_TEXT);
   tft.fillRect(x, y, w, h, fill);
-  tft.drawRect(x, y, w, h, TFT_BLACK);
+  tft.drawRect(x, y, w, h, border);
   tft.setTextSize(1);
   tft.setTextColor(text);
-  int textW = strlen(label) * 6;
+  int textW = tft.textWidth(label);
   int textX = x + (w - textW) / 2;
   int textY = y + (h - 8) / 2;
   tft.setCursor(textX, textY);
@@ -6489,10 +6561,7 @@ static void drawScreen6MenuCheckButton(int x, int y, const char *label, bool che
 
 void drawDxClusterFilterMenu() {
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(3);
-  tft.setCursor(10, 8);
-  tft.print("FILTERS");
+  uiMenuHeader("FILTERS");
 
   tft.setTextSize(2);
   tft.setTextColor(TFT_LIGHTGREY);
@@ -6585,10 +6654,7 @@ void handleScreen2MenuTouch(uint16_t x, uint16_t y) {
 
 void drawAprsSortMenu() {
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(10, 4);
-  tft.print("SORT BY:");
+  uiMenuHeader("APRS");
 
   const int tileW = 90;
   const int tileH = 26;
@@ -6698,10 +6764,7 @@ void handleScreen6MenuTouch(uint16_t x, uint16_t y) {
 
 void drawPotaFilterMenu() {
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(10, 6);
-  tft.print("POTA FILTERS");
+  uiMenuHeader("POTA FILTERS");
 
   tft.setTextSize(1);
   tft.setTextColor(TFT_LIGHTGREY);
@@ -6794,10 +6857,7 @@ void handleScreen7MenuTouch(uint16_t x, uint16_t y) {
 
 void drawHamalertFilterMenu() {
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(10, 6);
-  tft.print("HAMALERT FILTR");
+  uiMenuHeader("HAMALERT FILTR");
 
   tft.setTextSize(1);
   tft.setTextColor(TFT_LIGHTGREY);
@@ -6890,10 +6950,7 @@ void handleScreen8MenuTouch(uint16_t x, uint16_t y) {
 
 void drawHamClockTimeMenu() {
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(10, 6);
-  tft.print("TIME MODE");
+  uiMenuHeader("TIME MODE");
 
   const int tileW = 110;
   const int tileH = 28;
@@ -6903,12 +6960,12 @@ void drawHamClockTimeMenu() {
   drawFilterTile(startX, tileY, tileW, tileH, "UTC", screen1TimeMode == SCREEN1_TIME_UTC);
   drawFilterTile(startX + tileW + gap, tileY, tileW, tileH, "LOCAL", screen1TimeMode == SCREEN1_TIME_LOCAL);
 
-  // Wybor wygladu ekranu zegara: nowy uklad / starsza wersja.
+  // Wybor wygladu WSZYSTKICH ekranow: nowoczesny / klasyczny.
   tft.setTextColor(TFT_LIGHTGREY);
   tft.setTextSize(1);
-  tft.setCursor(startX, 104);
-  tft.print((tftLanguage == TFT_LANG_EN) ? "CLOCK STYLE" : "WYGLAD ZEGARA");
-  const int styleY = 120;
+  tft.setCursor(startX, 100);
+  tft.print((tftLanguage == TFT_LANG_EN) ? "SCREEN STYLE (ALL)" : "WYGLAD EKRANOW (WSZYSTKIE)");
+  const int styleY = 114;
   drawFilterTile(startX, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "MODERN" : "NOWOCZESNY", screen1ClockStyle == 0);
   drawFilterTile(startX + tileW + gap, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "CLASSIC" : "KLASYCZNY", screen1ClockStyle == 1);
 
@@ -6921,10 +6978,7 @@ void drawHamClockTimeMenu() {
 
 void drawWeatherMenu() {
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(10, 6);
-  tft.print("WEATHER MENU");
+  uiMenuHeader("WEATHER MENU");
 
   const int tileW = 140;
   const int tileH = 36;
@@ -7001,17 +7055,24 @@ void handleScreen1MenuTouch(uint16_t x, uint16_t y) {
     return;
   }
 
-  // Wybor wygladu zegara.
-  const int styleY = 120;
+  // Wybor wygladu WSZYSTKICH ekranow (nowoczesny / klasyczny). Klikniecie
+  // zapisuje od razu - wszystkie ekrany i menu przelaczaja sie natychmiast.
+  const int styleY = 114;
   if (isPointInRect(x, y, startX, styleY, tileW, tileH)) {
-    screen1ClockStyle = 0;
-    savePreferences();
+    if (screen1ClockStyle != 0) {
+      screen1ClockStyle = 0;
+      applyMenuThemeFromHue();
+      savePreferences();
+    }
     drawHamClockTimeMenu();
     return;
   }
   if (isPointInRect(x, y, startX + tileW + gap, styleY, tileW, tileH)) {
-    screen1ClockStyle = 1;
-    savePreferences();
+    if (screen1ClockStyle != 1) {
+      screen1ClockStyle = 1;
+      applyMenuThemeFromHue();
+      savePreferences();
+    }
     drawHamClockTimeMenu();
     return;
   }
@@ -7110,11 +7171,7 @@ void drawThemeSlider() {
 }
 
 void drawBrightnessMenuHeader() {
-  tft.fillRect(0, 0, 480, 28, menuThemeColor);
-  tft.setTextColor(TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setCursor(10, 6);
-  tft.print(sanitizePolishToAscii(String(tr(TR_DISPLAY_SETTINGS))));
+  uiMenuHeader(sanitizePolishToAscii(String(tr(TR_DISPLAY_SETTINGS))).c_str());
 }
 
 void drawBrightnessMenu() {
@@ -7596,11 +7653,7 @@ static void redrawCallsignColorControls() {
 
 void drawCallsignColorMenu() {
   tft.fillScreen(TFT_BLACK);
-  tft.fillRect(0, 0, 480, 28, menuThemeColor);
-  tft.setTextColor(TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setCursor(10, 6);
-  tft.print(sanitizePolishToAscii(String(tr(TR_CALLSIGN_COLOR))));
+  uiMenuHeader(sanitizePolishToAscii(String(tr(TR_CALLSIGN_COLOR))).c_str());
 
   drawCallsignColorPreview();
 
@@ -16508,10 +16561,7 @@ void openQrzPopup(const String &callsign) {
 
 void drawScreenSaverMenu() {
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(10, 6);
-  tft.print("WYGASZACZ EKRANU");
+  uiMenuHeader("WYGASZACZ EKRANU");
 
   const int tileW = 100;
   const int tileH = 40;
@@ -16649,14 +16699,10 @@ void handleScreenSaverMenuTouch(uint16_t x, uint16_t y) {
 void drawScreenSleepMenu() {
   tft.fillScreen(TFT_BLACK);
 
-  // NagĹ‚Ăłwek
-  tft.fillRect(0, 0, 480, 28, menuThemeColor);
-  tft.setTextColor(TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setCursor(10, 6);
-  tft.print("USPIENIE EKRANU");
+  // Naglowek
+  uiMenuHeader("USPIENIE EKRANU");
 
-  // Stan: WĹ‚Ä…czony/WyĹ‚Ä…czony
+  // Stan: Wlaczony/Wylaczony
   const int tileW = 100;
   const int tileH = 40;
   const int gap = 10;
@@ -16928,6 +16974,10 @@ void loadPreferences() {
   if (savedMenuHue < 0) savedMenuHue = 0;
   if (savedMenuHue > 255) savedMenuHue = 255;
   menuThemeHue = (uint8_t)savedMenuHue;
+  // Styl globalny musi byc znany PRZED applyMenuThemeFromHue() - w trybie
+  // nowoczesnym kolor menu to teal, w klasycznym kolor z kolowego (menu_hue).
+  screen1ClockStyle = (uint8_t)preferences->getInt("screen1_style", 0);
+  if (screen1ClockStyle > 1) screen1ClockStyle = 0;
   applyMenuThemeFromHue();
   callsignColor = preferences->getUInt("callsign_color", 65535); // Default white (0xFFFF)
   // NVS nieustawione/0 daje czarny znak (niewidoczny na czarnym tle). Wymus biel.
@@ -16981,8 +17031,6 @@ void loadPreferences() {
 
   screen1TimeMode = (uint8_t)preferences->getInt("screen1_time", SCREEN1_TIME_UTC);
   if (screen1TimeMode > SCREEN1_TIME_LOCAL) screen1TimeMode = SCREEN1_TIME_UTC;
-  screen1ClockStyle = (uint8_t)preferences->getInt("screen1_style", 0);
-  if (screen1ClockStyle > 1) screen1ClockStyle = 0;
   
   // Konfiguracja wygaszacza ekranu (Matrix)
   screenSaverEnabled = preferences->getBool("ss_enabled", false);
