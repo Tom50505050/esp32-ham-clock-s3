@@ -7635,6 +7635,9 @@ void openCallsignColorMenu() {
   callsignColorMenuPrevScreen = currentScreen;
   callsignColorMenuPrevInMenu = inMenu;
   callsignColorMenuOpenedMs = millis();
+  // Blokuj petle glowna (m.in. odswiezanie zegara ekranu 1 co sekunde), inaczej
+  // zegar rysuje sie na wierzchu menu koloru znaku i przeszkadza w ustawieniach.
+  inMenu = true;
   callsignColorMenuActive = true;
   drawCallsignColorMenu();
 }
