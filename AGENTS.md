@@ -705,6 +705,17 @@ domyslnie 0xFFFF bialy) mozna teraz ustawic na dwa sposoby:
   (nie 0..100!) - inaczej 100% jasnosci dawalo ~39% ("polowa jasnosci").
   Domyslne suwaki: nasycenie 100%, jasnosc 100%.
 
+### REGRESJA (naprawione 15.10.2026): zegar przeslanial menu koloru znaku
+Objaw: po otwarciu menu "KOLOR ZNAKU" (przytrzymanie palca na znaku) na wierzchu
+menu rysowal sie zegar ekranu 1 i przeszkadzal w ustawieniach.
+Przyczyna: `openCallsignColorMenu()` zapisywalo stan `inMenu` do
+`callsignColorMenuPrevInMenu`, ale NIE ustawialo `inMenu = true`. Petla glowna
+odswieza ekran 1 warunkiem `!inMenu`, wiec zegar dalej sie przerysowywal.
+Poprawka: `inMenu = true` w `openCallsignColorMenu()` (tak jak w menu jasnosci);
+przy ZAPISZ/ZAMKNIJ `inMenu` jest przywracane z `callsignColorMenuPrevInMenu`.
+UWAGA na przyszlosc: KAZDE wlasne menu pelnoekranowe musi ustawiac `inMenu = true`
+i przywracac poprzednia wartosc przy zamknieciu.
+
 
 ## PSK Reporter: naprawa parsera API - mapa nie dzialala (14.10.2026)
 Objaw: ekran PSK MAP rysowal mape i tylko czerwona kropke usera, zero spotow
