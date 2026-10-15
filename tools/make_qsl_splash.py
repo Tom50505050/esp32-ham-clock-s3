@@ -103,19 +103,25 @@ def make_card(version="V1.2"):
     f_sm = font(FONT_BOLD, 10)
     d.text((W - 90, 44), "POLAND", font=f_sm, fill=WHITE)
 
-    # ================= glowny emblemat: QSL (bez znaku wywolawczego) =================
-    f_big = font(FONT_SERIF_BOLD, 104)
-    big = "QSL"
+    # ================= glowny emblemat: ESP32-HAM-CLOCK / VERSION =================
+    f_big = font(FONT_SERIF_BOLD, 36)
+    big = "ESP32-HAM-CLOCK"
     bw = d.textlength(big, font=f_big)
     bx = (W - bw) / 2
     glow = Image.new("RGB", (W, H), (0, 0, 0))
-    ImageDraw.Draw(glow).text((bx, 72), big, font=f_big, fill=(70, 105, 45))
-    glow = glow.filter(ImageFilter.GaussianBlur(7))
+    ImageDraw.Draw(glow).text((bx, 92), big, font=f_big, fill=(70, 105, 45))
+    glow = glow.filter(ImageFilter.GaussianBlur(6))
     im = Image.blend(im, Image.composite(glow, im, glow.convert("L")), 0.4)
     d = ImageDraw.Draw(im)
     # zloty cien (offset) + bialy napis na wierzchu
-    d.text((bx + 4, 76), big, font=f_big, fill=GOLD, stroke_width=2, stroke_fill=GOLD_DK)
-    d.text((bx, 72), big, font=f_big, fill=WHITE, stroke_width=2, stroke_fill=GOLD_DK)
+    d.text((bx + 2, 94), big, font=f_big, fill=GOLD, stroke_width=1, stroke_fill=GOLD_DK)
+    d.text((bx, 92), big, font=f_big, fill=WHITE, stroke_width=1, stroke_fill=GOLD_DK)
+
+    # pod nazwa: VERSION 1.2
+    f_ver = font(FONT_BOLD, 15)
+    ver = "VERSION " + version.lstrip("Vv")
+    vw = d.textlength(ver, font=f_ver)
+    d.text(((W - vw) / 2, 132), ver, font=f_ver, fill=CYAN)
 
     # ================= linia + podtytul =================
     d.line([(30, 176), (W - 30, 176)], fill=GOLD, width=2)
@@ -128,15 +134,15 @@ def make_card(version="V1.2"):
     f_lbl = font(FONT_BOLD, 10)
     f_val = font(FONT_BOLD, 15)
     y0 = 208
-    d.text((30, y0), "OPERATOR", font=f_lbl, fill=GOLD)
-    d.text((30, y0 + 13), "ESP32-HAM-CLOCK", font=f_val, fill=WHITE)
-    d.text((30, y0 + 36), "VERSION", font=f_lbl, fill=GOLD)
-    d.text((30, y0 + 49), version, font=f_val, fill=WHITE)
+    d.text((30, y0), "QTH", font=f_lbl, fill=GOLD)
+    d.text((30, y0 + 13), "Poland", font=f_val, fill=WHITE)
+    d.text((30, y0 + 36), "LOCATOR", font=f_lbl, fill=GOLD)
+    d.text((30, y0 + 49), "JO90AA", font=f_val, fill=WHITE)
 
-    d.text((190, y0), "QTH", font=f_lbl, fill=GOLD)
-    d.text((190, y0 + 13), "Poland", font=f_val, fill=WHITE)
-    d.text((190, y0 + 36), "ORGANIZATION", font=f_lbl, fill=GOLD)
-    d.text((190, y0 + 49), "PZK", font=f_val, fill=WHITE)
+    d.text((190, y0), "ORGANIZATION", font=f_lbl, fill=GOLD)
+    d.text((190, y0 + 13), "PZK", font=f_val, fill=WHITE)
+    d.text((190, y0 + 36), "BAND", font=f_lbl, fill=GOLD)
+    d.text((190, y0 + 49), "HF / VHF / UHF", font=f_val, fill=WHITE)
 
     # prawa kolumna: godlo PZK
     try:
