@@ -966,6 +966,15 @@
                         <small>Kolor znaku wywoławczego na głównym ekranie. Możesz też przytrzymać palec na znaku na ekranie TFT, aby zmienić kolor.</small>
                     </div>
                     <div class="form-group">
+                        <label>Kolor cyfr zegara (ekran HAM CLOCK, styl nowoczesny):</label>
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <input type="color" id="clock_color_picker" value="#ffff00" style="width:60px; height:36px; padding:0; border:1px solid #444; background:#1a1a1a; cursor:pointer;" oninput="document.getElementById('clock_color_hex').textContent=this.value;">
+                            <span id="clock_color_hex" style="font-family:monospace; color:#b0b0b0;">#ffff00</span>
+                            <button type="button" class="btn" onclick="resetClockColor()" style="padding:6px 12px;">Domyślny (żółty)</button>
+                        </div>
+                        <small>Kolor cyfr dużego zegara. Możesz też przytrzymać palec na zegarze na ekranie TFT, aby zmienić kolor.</small>
+                    </div>
+                    <div class="form-group">
                         <label>Twój Locator (Maidenhead):</label>
                         <input type="text" id="user_locator" name="user_locator" placeholder="np. JO82LK">
                         <small>Lokator Maidenhead (4-6 znaków) używany do obliczania odległości do spotów</small>
@@ -1672,6 +1681,12 @@
             const lbl = document.getElementById('callsign_color_hex');
             if (lbl) lbl.textContent = '#ffffff';
         };
+        const resetClockColor = () => {
+            const picker = document.getElementById('clock_color_picker');
+            if (picker) picker.value = '#ffff00';
+            const lbl = document.getElementById('clock_color_hex');
+            if (lbl) lbl.textContent = '#ffff00';
+        };
         const getQrzLink = (callsign) => {
             const call = (callsign || "").trim();
             return call ? "https://www.qrz.com/db/" + encodeURIComponent(call) : "#";
@@ -1885,6 +1900,15 @@
                     const hex = rgb565ToHex(data.callsign_color);
                     picker.value = hex;
                     const lbl = document.getElementById('callsign_color_hex');
+                    if (lbl) lbl.textContent = hex;
+                }
+            })();
+            (() => {
+                const picker = document.getElementById('clock_color_picker');
+                if (picker) {
+                    const hex = rgb565ToHex(data.clock_color !== undefined ? data.clock_color : 65504);
+                    picker.value = hex;
+                    const lbl = document.getElementById('clock_color_hex');
                     if (lbl) lbl.textContent = hex;
                 }
             })();
@@ -3077,6 +3101,10 @@
             callsign_color: (() => {
                 const picker = document.getElementById('callsign_color_picker');
                 return picker ? hexToRgb565(picker.value) : 65535;
+            })(),
+            clock_color: (() => {
+                const picker = document.getElementById('clock_color_picker');
+                return picker ? hexToRgb565(picker.value) : 65504;
             })(),
             user_locator: document.getElementById('user_locator').value,
             timezone: parseFloat(document.getElementById('timezone').value) || 0,

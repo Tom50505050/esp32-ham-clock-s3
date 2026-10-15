@@ -112,6 +112,11 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap);
 void drawCallsignColorMenu();
 void handleCallsignColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap);
 void openCallsignColorMenu();
+void drawClockColorMenu();
+void handleClockColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap);
+void openClockColorMenu();
+uint16_t hsv565(int hue, int sat, int val);
+static void rgb565ToHsv(uint16_t c, int &h, int &sat, int &val);
 bool isPointInRect(uint16_t x, uint16_t y, int rx, int ry, int rw, int rh);
 void handleScreen1MenuTouch(uint16_t x, uint16_t y);
 void handleScreen2MenuTouch(uint16_t x, uint16_t y);
@@ -841,6 +846,7 @@ enum TrKey : uint8_t {
   TR_CALLSIGN_COLOR,
   TR_SATURATION,
   TR_VALUE,
+  TR_CLOCK_COLOR,
   TR_KEY_COUNT
 };
 
@@ -873,7 +879,8 @@ static const char* TR_PL[TR_KEY_COUNT] = {
   "JÄZYK",
   "KOLOR ZNAKU",
   "NASYCENIE",
-  "JASNOĹšÄ†"
+  "JASNOĹšÄ†",
+  "KOLOR ZEGARA"
 };
 
 static const char* TR_EN[TR_KEY_COUNT] = {
@@ -905,7 +912,8 @@ static const char* TR_EN[TR_KEY_COUNT] = {
   "LANGUAGE",
   "CALLSIGN COLOR",
   "SATURATION",
-  "VALUE"
+  "VALUE",
+  "CLOCK COLOR"
 };
 
 static const char* tr(TrKey key) {
@@ -1083,6 +1091,7 @@ ScreenType brightnessMenuPrevScreen = SCREEN_HAM_CLOCK;
 bool brightnessMenuPrevInMenu = false;
 uint8_t brightnessMenuPrevThemeHue = DEFAULT_MENU_THEME_HUE;
 int brightnessMenuPrevBacklight = TFT_BACKLIGHT;
+uint16_t brightnessMenuPrevClockColor = 0xFFE0;
 unsigned long brightnessMenuOpenedMs = 0;
 unsigned long brightnessMenuTouchStartMs = 0;
 bool brightnessMenuLongPressHandled = false;
@@ -1692,6 +1701,18 @@ String weatherApiKey = "";
 String n2yoApiKey = "";
 String openWebRxUrl = DEFAULT_OPENWEBRX_URL;
 uint16_t callsignColor = 65535; // Default white (0xFFFF)
+// Kolor cyfr zegara (duzy zegar cyfrowy na ekranie HAM CLOCK, styl nowoczesny).
+// Domyslnie zolty (HC_YELLOW) - jak wczesniej. Zmiana: menu jasnosci (suwak
+// "KOLOR ZEGARA"), WWW (Twoja Stacja) albo dlugie przytrzymanie zegara.
+uint16_t clockDigitsColor = 0xFFE0; // Default yellow (0xFFE0)
+bool clockColorMenuActive = false;
+int clockColorMenuHue = 0;    // 0..255
+int clockColorMenuSat = 100;  // 0..100 (%)
+int clockColorMenuVal = 100;  // 0..100 (%)
+uint16_t clockColorMenuPrev = 0xFFE0;
+ScreenType clockColorMenuPrevScreen = SCREEN_HAM_CLOCK;
+bool clockColorMenuPrevInMenu = false;
+unsigned long clockColorMenuOpenedMs = 0;
 // Menu koloru znaku (przytrzymanie palca na znaku na ekranie HAM CLOCK).
 bool callsignColorMenuActive = false;
 int callsignColorMenuHue = 0;    // 0..255
@@ -1703,6 +1724,8 @@ bool callsignColorMenuPrevInMenu = false;
 unsigned long callsignColorMenuOpenedMs = 0;
 // Obszar znaku na ekranie HAM CLOCK (do wykrycia przytrzymania palca).
 int callsignHitX = 40, callsignHitY = 45, callsignHitW = 400, callsignHitH = 55;
+// Obszar duzego zegara na ekranie HAM CLOCK (do wykrycia przytrzymania palca).
+int clockHitX = 40, clockHitY = 125, clockHitW = 400, clockHitH = 70;
 
 // ========== ISS TRACKING VARIABLES ==========
 #define ISS_TRAJECTORY_POINTS 45
@@ -3850,14 +3873,19 @@ static void hamClockModernCallsign() {
 }
 
 static void hamClockModernTime() {
-  tft.setTextColor(HC_YELLOW, HC_BG);
+  tft.setTextColor(clockDigitsColor, HC_BG);
   tft.setTextSize(7);
   String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                      ? getTimezoneTimeString("%H:%M:%S", 9)
                      : getUtcTimeString();
   int timeY = 130;
-  tft.setCursor(max(10, (480 - tft.textWidth(timeStr)) / 2), timeY);
+  int timeX = max(10, (480 - tft.textWidth(timeStr)) / 2);
+  tft.setCursor(timeX, timeY);
   tft.print(timeStr);
+  clockHitX = timeX - 10;
+  clockHitY = timeY - 5;
+  clockHitW = tft.textWidth(timeStr) + 20;
+  clockHitH = 66;
 
   tft.setTextSize(1);
   const char *timeLabel = "UTC";
@@ -3967,7 +3995,7 @@ static void updateScreen1ClockModern() {
   if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
     return;
   }
-  tft.setTextColor(HC_YELLOW, HC_BG);
+  tft.setTextColor(clockDigitsColor, HC_BG);
   tft.setTextSize(7);
   String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                      ? getTimezoneTimeString("%H:%M:%S", 9)
@@ -5561,6 +5589,7 @@ void handleTouchNavigation() {
         brightnessMenuPrevInMenu = inMenu;
         brightnessMenuPrevBacklight = backlightPercent;
         brightnessMenuPrevThemeHue = menuThemeHue;
+        brightnessMenuPrevClockColor = clockDigitsColor;
         brightnessMenuActive = true;
         brightnessMenuValue = backlightPercent;
         brightnessMenuOpenedMs = now;
@@ -5572,11 +5601,20 @@ void handleTouchNavigation() {
     }
 
     // Przytrzymanie palca NA ZNAKU (ekran HAM CLOCK) otwiera menu koloru znaku.
-    if (!brightnessMenuActive && !callsignColorMenuActive && !longPressHandled &&
+    if (!brightnessMenuActive && !callsignColorMenuActive && !clockColorMenuActive && !longPressHandled &&
         currentScreen == SCREEN_HAM_CLOCK && !inMenu && (now - touchStartMs) >= 1200 &&
         isPointInRect(x, y, callsignHitX, callsignHitY, callsignHitW, callsignHitH)) {
       longPressHandled = true;
       openCallsignColorMenu();
+      return;
+    }
+
+    // Przytrzymanie palca NA ZEGARZE (ekran HAM CLOCK) otwiera menu koloru zegara.
+    if (!brightnessMenuActive && !callsignColorMenuActive && !clockColorMenuActive && !longPressHandled &&
+        currentScreen == SCREEN_HAM_CLOCK && !inMenu && (now - touchStartMs) >= 1200 &&
+        isPointInRect(x, y, clockHitX, clockHitY, clockHitW, clockHitH)) {
+      longPressHandled = true;
+      openClockColorMenu();
       return;
     }
 
@@ -5587,6 +5625,11 @@ void handleTouchNavigation() {
 
     if (callsignColorMenuActive) {
       handleCallsignColorMenuTouch(x, y, isNewTap);
+      return;
+    }
+
+    if (clockColorMenuActive) {
+      handleClockColorMenuTouch(x, y, isNewTap);
       return;
     }
 
@@ -7194,17 +7237,24 @@ void drawThemeSlider() {
   tft.setTextColor(TFT_LIGHTGREY);
   tft.setTextSize(1);
   tft.setCursor(10, 110);
-  tft.print(sanitizePolishToAscii(String(tr(TR_THEME_COLOR))));
+  // W stylu nowoczesnym menu ma staly kolor (teal), wiec ten suwak ustawia
+  // KOLOR ZEGARA (cyfry duzego zegara). W klasycznym - KOLOR MOTYWU.
+  tft.print(sanitizePolishToAscii(String(tr(uiStyleClassic() ? TR_THEME_COLOR : TR_CLOCK_COLOR))));
 
-  // W stylu nowoczesnym menu ma staly kolor (teal) - suwak jest nieaktywny,
-  // zeby nie wygladal na zepsuty. Kolor wybiera sie po powrocie do klasycznego.
   if (!uiStyleClassic()) {
-    tft.fillRect(sliderX, sliderY, sliderW, sliderH, UI_COL_CARD);
-    tft.drawRect(sliderX, sliderY, sliderW, sliderH, UI_COL_BORDER);
-    tft.setTextColor(UI_COL_DIM);
-    tft.setCursor(10, sliderY + 20);
-    tft.print((tftLanguage == TFT_LANG_EN) ? "Fixed in modern style (see clock menu)"
-                                            : "Staly w stylu nowoczesnym (menu zegara)");
+    // Kolor zegara: suwak pokazuje teczowy wybor, a kropka-podglad pokazuje
+    // aktualny kolor cyfr zegara.
+    for (int i = 0; i < sliderW; i++) {
+      uint8_t hue = (uint8_t)((i * 255) / (sliderW - 1));
+      tft.drawFastVLine(sliderX + i, sliderY + 1, sliderH - 2, colorWheel(hue));
+    }
+    tft.drawRect(sliderX, sliderY, sliderW, sliderH, TFT_WHITE);
+    int clockHue, clockSat, clockVal;
+    rgb565ToHsv(clockDigitsColor, clockHue, clockSat, clockVal);
+    int knobX = sliderX + (clockHue * (sliderW - knobW)) / 255;
+    tft.fillRect(knobX, sliderY - 4, knobW, sliderH + 8, TFT_WHITE);
+    tft.fillRect(sliderX + sliderW + 8, sliderY - 6, 26, sliderH + 12, clockDigitsColor);
+    tft.drawRect(sliderX + sliderW + 8, sliderY - 6, 26, sliderH + 12, TFT_WHITE);
     return;
   }
 
@@ -7393,14 +7443,22 @@ void setBrightnessFromTouch(uint16_t x) {
 }
 
 void setThemeFromTouch(uint16_t x) {
-  // W stylu nowoczesnym kolor menu jest staly (teal) - suwak nie reaguje.
-  if (!uiStyleClassic()) return;
   const int sliderX = 40;
   const int sliderW = 400;
   int val = (int)((long)(x - sliderX) * 255 / (sliderW - 1));
   if (val < 0) val = 0;
   if (val > 255) val = 255;
   uint8_t hue = (uint8_t)val;
+  // W stylu nowoczesnym suwak ustawia KOLOR ZEGARA (cyfry zegara); w klasycznym
+  // - KOLOR MOTYWU (kolor kolowy menu).
+  if (!uiStyleClassic()) {
+    if (hue != clockColorMenuHue || clockDigitsColor != hsv565(hue, 100, 100)) {
+      clockColorMenuHue = hue;
+      clockDigitsColor = hsv565(hue, 100, 100);
+      drawThemeSlider();
+    }
+    return;
+  }
   if (hue != menuThemeHue) {
     menuThemeHue = hue;
     applyMenuThemeFromHue();
@@ -7588,6 +7646,13 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     return;
   }
   if (isPointInRect(x, y, defaultX, btnY, btnW, btnH)) {
+    if (!uiStyleClassic()) {
+      // Styl nowoczesny: suwak to kolor zegara - przywroc domyslny zolty.
+      clockDigitsColor = 0xFFE0;
+      clockColorMenuHue = 42;
+      drawThemeSlider();
+      return;
+    }
     menuThemeHue = DEFAULT_MENU_THEME_HUE;
     applyMenuThemeFromHue();
     drawBrightnessMenuHeader();
@@ -7600,6 +7665,7 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     applyEffectiveBacklight();
     menuThemeHue = brightnessMenuPrevThemeHue;
     applyMenuThemeFromHue();
+    clockDigitsColor = brightnessMenuPrevClockColor;
     brightnessMenuActive = false;
     restoreAfterBrightnessMenu();
     return;
@@ -7660,25 +7726,30 @@ static void rgb565ToHsv(uint16_t c, int &h, int &sat, int &val) {
   if (h > 255) h = 255;
 }
 
-static void drawCallsignColorSlider(int y, int mode) {
+// Wspolny suwak HSV (0 = hue 0..255, 1 = nasycenie 0..100, 2 = jasnosc 0..100).
+static void drawHsvSlider(int y, int mode, int hue, int sat, int val) {
   const int sx = 40, sw = 400, sh = 14, knobW = 6;
   tft.fillRect(sx - knobW, y - 6, sw + knobW * 2, sh + 12, TFT_BLACK);
   for (int i = 0; i < sw; i++) {
     uint16_t c;
     if (mode == 0) {
-      c = hsv565((i * 255) / (sw - 1), callsignColorMenuSat, callsignColorMenuVal);
+      c = hsv565((i * 255) / (sw - 1), sat, val);
     } else if (mode == 1) {
-      c = hsv565(callsignColorMenuHue, (i * 100) / (sw - 1), callsignColorMenuVal);
+      c = hsv565(hue, (i * 100) / (sw - 1), val);
     } else {
-      c = hsv565(callsignColorMenuHue, callsignColorMenuSat, (i * 100) / (sw - 1));
+      c = hsv565(hue, sat, (i * 100) / (sw - 1));
     }
     tft.drawFastVLine(sx + i, y + 1, sh - 2, c);
   }
   tft.drawRect(sx, y, sw, sh, TFT_WHITE);
-  int value = (mode == 0) ? callsignColorMenuHue : (mode == 1 ? callsignColorMenuSat : callsignColorMenuVal);
+  int value = (mode == 0) ? hue : (mode == 1 ? sat : val);
   int maxv = (mode == 0) ? 255 : 100;
   int knobX = sx + (value * (sw - knobW)) / maxv;
   tft.fillRect(knobX, y - 4, knobW, sh + 8, TFT_WHITE);
+}
+
+static void drawCallsignColorSlider(int y, int mode) {
+  drawHsvSlider(y, mode, callsignColorMenuHue, callsignColorMenuSat, callsignColorMenuVal);
 }
 
 static void drawCallsignColorPreview() {
@@ -7796,6 +7867,129 @@ void handleCallsignColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     callsignColorMenuActive = false;
     currentScreen = callsignColorMenuPrevScreen;
     inMenu = callsignColorMenuPrevInMenu;
+    drawScreen(currentScreen);
+    return;
+  }
+}
+
+// ===== Menu koloru cyfr zegara (dlugie przytrzymanie zegara, ekran HAM CLOCK) =====
+
+static void drawClockColorPreview() {
+  tft.fillRect(0, 36, 480, 50, TFT_BLACK);
+  uint16_t preview = hsv565(clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
+  String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
+                     ? getTimezoneTimeString("%H:%M:%S", 9)
+                     : getUtcTimeString();
+  tft.setTextSize(4);
+  tft.setTextColor(preview, TFT_BLACK);
+  int w = tft.textWidth(timeStr);
+  tft.setCursor((480 - w) / 2, 40);
+  tft.print(timeStr);
+}
+
+// Odswiezenie bez fillScreen - uzywane podczas przeciagania suwakow (bez migotania).
+static void redrawClockColorControls() {
+  drawClockColorPreview();
+  drawHsvSlider(120, 0, clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
+  drawHsvSlider(160, 1, clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
+  drawHsvSlider(200, 2, clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
+}
+
+void drawClockColorMenu() {
+  tft.fillScreen(TFT_BLACK);
+  uiMenuHeader(sanitizePolishToAscii(String(tr(TR_CLOCK_COLOR))).c_str());
+
+  drawClockColorPreview();
+
+  const int hueY = 120, satY = 160, valY = 200;
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setCursor(10, hueY - 14);
+  tft.print(sanitizePolishToAscii(String(tr(TR_THEME_COLOR))));
+  tft.setCursor(10, satY - 14);
+  tft.print(sanitizePolishToAscii(String(tr(TR_SATURATION))));
+  tft.setCursor(10, valY - 14);
+  tft.print(sanitizePolishToAscii(String(tr(TR_VALUE))));
+  drawHsvSlider(hueY, 0, clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
+  drawHsvSlider(satY, 1, clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
+  drawHsvSlider(valY, 2, clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
+
+  const int btnW = 110, btnH = 28, btnY = 250, gap = 15;
+  const int saveX = 15, defX = saveX + btnW + gap, closeX = defX + btnW + gap;
+  drawFilterTile(saveX, btnY, btnW, btnH, tr(TR_SAVE), false);
+  drawFilterTile(defX, btnY, btnW, btnH, tr(TR_DEFAULT), false);
+  drawFilterTile(closeX, btnY, btnW, btnH, tr(TR_CLOSE), false);
+}
+
+void openClockColorMenu() {
+  rgb565ToHsv(clockDigitsColor, clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
+  if (clockColorMenuSat == 0) {
+    // Domyslny zolty ma nasycenie, ale szary/czarny kolor nie - suwaki na 100%.
+    clockColorMenuSat = 100;
+    clockColorMenuVal = 100;
+  }
+  clockColorMenuPrev = clockDigitsColor;
+  clockColorMenuPrevScreen = currentScreen;
+  clockColorMenuPrevInMenu = inMenu;
+  clockColorMenuOpenedMs = millis();
+  // Blokuj petle glowna (odswiezanie zegara co sekunde), inaczej zegar rysuje
+  // sie na wierzchu menu koloru i przeszkadza w ustawieniach.
+  inMenu = true;
+  clockColorMenuActive = true;
+  drawClockColorMenu();
+}
+
+void handleClockColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
+  unsigned long now = millis();
+  if (now - clockColorMenuOpenedMs < 400) {
+    return;
+  }
+
+  const int sx = 40, sw = 400, sh = 14;
+  const int hueY = 120, satY = 160, valY = 200;
+
+  if (y >= hueY - 6 && y <= hueY + sh + 6) {
+    clockColorMenuHue = constrain((int)((long)(x - sx) * 255 / (sw - 1)), 0, 255);
+    redrawClockColorControls();
+  }
+  if (y >= satY - 6 && y <= satY + sh + 6) {
+    clockColorMenuSat = constrain((int)((long)(x - sx) * 100 / (sw - 1)), 0, 100);
+    redrawClockColorControls();
+  }
+  if (y >= valY - 6 && y <= valY + sh + 6) {
+    clockColorMenuVal = constrain((int)((long)(x - sx) * 100 / (sw - 1)), 0, 100);
+    redrawClockColorControls();
+  }
+
+  if (!isNewTap) {
+    return;
+  }
+
+  const int btnW = 110, btnH = 28, btnY = 250, gap = 15;
+  const int saveX = 15, defX = saveX + btnW + gap, closeX = defX + btnW + gap;
+
+  if (isPointInRect(x, y, saveX, btnY, btnW, btnH)) {
+    clockDigitsColor = hsv565(clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
+    savePreferences();
+    clockColorMenuActive = false;
+    currentScreen = clockColorMenuPrevScreen;
+    inMenu = clockColorMenuPrevInMenu;
+    drawScreen(currentScreen);
+    return;
+  }
+  if (isPointInRect(x, y, defX, btnY, btnW, btnH)) {
+    clockDigitsColor = 0xFFE0;  // domyslny zolty
+    clockColorMenuHue = 42;
+    clockColorMenuSat = 100;
+    clockColorMenuVal = 100;
+    redrawClockColorControls();
+    return;
+  }
+  if (isPointInRect(x, y, closeX, btnY, btnW, btnH)) {
+    clockDigitsColor = clockColorMenuPrev;
+    clockColorMenuActive = false;
+    currentScreen = clockColorMenuPrevScreen;
+    inMenu = clockColorMenuPrevInMenu;
     drawScreen(currentScreen);
     return;
   }
@@ -17032,6 +17226,8 @@ void loadPreferences() {
   callsignColor = preferences->getUInt("callsign_color", 65535); // Default white (0xFFFF)
   // NVS nieustawione/0 daje czarny znak (niewidoczny na czarnym tle). Wymus biel.
   if (callsignColor == 0) callsignColor = 65535;
+  clockDigitsColor = preferences->getUInt("clock_color", 0xFFE0); // Default yellow
+  if (clockDigitsColor == 0) clockDigitsColor = 0xFFE0;  // czarny = niewidoczny
   touchXMin = preferences->getInt("touch_xmin", TOUCH_X_MIN);
   touchXMax = preferences->getInt("touch_xmax", TOUCH_X_MAX);
   touchYMin = preferences->getInt("touch_ymin", TOUCH_Y_MIN);
@@ -17208,6 +17404,7 @@ void savePreferences() {
   preferences->putInt("screen1_style", screen1ClockStyle);
   preferences->putBool("tft_autosw", tftAutoSwitchEnabled);
   preferences->putUInt("callsign_color", callsignColor);
+  preferences->putUInt("clock_color", clockDigitsColor);
   preferences->putInt("tft_sw_sec", tftAutoSwitchTimeSec);
   preferences->putInt("touch_xmin", touchXMin);
   preferences->putInt("touch_xmax", touchXMax);
@@ -18153,6 +18350,10 @@ void setupWebServer() {
         callsignColor = doc["callsign_color"].as<int>();
         if (callsignColor == 0) callsignColor = 65535;  // 0 = czarny (niewidoczny) -> biel
       }
+      if (doc["clock_color"].is<int>()) {
+        clockDigitsColor = doc["clock_color"].as<int>();
+        if (clockDigitsColor == 0) clockDigitsColor = 0xFFE0;  // 0 = czarny -> zolty
+      }
       
       // Konfiguracja filtrĂ„â€šĹ‚w CC-Cluster
       if (doc["cluster_noann"].is<bool>()) {
@@ -18777,6 +18978,7 @@ void setupWebServer() {
     doc["tft_switch_time_sec"] = tftAutoSwitchTimeSec;
     doc["menu_hue"] = menuThemeHue;
     doc["callsign_color"] = callsignColor;
+    doc["clock_color"] = clockDigitsColor;
     doc["qrz_status"] = qrzStatus;
     doc["cluster_noann"] = clusterNoAnnouncements;
     doc["cluster_nowwv"] = clusterNoWWV;
@@ -19456,6 +19658,7 @@ String getMainHTML() {
         </div>
         <div class="field"><label>Odcien menu (0-255)</label><input id="menu_hue" type="number" min="0" max="255"></div>
         <div class="field"><label>Kolor callsign (HEX lub int)</label><input id="callsign_color" type="number" min="0" max="65535"></div>
+        <div class="field"><label>Kolor zegara (HEX lub int)</label><input id="clock_color" type="number" min="0" max="65535"></div>
       </div>
       <div class="row" style="margin-top:8px">
         <label class="check"><input id="tft_invert" type="checkbox"> Odwrocone kolory TFT</label>
@@ -19662,6 +19865,7 @@ function fillForm(cfg){
   val('tft_lang',cfg.tft_lang); val('table_size',cfg.table_size);
   chk('tft_invert',cfg.tft_invert); val('menu_hue',cfg.menu_hue);
   val('callsign_color',cfg.callsign_color);
+  val('clock_color',cfg.clock_color);
   chk('tft_auto_switch',cfg.tft_auto_switch); val('tft_switch_time_sec',cfg.tft_switch_time_sec);
   chk('screen_saver_enabled',cfg.screen_saver_enabled); val('screen_saver_timeout_min',cfg.screen_saver_timeout_min);
   // Screen order
@@ -19749,6 +19953,7 @@ function buildFromForm(){
     tft_lang:gstr('tft_lang','pl'), table_size:gstr('table_size','normal'),
     tft_invert:$('tft_invert').checked, menu_hue:gint('menu_hue',128),
     callsign_color:gint('callsign_color',65535),
+    clock_color:gint('clock_color',65530),
     tft_auto_switch:$('tft_auto_switch').checked,
     tft_switch_time_sec:gint('tft_switch_time_sec',30),
     screen_saver_enabled:$('screen_saver_enabled').checked,
@@ -20006,7 +20211,7 @@ void uiTaskLoop(void *parameter) {
       lastScreenSaverCheckMs = now;
     }
 
-    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !touchCalActive && !brightnessMenuActive && !callsignColorMenuActive && !qrzPopupActive) {
+    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !touchCalActive && !brightnessMenuActive && !callsignColorMenuActive && !clockColorMenuActive && !qrzPopupActive) {
       unsigned long nowSwitch = millis();
       if (tftAutoSwitchLastMs == 0 || tftAutoSwitchLastScreen != currentScreen) {
         tftAutoSwitchLastMs = nowSwitch;

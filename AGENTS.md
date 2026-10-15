@@ -2,6 +2,29 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## KOLOR ZEGARA (cyfry zegara, styl nowoczesny) — 15.10.2026
+- Nowa zmienna globalna `clockDigitsColor` (RGB565, domyslnie `0xFFE0` = zolty jak
+  `HC_YELLOW`). Ustawia kolor **duzego zegara cyfrowego** HH:MM:SS na ekranie
+  HAM CLOCK w stylu **nowoczesnym** (`hamClockModernTime()`,
+  `updateScreen1ClockModern()`). Styl klasyczny (`drawHamClockClassic()`) nadal
+  rysuje zegar na zolto - niezmienione.
+- Ustawienie w USTAWIENIACH TFT (`drawBrightnessMenu()`): w stylu nowoczesnym
+  suwak motywu (`drawThemeSlider()`) zmienia teraz **KOLOR ZEGARA**
+  (etykieta `TR_CLOCK_COLOR` = "KOLOR ZEGARA", zamiast "KOLOR MOTYWU:").
+  W klasycznym stylu ten sam suwak nadal ustawia kolor motywu (`menuThemeHue`).
+  `setThemeFromTouch()` rozgalezia sie na `uiStyleClassic()`.
+  `handleBrightnessMenuTouch()` - przycisk DOMYSLNE przywraca zolty,
+  ZAMKNIJ przywraca `brightnessMenuPrevClockColor`.
+- Menu pelnego koloru (HSV: odcien/nasycenie/jasnosc) otwiera sie
+  **przytrzymaniem palca na zegarze** (>1200 ms, obszar `clockHitX/Y/W/H`
+  aktualizowany w `hamClockModernTime()`). Funkcje: `openClockColorMenu()`,
+  `drawClockColorMenu()`, `handleClockColorMenuTouch()` (analogicznie do
+  KOLOR ZNAKU). Wspolny suwak: `drawHsvSlider(y, mode, hue, sat, val)`.
+- Trwalosc: NVS `clock_color` (`loadPreferences`/`savePreferences`), 0 = czarny
+  -> wymuszany zolty. API: `/api/config` GET/POST pole `clock_color`.
+- WWW (`data/index.html`, zakladka "Twoja Stacja"): kolor-picker
+  `#clock_color_picker` (domyslnie `#ffff00`), konwersja hex<->RGB565 jak dla znaku.
+
 ## Cel sprzętowy
 - **MCU:** ESP32-S3-WROOM-1 **N16R8** (16 MB flash QIO + 8 MB PSRAM OPI)
 - **Wyświetlacz:** zewnętrzny **ILI9488 3.5" 480x320 IPS** po SPI (TFT_eSPI)
