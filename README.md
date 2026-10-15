@@ -179,6 +179,18 @@ esptool.py -p COM9 write_flash 0x810000 littlefs.bin  # dane WWW
 
 W plikach `flash.bat` / `flash.sh` znajdują się gotowe skrypty wgrywania.
 
+### Podpisane wydanie (GPG)
+
+Tag **v1.2** jest podpisany kluczem GPG wydania. Klucz publiczny znajduje się
+w repozytorium: `esp32-ham-clock-release-key.asc`.
+
+Weryfikacja:
+
+```bash
+gpg --import esp32-ham-clock-release-key.asc
+git tag -v v1.2        # Good signature from "Tomasz SP9TNV ..."
+```
+
 ---
 
 ## Struktura repozytorium
