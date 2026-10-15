@@ -25,6 +25,18 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 - WWW (`data/index.html`, zakladka "Twoja Stacja"): kolor-picker
   `#clock_color_picker` (domyslnie `#ffff00`), konwersja hex<->RGB565 jak dla znaku.
 
+## EKRAN STARTOWY (splash) — 15.10.2026
+- `data/splash.bmp` (480x320, 24-bit RGB, bottom-up) w stylu **karty QSL**:
+  duzy znak, "POTWIERDZAM QSO", ramka airmail, godlo PZK, dane stacji,
+  delikatna mapa swiata w tle. Rysowany przez `drawSplashScreen()` (po ekranie
+  powitalnym; dotyk pomija).
+- Generator: `tools/make_qsl_splash.py` (Pillow, fonty DejaVu) -> `data/splash.bmp`
+  + podglad `/workspace/share/podglad-qsl-splash.png`.
+- **Wgrywanie wlasnej grafiki bez zmian**: WWW (Linki -> "Wgraj ekran startowy")
+  lub pliki `/splash.png|.jpg|.jpeg|.bmp` w LittleFS maja pierwszenstwo nad
+  `splash.bmp` (patrz `splashCandidates` w `drawSplashScreen()`). Ten sam mechanizm
+  dziala dla ekranu powitalnego (`/welcome.*`).
+
 ## Cel sprzętowy
 - **MCU:** ESP32-S3-WROOM-1 **N16R8** (16 MB flash QIO + 8 MB PSRAM OPI)
 - **Wyświetlacz:** zewnętrzny **ILI9488 3.5" 480x320 IPS** po SPI (TFT_eSPI)
