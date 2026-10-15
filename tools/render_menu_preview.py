@@ -152,12 +152,28 @@ def pota_filters_menu(classic):
         tile(d, 10 + i*66, 100, 60, 26, b, i == 3, classic)
     return im
 
-sheet = Image.new("RGB", (480*2 + 30, 320*2 + 30), (18, 18, 22))
-sheet.paste(pota_screen(False), (10, 10))
-sheet.paste(pota_screen(True), (500, 10))
-sheet.paste(time_mode_menu(False), (10, 340))
-sheet.paste(time_mode_menu(True), (500, 340))
-sheet = sheet.resize((sheet.width*2, sheet.height*2), Image.NEAREST)
+panels = [
+    ("POTA screen - NOWOCZESNY", pota_screen(False)),
+    ("POTA screen - KLASYCZNY", pota_screen(True)),
+    ("TIME MODE menu - NOWOCZESNY", time_mode_menu(False)),
+    ("TIME MODE menu - KLASYCZNY", time_mode_menu(True)),
+    ("POTA FILTERS menu - NOWOCZESNY", pota_filters_menu(False)),
+    ("POTA FILTERS menu - KLASYCZNY", pota_filters_menu(True)),
+]
+cols, rows = 2, 3
+pad = 12
+label_h = 18
+cell_w = 480 + pad
+cell_h = 320 + label_h + pad
+sheet = Image.new("RGB", (cols * cell_w + pad, rows * cell_h + pad), (16, 16, 20))
+dd = ImageDraw.Draw(sheet)
+for i, (name, im) in enumerate(panels):
+    r, c = divmod(i, cols)
+    x = pad + c * cell_w
+    y = pad + r * cell_h
+    dd.text((x, y), name, fill=(200, 210, 225))
+    sheet.paste(im, (x, y + label_h))
+sheet = sheet.resize((sheet.width * 2, sheet.height * 2), Image.NEAREST)
 sheet.save("/workspace/share/podglad-menu-nowoczesny.png")
 print("saved podglad-menu-nowoczesny.png", sheet.size)
 

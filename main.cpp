@@ -7155,6 +7155,23 @@ void drawThemeSlider() {
   // WyczyĹ›Ä‡ obszar suwaka (z zapasem na pokrÄ™tĹ‚o)
   tft.fillRect(sliderX - knobW, sliderY - 6, sliderW + knobW * 2, sliderH + 12, TFT_BLACK);
 
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setTextSize(1);
+  tft.setCursor(10, 110);
+  tft.print(sanitizePolishToAscii(String(tr(TR_THEME_COLOR))));
+
+  // W stylu nowoczesnym menu ma staly kolor (teal) - suwak jest nieaktywny,
+  // zeby nie wygladal na zepsuty. Kolor wybiera sie po powrocie do klasycznego.
+  if (!uiStyleClassic()) {
+    tft.fillRect(sliderX, sliderY, sliderW, sliderH, UI_COL_CARD);
+    tft.drawRect(sliderX, sliderY, sliderW, sliderH, UI_COL_BORDER);
+    tft.setTextColor(UI_COL_DIM);
+    tft.setCursor(10, sliderY + 20);
+    tft.print((tftLanguage == TFT_LANG_EN) ? "Fixed in modern style (see clock menu)"
+                                            : "Staly w stylu nowoczesnym (menu zegara)");
+    return;
+  }
+
   for (int i = 0; i < sliderW; i++) {
     uint8_t hue = (uint8_t)((i * 255) / (sliderW - 1));
     tft.drawFastVLine(sliderX + i, sliderY + 1, sliderH - 2, colorWheel(hue));
@@ -7163,11 +7180,6 @@ void drawThemeSlider() {
 
   int knobX = sliderX + (menuThemeHue * (sliderW - knobW)) / 255;
   tft.fillRect(knobX, sliderY - 4, knobW, sliderH + 8, TFT_WHITE);
-
-  tft.setTextColor(TFT_LIGHTGREY);
-  tft.setTextSize(1);
-  tft.setCursor(10, 110);
-  tft.print(sanitizePolishToAscii(String(tr(TR_THEME_COLOR))));
 }
 
 void drawBrightnessMenuHeader() {
@@ -7345,6 +7357,8 @@ void setBrightnessFromTouch(uint16_t x) {
 }
 
 void setThemeFromTouch(uint16_t x) {
+  // W stylu nowoczesnym kolor menu jest staly (teal) - suwak nie reaguje.
+  if (!uiStyleClassic()) return;
   const int sliderX = 40;
   const int sliderW = 400;
   int val = (int)((long)(x - sliderX) * 255 / (sliderW - 1));
