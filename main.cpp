@@ -847,6 +847,7 @@ enum TrKey : uint8_t {
   TR_SATURATION,
   TR_VALUE,
   TR_CLOCK_COLOR,
+  TR_HUE,
   TR_KEY_COUNT
 };
 
@@ -880,7 +881,8 @@ static const char* TR_PL[TR_KEY_COUNT] = {
   "KOLOR ZNAKU",
   "NASYCENIE",
   "JASNOĹšÄ†",
-  "KOLOR ZEGARA"
+  "KOLOR ZEGARA",
+  "ODCIEĹ"
 };
 
 static const char* TR_EN[TR_KEY_COUNT] = {
@@ -913,7 +915,8 @@ static const char* TR_EN[TR_KEY_COUNT] = {
   "CALLSIGN COLOR",
   "SATURATION",
   "VALUE",
-  "CLOCK COLOR"
+  "CLOCK COLOR",
+  "HUE"
 };
 
 static const char* tr(TrKey key) {
@@ -7905,7 +7908,7 @@ void drawClockColorMenu() {
   tft.setTextSize(1);
   tft.setTextColor(TFT_LIGHTGREY);
   tft.setCursor(10, hueY - 14);
-  tft.print(sanitizePolishToAscii(String(tr(TR_THEME_COLOR))));
+  tft.print(sanitizePolishToAscii(String(tr(TR_HUE))));
   tft.setCursor(10, satY - 14);
   tft.print(sanitizePolishToAscii(String(tr(TR_SATURATION))));
   tft.setCursor(10, valY - 14);
