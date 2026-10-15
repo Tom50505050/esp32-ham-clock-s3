@@ -243,6 +243,10 @@ Zmiana pinow: `tft_setup.h` lub `platformio.ini` build_flags (env `esp32-s3-n16r
 ## Serwer plikow (localhost:12000)
 Workery: work-1 (12000) i work-2 (12001). Serwer pada przy resecie srodowiska.
 Restart: `bash tools/serve.sh` (http.server 12000 w /workspace/share).
+**Wazne:** skrypt musi uzywac `setsid ... < /dev/null &` - zwykle `nohup &`
++ `disown` jest ubijane po zakonczeniu komendy w tym srodowisku (proces nie
+odczepia sie od sesji i pada razem z terminalem). Sprawdzaj `ps aux | grep
+http.server` po restarcie.
 
 
 ## Linki WWW (12.10.2026)
