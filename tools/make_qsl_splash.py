@@ -50,7 +50,7 @@ def airmail_border(im, x0, y0, x1, y1, band=7, stripe=10):
     im.paste(Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB"), (0, 0))
 
 
-def make_card(callsign="SP9TNV", locator="JO90AA"):
+def make_card(locator="JO90AA"):
     im = Image.new("RGB", (W, H), NAVY)
     d = ImageDraw.Draw(im)
 
@@ -86,17 +86,15 @@ def make_card(callsign="SP9TNV", locator="JO90AA"):
     # --- wewnetrzna cienka zlota ramka ---
     d.rectangle([11, 11, W - 12, H - 12], outline=GOLD, width=1)
 
-    # --- przygaszenie pasa pod znakiem (kontrast dla duzego napisu) ---
+    # --- przygaszenie pasa na duzy napis (kontrast) ---
     band = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(band).rectangle([13, 92, W - 13, 168], fill=(0, 0, 0, 120))
+    ImageDraw.Draw(band).rectangle([13, 84, W - 13, 168], fill=(0, 0, 0, 120))
     im.paste(Image.alpha_composite(im.convert("RGBA"), band).convert("RGB"), (0, 0))
     d = ImageDraw.Draw(im)
 
     # ================= naglowek =================
-    f_qsl = font(FONT_SERIF_BOLD, 40)
     f_sub = font(FONT_BOLD, 11)
-    d.text((26, 20), "QSL", font=f_qsl, fill=GOLD)
-    d.text((30, 62), "AMATEUR RADIO STATION", font=f_sub, fill=CYAN)
+    d.text((30, 22), "AMATEUR RADIO STATION", font=f_sub, fill=CYAN)
 
     # prawy gorny rog: "POLAND / POLSKA" + flaga PL
     d.rectangle([W - 92, 22, W - 24, 40], fill=WHITE, outline=GOLD)
@@ -105,18 +103,19 @@ def make_card(callsign="SP9TNV", locator="JO90AA"):
     f_sm = font(FONT_BOLD, 10)
     d.text((W - 90, 44), "POLAND", font=f_sm, fill=WHITE)
 
-    # ================= duzy znak =================
-    f_call = font(FONT_BOLD, 62)
-    tw = d.textlength(callsign, font=f_call)
-    cx = (W - tw) / 2
-    # poswiata
+    # ================= glowny emblemat: QSL (bez znaku wywolawczego) =================
+    f_big = font(FONT_SERIF_BOLD, 104)
+    big = "QSL"
+    bw = d.textlength(big, font=f_big)
+    bx = (W - bw) / 2
     glow = Image.new("RGB", (W, H), (0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    gd.text((cx, 96), callsign, font=f_call, fill=(60, 90, 40))
-    glow = glow.filter(ImageFilter.GaussianBlur(6))
-    im = Image.blend(im, Image.composite(glow, im, glow.convert("L")), 0.35)
+    ImageDraw.Draw(glow).text((bx, 72), big, font=f_big, fill=(70, 105, 45))
+    glow = glow.filter(ImageFilter.GaussianBlur(7))
+    im = Image.blend(im, Image.composite(glow, im, glow.convert("L")), 0.4)
     d = ImageDraw.Draw(im)
-    d.text((cx, 96), callsign, font=f_call, fill=WHITE, stroke_width=1, stroke_fill=GOLD_DK)
+    # zloty cien (offset) + bialy napis na wierzchu
+    d.text((bx + 4, 76), big, font=f_big, fill=GOLD, stroke_width=2, stroke_fill=GOLD_DK)
+    d.text((bx, 72), big, font=f_big, fill=WHITE, stroke_width=2, stroke_fill=GOLD_DK)
 
     # ================= linia + podtytul =================
     d.line([(30, 176), (W - 30, 176)], fill=GOLD, width=2)
@@ -136,8 +135,8 @@ def make_card(callsign="SP9TNV", locator="JO90AA"):
 
     d.text((190, y0), "QTH", font=f_lbl, fill=GOLD)
     d.text((190, y0 + 13), "Poland", font=f_val, fill=WHITE)
-    d.text((190, y0 + 36), "E-MAIL", font=f_lbl, fill=GOLD)
-    d.text((190, y0 + 49), "SP9TNV@gmail.com", font=font(FONT_REG, 13), fill=WHITE)
+    d.text((190, y0 + 36), "ORGANIZATION", font=f_lbl, fill=GOLD)
+    d.text((190, y0 + 49), "PZK", font=f_val, fill=WHITE)
 
     # prawa kolumna: godlo PZK
     try:
@@ -156,10 +155,10 @@ def make_card(callsign="SP9TNV", locator="JO90AA"):
     d.line([(30, H - 30), (W - 30, H - 30)], fill=GOLD_DK, width=1)
     f_ft = font(FONT_BOLD, 12)
     d.text((30, H - 24), "ESP32-HAM-CLOCK", font=f_ft, fill=GOLD)
-    f_ft2 = font(FONT_REG, 11)
-    end = "www.qrz.com/db/SP9TNV"
+    f_ft2 = font(FONT_BOLD, 12)
+    end = "73!"
     et = d.textlength(end, font=f_ft2)
-    d.text((W - 30 - et, H - 23), end, font=f_ft2, fill=CYAN)
+    d.text((W - 30 - et, H - 24), end, font=f_ft2, fill=CYAN)
 
     return im
 
