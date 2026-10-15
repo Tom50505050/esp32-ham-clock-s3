@@ -1309,6 +1309,21 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Artefakty: oba env SUCCESS, `merged-flash*.bin`, `esp32-ham-clock-s3.zip`
   (580 wpisow) - w `dist/` i `/workspace/share/`.
 
+## Zapis rozmow (eksport dziennika zdarzen) (16.10.2026)
+- Zrodlo: `/workspace/conversations/<id>/events/event-*.json` (katalog poza repo,
+  ~717 MB zrzutow). NIE czytamy `base_state.json` - zawiera klucz API.
+- Narzedzie: `tools/export_conversation.py <katalog_konwersacji> <wyjscie.md> [--dialog]`.
+  - Bez `--dialog`: pelny zapis (wiadomosci + komendy + wyniki), ~7,3 MB.
+  - `--dialog`: tylko wypowiedzi UZYTKOWNIK/AGENT, ~0,3 MB (wersja commitowana).
+  - Redakcja sekretow: `gAAAAA*` (Fernet), `ghp_*`, `github_pat_*`, `sk-*`,
+    `api_key=...`, `Bearer ...` -> `<secret-hidden>`. Wyniki przycinane do 3000 znakow.
+- `.gitignore`: `conversations/*.md` ignorowane, ale `!conversations/*-dialog.md`
+  zostaje (commitowany skrocony zapis).
+- Artefakty: `conversations/2026-10-13_esp32-ham-clock-s3-dialog.md` (commitowany),
+  wersja pelna tylko w `/workspace/share/`.
+- UWAGA: `git commit` domyslnie wymaga podpisu GPG (`commit.gpgsign=true`); klucz
+  prywatny jest w `.gpg-release-key` (poza VCS). Bez klucza uzyj `--no-gpg-sign`.
+
 
 
 
