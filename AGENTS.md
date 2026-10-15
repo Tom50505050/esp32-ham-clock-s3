@@ -1052,6 +1052,16 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   `merged-flash*.bin`, `esp32-ham-clock-s3.zip` (580 wpisow) - w `dist/`
   i `/workspace/share/` (+ `/workspace/share/flash/`). Build oba env: SUCCESS.
 
+## Godlo PZK na ekranie powitalnym (15.10.2026)
+- Nad tekstem ekranu powitalnego rysowany jest znak PZK (Polski Zwiazek
+  Krotkofalowcow) - niebieski romb 46x96 px, `data/pzk-logo.bmp` (BMP 24-bit,
+  tlo czarne, zrodlo: Wikimedia Commons "Logo PZK 1930").
+- `drawWelcomeScreenYellow()`: gdy `/pzk-logo.bmp` jest w LittleFS, godlo leci
+  na srodku (`(480-46)/2`) a 5 linii tekstu tuz pod nim (+10 px). Bez godla tekst
+  jest centrowany jak wczesniej. Stale: `PZK_LOGO_FILE/W/H` (main.cpp ~810).
+- Fallback (ROM Font 2) tez rysuje godlo, jesli plik istnieje.
+- Artefakty: oba env SUCCESS, buildfs SUCCESS, zip 584 wpisy.
+
 ## Ekran powitalny: wieksza czcionka + polskie znaki (15.10.2026)
 - `drawWelcomeScreenYellow()` laduje teraz font VLW `data/fonts/Welcome-Regular21.vlw`
   (DejaVu Sans 21 pt, 319 glifow z polskimi ogonkami) i rysuje nim 5 linii bialego

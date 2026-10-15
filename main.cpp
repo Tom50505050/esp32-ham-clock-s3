@@ -806,6 +806,11 @@ uint8_t dxTableSizeMode = DX_TABLE_SIZE_NORMAL;
 #define WELCOME_FONT_NAME "/fonts/Welcome-Regular21"
 #define WELCOME_FONT_FILE "/fonts/Welcome-Regular21.vlw"
 
+// Godlo PZK (Polski Zwiazek Krotkofalowcow) na ekranie powitalnym - romb 46x96.
+#define PZK_LOGO_FILE "/pzk-logo.bmp"
+#define PZK_LOGO_W 46
+#define PZK_LOGO_H 96
+
 enum TrKey : uint8_t {
   TR_TIME_SHORT = 0,
   TR_CALL_SHORT,
@@ -2409,10 +2414,25 @@ void drawWelcomeScreenYellow() {
   bool smooth = littleFsReady && LittleFS.exists(WELCOME_FONT_FILE) && ESP.getFreeHeap() > 80000;
   if (smooth) {
     tft.loadFont(WELCOME_FONT_NAME, LittleFS);
+
     int lineH = tft.fontHeight() + 2;
-    // Litera bazowa lezy w dolnej czesci wiersza (ogonki schodza ponizej),
-    // wiec przesuwamy calosc w dol, zeby optycznie wysrodkowac w 320 px.
-    int y = (320 - lineH * 5) / 2 + 18;
+    int textH = lineH * 5;
+
+    // Godlo PZK (romb) nad tekstem, jesli plik jest w LittleFS.
+    int logoH = 0, logoY = 0;
+    if (LittleFS.exists(PZK_LOGO_FILE)) {
+      logoH = PZK_LOGO_H;
+      logoY = (320 - (logoH + 10 + textH)) / 2;
+      if (drawBmpFromFS(PZK_LOGO_FILE, (480 - PZK_LOGO_W) / 2, logoY)) {
+        logoY += logoH + 10;
+      } else {
+        logoH = 0;
+      }
+    }
+    // Gdy jest godlo - blok tekstu tuz pod nim; inaczej optycznie w dol (+18 px,
+    // bo litera bazowa lezy w dolnej czesci wiersza i ogonki schodza ponizej).
+    int y = (logoH > 0) ? logoY : (320 - textH) / 2 + 18;
+
     for (int i = 0; i < 5; i++) {
       tft.setTextColor(TFT_WHITE, TFT_BLACK);
       tft.setCursor((480 - tft.textWidth(lines[i])) / 2, y);
@@ -2432,7 +2452,14 @@ void drawWelcomeScreenYellow() {
     "Projekt udostepniany na licencji MIT."
   };
   const int lineH = 24;
-  int y = (320 - lineH * 5) / 2 + 4;
+  const int textH = lineH * 5;
+  int y;
+  if (LittleFS.exists(PZK_LOGO_FILE) &&
+      drawBmpFromFS(PZK_LOGO_FILE, (480 - PZK_LOGO_W) / 2, (320 - (PZK_LOGO_H + 10 + textH)) / 2)) {
+    y = (320 - (PZK_LOGO_H + 10 + textH)) / 2 + PZK_LOGO_H + 10;
+  } else {
+    y = (320 - textH) / 2 + 4;
+  }
   for (int i = 0; i < 5; i++) {
     uiWelcomeText(y, ascii[i], 2, TFT_WHITE);
     y += lineH;
