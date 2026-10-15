@@ -5946,6 +5946,9 @@ static void uiHeader(const char *title, bool showMenu) {
   tft.drawFastHLine(0, UI_HEADER_H - 1, 480, line);
   if (showMenu) uiHamburger(5, 4);
   tft.setTextColor(fg, bg);
+  // drawString(..., font) skaluje sie globalnym textsize - ekran zegara zostawia
+  // textsize=7, co rozdmuchuje tytul naglowka (np. "POTA.app") przy wejsciu.
+  tft.setTextSize(1);
   const int leftLimit = 34;
   const int rightLimit = 415;
   const int availW = rightLimit - leftLimit;

@@ -1033,6 +1033,12 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   miedzy hamburgerem (x~34) a WiFi (x~415), inaczej Font 1, w ostatecznosci
   przycina. Naprawia to m.in. "POTA.app" i dluzsze tytuly ("SOLAR PROPAGATION
   INDEX", "Prognoza pogody").
+- **UWAGA (bug): `drawString(s, x, y, font)` skaluje sie GLOBALNYM `textsize`.**
+  Ekran zegara zostawia `textsize=7` (`updateScreen1ClockModern()`), wiec tytul
+  naglowka rysowany przy wejsciu na ekran byl 7x za duzy ("POTA.app" - widoczna
+  tylko czesc). Po przejsciu na inny ekran (ktory ustawia `textsize=1`) i powrocie
+  bylo juz OK. `uiHeader()` ustawia teraz `tft.setTextSize(1)` przed rysowaniem.
+  Ten sam wzorzec stosuje `uiHeaderClock()` (rysuje z Font 1).
 - **Nadal nie przerabiac** samego ekranu zegara na wspolny styl ISS - ma wlasne
   naglowki (nowoczesny/klasyczny). Zmiana dotyczy tylko podmenu i akcentu.
 - Podglad ukladu: `/workspace/share/podglad-menu-nowoczesny.png`
