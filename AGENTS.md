@@ -1037,7 +1037,7 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   (renderer: `tools/render_menu_preview.py`, uzywa realnych bitmap fontow
   TFT_eSPI Font16.c + glcdfont.c).
 - Artefakty po zmianie: `firmware.bin` / `firmware-notouch.bin`,
-  `merged-flash*.bin`, `esp32-ham-clock-s3.zip` (579 wpisow) - w `dist/`
+  `merged-flash*.bin`, `esp32-ham-clock-s3.zip` (580 wpisow) - w `dist/`
   i `/workspace/share/` (+ `/workspace/share/flash/`). Build oba env: SUCCESS.
 
 
