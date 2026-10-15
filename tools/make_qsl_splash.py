@@ -96,10 +96,9 @@ def make_card(version="V1.2"):
     f_sub = font(FONT_BOLD, 11)
     d.text((30, 22), "AMATEUR RADIO STATION", font=f_sub, fill=CYAN)
 
-    # prawy gorny rog: "POLAND / POLSKA" + flaga PL
+    # prawy gorny rog: flaga PL (bialy pas na gorze, czerwony na dole) + "POLAND"
     d.rectangle([W - 92, 22, W - 24, 40], fill=WHITE, outline=GOLD)
-    d.rectangle([W - 92, 22, W - 58, 40], fill=WHITE)
-    d.rectangle([W - 58, 22, W - 24, 40], fill=RED)
+    d.rectangle([W - 91, 31, W - 25, 39], fill=RED)
     f_sm = font(FONT_BOLD, 10)
     d.text((W - 90, 44), "POLAND", font=f_sm, fill=WHITE)
 
@@ -136,8 +135,8 @@ def make_card(version="V1.2"):
     y0 = 208
     d.text((30, y0), "QTH", font=f_lbl, fill=GOLD)
     d.text((30, y0 + 13), "Poland", font=f_val, fill=WHITE)
-    d.text((30, y0 + 36), "LOCATOR", font=f_lbl, fill=GOLD)
-    d.text((30, y0 + 49), "JO90AA", font=f_val, fill=WHITE)
+    d.text((30, y0 + 36), "VERSION", font=f_lbl, fill=GOLD)
+    d.text((30, y0 + 49), version, font=f_val, fill=WHITE)
 
     d.text((190, y0), "ORGANIZATION", font=f_lbl, fill=GOLD)
     d.text((190, y0 + 13), "PZK", font=f_val, fill=WHITE)
