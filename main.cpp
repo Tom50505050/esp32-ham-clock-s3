@@ -85,6 +85,7 @@ void drawBootScreen();
 void tftBootPrintLine(const String &line);
 String formatDistanceOrCountry(const DXSpot &spot, size_t maxLen);
 void drawWelcomeScreenYellow();
+static void uiWelcomeText(int y, const char *txt, uint8_t font, uint16_t color);
 void drawSplashScreen();
 void drawHamClock();
 void drawHamClockClassic();
@@ -2388,74 +2389,39 @@ void drawWelcomeScreenYellow() {
     }
   }
 
-  tft.fillScreen(UI_COL_BG);
-  const int centerX = 240;
+  tft.fillScreen(TFT_BLACK);
 
-  // --- Tytul ---
-  const char *title = "ESP32-HAM-CLOCK";
-  tft.setTextSize(3);
-  tft.setTextColor(TFT_YELLOW, UI_COL_BG);
-  int titleW = tft.textWidth(title);
-  tft.setCursor(centerX - titleW / 2, 8);
-  tft.print(title);
+  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2").
+  String lines[5];
+  lines[0] = "ESP32-HAM-CLOCK v" FIRMWARE_VERSION;
+  lines[1] = "Projekt bazowy: Konrad Wisniewski SP3KON";
+  lines[2] = "Adaptacja i rozwoj: Tomasz SP9TNV.";
+  lines[3] = "Kontakt: SP9TNV@gmail.com";
+  lines[4] = "Projekt udostepniany na licencji MIT.";
 
-  // Cienka linia akcentu pod tytulem.
-  tft.drawFastHLine(centerX - 150, 40, 300, UI_COL_ACCENT);
+  // Font 2 (16 px, 1 bajt/znak) daje najwieksza czytelna czcionke dla
+  // najdluzszej linii; brak polskich ogonkow (ROM font) -> tekst bez diakrytykow.
+  const int lineH = 24;
+  const int totalH = 5 * lineH;
+  int y = (320 - totalH) / 2 + 4;
 
-  // --- Grafika: maszt antenowy + fale radiowe ---
-  const int tipY = 92;
-  const int baseY = 208;
-
-  // Fale radiowe - wspolsrodkowe okregi wokol wierzcholka anteny.
-  for (int i = 0; i < 3; i++) {
-    int r = 18 + i * 14;
-    tft.drawCircle(centerX, tipY, r, (i % 2) ? UI_COL_ACCENT2 : UI_COL_ACCENT);
-  }
-  // Krotkie "dipole" po bokach masztu.
-  tft.drawFastHLine(centerX - 42, tipY + 34, 84, UI_COL_ACCENT);
-  tft.drawFastHLine(centerX - 62, tipY + 74, 124, UI_COL_ACCENT);
-
-  // Maszt (rysowany po falach, zeby byl na wierzchu).
-  tft.fillRect(centerX - 3, tipY, 6, baseY - tipY, UI_COL_TEXT);
-  // Kratownica - skosy.
-  for (int y = tipY + 6; y < baseY - 12; y += 18) {
-    tft.drawLine(centerX - 3, y, centerX + 3, y + 18, UI_COL_DIM);
-    tft.drawLine(centerX + 3, y, centerX - 3, y + 18, UI_COL_DIM);
-  }
-  // Swiatlo ostrzegawcze na szczycie.
-  tft.fillCircle(centerX, tipY - 6, 4, UI_COL_RED);
-
-  // Ziemia / podstawa.
-  tft.drawFastHLine(centerX - 110, baseY, 220, UI_COL_BORDER);
-  for (int x = centerX - 110; x <= centerX + 110; x += 20) {
-    tft.drawFastVLine(x, baseY, 4, UI_COL_BORDER);
-  }
-
-  // Etykieta pod grafika.
-  const char *lbl = "HAM RADIO  -  AMATEUR RADIO STATION";
-  tft.setTextSize(1);
-  tft.setTextColor(UI_COL_ACCENT, UI_COL_BG);
-  int lblW = tft.textWidth(lbl);
-  tft.setCursor(centerX - lblW / 2, baseY + 9);
-  tft.print(lbl);
-
-  // --- Stopka: autorstwo ---
-  String lines[] = {
-    "version v1.2",
-    "Autor: Tomasz SP9TNV",
-    "Base: Konrad SP3KON",
-    "License: MIT",
-    "SP9TNV@gmail.com"
-  };
-  const int startY = 226;
-  const int lineGap = 17;
-  tft.setTextSize(2);
   for (int i = 0; i < 5; i++) {
-    int textWidth = tft.textWidth(lines[i]);
-    tft.setTextColor(TFT_YELLOW, UI_COL_BG);
-    tft.setCursor(centerX - (textWidth / 2), startY + i * lineGap);
-    tft.print(lines[i]);
+    uiWelcomeText(y, lines[i].c_str(), 2, TFT_WHITE);
+    y += lineH;
   }
+}
+
+// Rysuje wysrodkowana linie ekranu powitalnego (czarny ekran, bialy tekst).
+// Font 2 = 16 px, wiec linia jest czytelna; dluzsze napisy mierzone i centrowane.
+static void uiWelcomeText(int y, const char *txt, uint8_t font, uint16_t color) {
+  tft.setTextSize(1);
+  tft.setTextColor(color, TFT_BLACK);
+  int w = tft.textWidth(txt, font);
+  int x = (480 - w) / 2;
+  if (x < 4) x = 4;
+  tft.setCursor(x, y);
+  tft.setTextDatum(TL_DATUM);
+  tft.print(txt);
 }
 
 // Ekran startowy z grafika (splash). Wczytuje PLIK, ktory wrzucisz do data/
@@ -22993,11 +22959,18 @@ void setup() {
   
   // Aktualizuj wyĹ›wietlacz TFT (ekran startowy)
 #ifdef ENABLE_TFT_DISPLAY
-  // Standardowe ekrany powitalne
+  // Ekran powitalny (czarny ekran, bialy tekst) - 20 s, dotyk pomija.
   drawWelcomeScreenYellow();
-  delay(2000);
+  unsigned long welcomeStart = millis();
+  while ((millis() - welcomeStart) < 20000) {
+    uint16_t tx, ty;
+    if (readTouchPoint(tx, ty)) {
+      break;
+    }
+    delay(50);
+  }
 
-  // Ekran splash SP9TNV z opcjÄ… pominiÄ™cia - wyĹ›wietla siÄ™ PO ekranach powitalnych
+  // Ekran splash SP9TNV z opcjÄ… pominiÄ™cia - wyĹ›wietla siÄ™ PO ekranie powitalnym
   drawSplashScreen();
   
   // PokaĹĽ ikonÄ™ baterii od razu na ekranie splash

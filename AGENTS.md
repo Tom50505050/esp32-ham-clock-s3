@@ -1052,6 +1052,28 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   `merged-flash*.bin`, `esp32-ham-clock-s3.zip` (580 wpisow) - w `dist/`
   i `/workspace/share/` (+ `/workspace/share/flash/`). Build oba env: SUCCESS.
 
+## Ekran powitalny: 20 s + czarny/bialy + usuniecie "Postaw kawe" (15.10.2026)
+- `drawWelcomeScreenYellow()` (main.cpp ~2369) - gdy brak wlasnej grafiki
+  `/welcome.<ext>` - renderuje teraz CZARNE tlo (`TFT_BLACK`) i 5 linii BIALEGO
+  tekstu wysrodkowanego (`uiWelcomeText()`, helper `static` zadeklarowany na
+  poczatku pliku). Tresc: "ESP32-HAM-CLOCK v1.2" (z `FIRMWARE_VERSION`),
+  "Projekt bazowy: Konrad Wisniewski SP3KON", "Adaptacja i rozwoj: Tomasz
+  SP9TNV.", "Kontakt: SP9TNV@gmail.com", "Projekt udostepniany na licencji MIT.".
+- Czcionka: ROM Font 2 (16 px) - NAJWIEKSZA, ktora nadal miesci najdluzsza linie
+  w 480 px; ROM font nie ma polskich ogonkow, wiec tekst bez diakrytykow.
+  (Fonty VLW z `data/fonts/` maja polskie znaki, ale sa za male na pelna szerokosc:
+  Inter24 - najdluzsza linia ~500 px.)
+- Czas: petla `while ((millis() - welcomeStart) < 20000)` z przerwaniem dotykiem
+  (wczesniej `delay(2000)`). Ekran splash jest PO ekranie powitalnym.
+- WWW: usunieto przycisk "Postaw kawe" (`class="coffee-link"`) z `data/index.html`
+  i `data/indexEN.html` oraz jego CSS + `@keyframes coffeePulseWeight` z
+  `style.base.css` / `style.modern.css`. Wiersz tabeli "Postaw kawe" w zakladce
+  "Linki" pozostawiony.
+- Po zmianie `data/` przebudowano LittleFS (`pio run -e esp32-s3-n16r8 -t buildfs`).
+- Artefakty: oba env SUCCESS, `merged-flash*.bin`, `esp32-ham-clock-s3.zip`
+  (580 wpisow) - w `dist/` i `/workspace/share/`.
+
+
 
 
 
