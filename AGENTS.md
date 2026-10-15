@@ -1013,10 +1013,12 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   "TIME MODE" (ekran zegara, prawy gorny rog) przelacza od razu **wszystkie**
   ekrany: akcent naglowka, kolor menu (`menuThemeColor`) i kolor znaku.
   Wybor jest zapisywany (`screen1_style`) w `savePreferences()`.
-- `applyMenuThemeFromHue()`: nowoczesny = `UI_COL_ACCENT` (teal, wspolny styl
-  ISS), klasyczny = `colorWheel(menuThemeHue)` (domyslnie pomaranczowy). Suwak
-  motywu (`menu_hue`) dziala tylko w trybie klasycznym; jego wartosc jest
-  zapamietywana, wiec powrot do klasycznego odtwarza kolor.
+- **Wyglad KLASYCZNY = jak ekran zegara klasycznego:** naglowek i naglowki menu
+  to pomaranczowa karta (`TFT_RADIO_ORANGE`) z **czarnym** tytulem i linia
+  `0x8410`; hamburger czarny na pomaranczowym; tlo czarne; akcent menu/strzalek
+  pomaranczowy; kafelki nieaktywne = ciemnoszare. `applyMenuThemeFromHue()` w
+  trybie klasycznym uzywa `colorWheel(menuThemeHue)` (domyslnie pomaranczowy),
+  wiec kolor z suwaka motywu dziala tylko tutaj; wartosc jest zapamietywana.
 - `screen1ClockStyle` jest wczytywany **przed** `applyMenuThemeFromHue()` w
   `loadPreferences()` - inaczej kolor menu bylby zly po restarcie.
 - **Menu nowoczesne:** wspolny helper `uiMenuHeader(title)` (ciemna karta

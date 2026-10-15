@@ -5919,26 +5919,33 @@ void drawHamburgerMenuButton3D(int x, int y) {
 
 // Hamburger w stylu ISS (teal na ciemnej karcie) - zgodny z obszarem dotyku menu.
 static void uiHamburger(int x, int y) {
+  const bool classic = uiStyleClassic();
   const int iconW = 20, iconH = 17, pad = 3;
   const int btnX = x - pad, btnY = y - pad;
   const int btnW = iconW + pad * 2, btnH = iconH + pad * 2;
-  tft.fillRoundRect(btnX, btnY, btnW, btnH, 3, UI_COL_CARD);
-  tft.drawRoundRect(btnX, btnY, btnW, btnH, 3, UI_COL_ACCENT2);
-  tft.fillRect(x, y, iconW, 3, UI_COL_ACCENT2);
-  tft.fillRect(x, y + 7, iconW, 3, UI_COL_ACCENT2);
-  tft.fillRect(x, y + 14, iconW, 3, UI_COL_ACCENT2);
+  // Klasyczny: czarna ikona na pomaranczowym naglowku (jak w zegarze klasycznym).
+  const uint16_t btnBg = classic ? TFT_RADIO_ORANGE : UI_COL_CARD;
+  const uint16_t ink = classic ? TFT_BLACK : UI_COL_ACCENT2;
+  tft.fillRoundRect(btnX, btnY, btnW, btnH, 3, btnBg);
+  tft.drawRoundRect(btnX, btnY, btnW, btnH, 3, ink);
+  tft.fillRect(x, y, iconW, 3, ink);
+  tft.fillRect(x, y + 7, iconW, 3, ink);
+  tft.fillRect(x, y + 14, iconW, 3, ink);
 }
 
-// Naglowek ekranu w stylu ISS: ciemna karta + teal linia, tytul wysrodkowany,
-// opcjonalny hamburger po lewej, ikony WiFi/baterii po prawej.
+// Naglowek ekranu: nowoczesny = ciemna karta + teal linia, klasyczny =
+// pomaranczowa karta + czarny tytul (jak naglowek zegara klasycznego).
 // Tytul jest automatycznie dopasowywany fontem: najpierw Font 2 (16 px), a gdy
 // nie miesci sie miedzy ikona menu (x~34) a WiFi (x~420), schodzimy do Font 1.
 static void uiHeader(const char *title, bool showMenu) {
-  const uint16_t accent = uiStyleClassic() ? TFT_RADIO_ORANGE : UI_COL_ACCENT;
-  tft.fillRect(0, 0, 480, UI_HEADER_H, UI_COL_CARD);
-  tft.drawFastHLine(0, UI_HEADER_H - 1, 480, accent);
+  const bool classic = uiStyleClassic();
+  const uint16_t bg = classic ? TFT_RADIO_ORANGE : UI_COL_CARD;
+  const uint16_t fg = classic ? TFT_BLACK : UI_COL_TEXT;
+  const uint16_t line = classic ? 0x8410 : UI_COL_ACCENT;
+  tft.fillRect(0, 0, 480, UI_HEADER_H, bg);
+  tft.drawFastHLine(0, UI_HEADER_H - 1, 480, line);
   if (showMenu) uiHamburger(5, 4);
-  tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+  tft.setTextColor(fg, bg);
   const int leftLimit = 34;
   const int rightLimit = 415;
   const int availW = rightLimit - leftLimit;
@@ -5966,14 +5973,18 @@ static void uiHeader(const char *title, bool showMenu) {
   drawBatteryIcon(420, 1);
 }
 
-// Naglowek MENU w stylu nowoczesnym: ciemna karta + teal linia, tytul po lewej.
+// Naglowek MENU: nowoczesny = ciemna karta + teal linia, klasyczny =
+// pomaranczowa karta + czarny tytul (spojny z naglowkiem zegara klasycznego).
 // Uzywany przez wszystkie podmenu (filtry DX/POTA/HamAlert, APRS, pogoda, czas,
-// jasnosc, kolor znaku, uspienie). Kolorem akcentu jest TFT_RADIO_ORANGE
-// (teal w trybie nowoczesnym, kolor z kolowego w klasycznym).
+// jasnosc, kolor znaku, uspienie).
 static void uiMenuHeader(const char *title) {
-  tft.fillRect(0, 0, 480, 30, UI_COL_CARD);
-  tft.drawFastHLine(0, 29, 480, TFT_RADIO_ORANGE);
-  tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+  const bool classic = uiStyleClassic();
+  const uint16_t bg = classic ? TFT_RADIO_ORANGE : UI_COL_CARD;
+  const uint16_t fg = classic ? TFT_BLACK : UI_COL_TEXT;
+  const uint16_t line = classic ? 0x8410 : TFT_RADIO_ORANGE;
+  tft.fillRect(0, 0, 480, 30, bg);
+  tft.drawFastHLine(0, 29, 480, line);
+  tft.setTextColor(fg, bg);
   tft.setTextSize(1);
   int w1 = tft.textWidth(title);
   if (w1 <= 450) {
@@ -5993,7 +6004,7 @@ static void uiMenuHeader(const char *title) {
       tft.print(t);
     }
   }
-  tft.setTextColor(UI_COL_TEXT, UI_COL_CARD);
+  tft.setTextColor(fg, bg);
 }
 
 // Zegar UTC w lewym gornym rogu naglowka (mniejszy, obok hamburgera przy menu).
@@ -6019,8 +6030,9 @@ static void uiFooter() {
   }
   const int arrowY = 309;
   const int arrowSize = 10;
-  tft.fillTriangle(14, arrowY, 14 + arrowSize, arrowY - arrowSize, 14 + arrowSize, arrowY + arrowSize, UI_COL_ACCENT);
-  tft.fillTriangle(466, arrowY, 466 - arrowSize, arrowY - arrowSize, 466 - arrowSize, arrowY + arrowSize, UI_COL_ACCENT);
+  const uint16_t arrowCol = uiStyleClassic() ? TFT_RADIO_ORANGE : UI_COL_ACCENT;
+  tft.fillTriangle(14, arrowY, 14 + arrowSize, arrowY - arrowSize, 14 + arrowSize, arrowY + arrowSize, arrowCol);
+  tft.fillTriangle(466, arrowY, 466 - arrowSize, arrowY - arrowSize, 466 - arrowSize, arrowY + arrowSize, arrowCol);
   tft.setTextDatum(TC_DATUM);
   tft.setTextSize(1);
   tft.setTextColor(UI_COL_FAINT, UI_COL_BG);

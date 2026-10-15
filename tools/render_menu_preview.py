@@ -87,24 +87,37 @@ def tile(d, x, y, w, h, label, active, classic=False):
     lw = len(label) * 6
     draw_f1(d, x + (w - lw)//2, y + (h - 8)//2, label, txt)
 
-def menu_header(d, title, accent):
-    d.rectangle([0, 0, 479, 29], fill=UI_CARD)
-    d.line([0, 29, 479, 29], fill=accent)
-    draw_f1(d, 10, 11, title, UI_TEXT)
+def menu_header(d, title, classic):
+    if classic:
+        d.rectangle([0, 0, 479, 29], fill=ORANGE)
+        d.line([0, 29, 479, 29], fill=(132, 132, 132))
+        draw_f1(d, 10, 11, title, (0, 0, 0))
+    else:
+        d.rectangle([0, 0, 479, 29], fill=UI_CARD)
+        d.line([0, 29, 479, 29], fill=ORANGE)
+        draw_f1(d, 10, 11, title, UI_TEXT)
 
 # ================= POTA screen header =================
 def pota_screen(classic):
     im = Image.new("RGB", (480, 320), UI_BG); d = ImageDraw.Draw(im)
-    accent = ORANGE if classic else UI_ACCENT
-    d.rectangle([0, 0, 479, 25], fill=UI_CARD)
-    d.line([0, 25, 479, 25], fill=accent)
-    d.rectangle([2, 1, 27, 25], fill=UI_CARD, outline=UI_ACCENT2)
-    for i in range(3): d.rectangle([5, 5 + i*6, 25, 7 + i*6], fill=UI_ACCENT2)
-    t = "POTA.app"
-    draw_f2(d, 240 - tw2(t)//2, 5, t, UI_TEXT)
-    d.rectangle([420, 6, 437, 20], outline=accent)
+    if classic:
+        d.rectangle([0, 0, 479, 25], fill=ORANGE)
+        d.line([0, 25, 479, 25], fill=(132, 132, 132))
+        # hamburger: czarna ikona na pomaranczowym
+        d.rectangle([2, 1, 27, 25], fill=ORANGE, outline=(0, 0, 0))
+        for i in range(3): d.rectangle([5, 5 + i*6, 25, 7 + i*6], fill=(0, 0, 0))
+        t = "POTA.app"
+        draw_f2(d, 240 - tw2(t)//2, 5, t, (0, 0, 0))
+    else:
+        d.rectangle([0, 0, 479, 25], fill=UI_CARD)
+        d.line([0, 25, 479, 25], fill=UI_ACCENT)
+        d.rectangle([2, 1, 27, 25], fill=UI_CARD, outline=UI_ACCENT2)
+        for i in range(3): d.rectangle([5, 5 + i*6, 25, 7 + i*6], fill=UI_ACCENT2)
+        t = "POTA.app"
+        draw_f2(d, 240 - tw2(t)//2, 5, t, UI_TEXT)
+    d.rectangle([420, 6, 437, 20], outline=(255, 255, 255))
     for i, hh in enumerate([4, 7, 10, 13]):
-        d.rectangle([443 + i*5, 18 - hh, 446 + i*5, 18], fill=accent)
+        d.rectangle([443 + i*5, 18 - hh, 446 + i*5, 18], fill=(255, 255, 255))
     y = 40
     for x, s in [(5, "UTC"), (50, "CALLSIGN"), (140, "MHz"), (260, "MODE"), (360, "COUNTRY")]:
         draw_f1(d, x, y, s, UI_FAINT)
@@ -127,8 +140,7 @@ def pota_screen(classic):
 # ================= TIME MODE menu =================
 def time_mode_menu(classic):
     im = Image.new("RGB", (480, 320), UI_BG); d = ImageDraw.Draw(im)
-    accent = ORANGE if classic else UI_ACCENT
-    menu_header(d, "TIME MODE", accent)
+    menu_header(d, "TIME MODE", classic)
     tw, th, gap = 110, 28, 10
     sx = (480 - (2*tw + gap))//2
     tile(d, sx, 60, tw, th, "UTC", True, classic)
@@ -142,8 +154,7 @@ def time_mode_menu(classic):
 # ================= POTA FILTERS menu =================
 def pota_filters_menu(classic):
     im = Image.new("RGB", (480, 320), UI_BG); d = ImageDraw.Draw(im)
-    accent = ORANGE if classic else UI_ACCENT
-    menu_header(d, "POTA FILTERS", accent)
+    menu_header(d, "POTA FILTERS", classic)
     draw_f1(d, 10, 36, "MODE", LIGHTGREY)
     for i, m in enumerate(["ALL", "SSB", "CW", "FT8"]):
         tile(d, 10 + i*80, 50, 70, 26, m, i == 1, classic)
