@@ -945,8 +945,9 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   potem RAW na `/upload_welcome`. Odznaczona => plik leci 1:1 (bez zmian rozmiaru).
 - `convertImageToBmp565(file, mode, onDone, onError)` - wspolny helper (PL+EN),
   korzysta z `drawFittedToCanvas` i `buildBmp565`.
-- **Starszy styl ekranu zegara** (v1.4.3): przelacznik `screen1ClockStyle`
-  (0 = nowy uklad paneli, 1 = stara wersja). Persystencja NVS: `screen1_style`.
+- **Dwa style ekranu zegara** (v1.4.3+): przelacznik `screen1ClockStyle`
+  (0 = NOWOCZESNY, **domyslny**; 1 = KLASYCZNY). Persystencja NVS: `screen1_style`
+  (domyslna wartosc 0).
   - `drawHamClock()` na poczatku: `if (screen1ClockStyle == 1) { drawHamClockClassic(); return; }`
   - `drawHamClockClassic()`: pomaranczowy naglowek (`updateScreen1Header`: logo ESP32
     w czarnej obwodce + zegar HH:MM lewy gorny rog + paski WiFi + bateria), ramka
@@ -960,7 +961,8 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
     (`x>285 && y<35`); w nowym - przytrzymanie na tarczy. Obszar znaku
     (`callsignHitX/Y/W/H`) ustawiany w `drawHamClockClassic` (przytrzymanie = kolor znaku).
   - `drawScreen()`: dla klasycznego zegara nie rysuje `uiHeader`/`uiFooter`/`drawHamClockIp`.
-  - Menu "TIME MODE" (klik w rogu) ma dodatkowe kafelki "WYGLAD ZEGARA": NOWY / STARY.
+  - Menu "TIME MODE" (klik w rogu) ma dodatkowe kafelki "WYGLAD ZEGARA":
+    NOWOCZESNY / KLASYCZNY (EN: MODERN / CLASSIC).
 - Podglad starszego ukladu: `/workspace/share/hamclock-classic-preview.png`.
   Build oba env: SUCCESS.
 
@@ -978,9 +980,19 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   `screen1HeaderNeedsRedraw == true` (oszczedza migotanie).
 - `drawScreen()`: dla SCREEN_HAM_CLOCK NIE rysuje uiHeader/uiFooter/drawHamClockIp
   (oba style maja wlasny naglowek i stopke).
-- Menu czasu (WYGLAD ZEGARA: NOWY/STARY) w obu stylach otwiera sie kliknieciem
-  w prawy gorny rog (x > 285 && y < 35).
+- Menu czasu (WYGLAD ZEGARA: NOWOCZESNY/KLASYCZNY) w obu stylach otwiera sie
+  kliknieciem w prawy gorny rog (x > 285 && y < 35).
+- **Domyslny styl = NOWOCZESNY** (`screen1ClockStyle = 0`); klasyczny jest opcja.
 - **Nie przerabiac** tego ukladu na wspolny styl ISS - uzytkownik tego nie chce.
+
+## EKRAN 10 (MATRIX) - wysrodkowanie zegara i daty (15.10.2026)
+- `drawMatrixFrame()` liczy szerokosc tekstu z realnej metryki `tft.textWidth()`,
+  a NIE jako `8 px * rozmiar * liczba znakow`. Wbudowany font TFT_eSPI (GLCD) ma
+  **6 px szerokosci na znak**, wiec stare `timeWidth = 8*8*size` dawalo 384 zamiast
+  192 i zegar/data byly przesuniete w lewo (nie na srodku).
+- Data: czyszczona (`fillRect`) przed rysowaniem - wczesniej zostawaly resztki
+  przy zmianie tekstu (rysowanie tylko gdy `timeLocal != lastClockText`).
+- Podglad: `/workspace/share/matrix-zegar-srodek.png`.
 
 
 
