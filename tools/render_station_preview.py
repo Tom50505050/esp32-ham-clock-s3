@@ -6,11 +6,13 @@ wiec uklad zgadza sie z urzadzeniem. Wynik: PNG w /workspace/share/.
 import math
 import os
 import re
+import struct
 from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIB = os.path.join(ROOT, ".pio/libdeps/esp32-s3-n16r8/TFT_eSPI/Fonts/")
 OUT = "/workspace/share"
+FONTS = os.path.join(ROOT, "data/fonts")
 
 
 def load_font(path, prefix, height, nchars):
@@ -235,6 +237,48 @@ def ascii_pl(s):
     return s.translate(_PL_MAP)
 
 
+_VLW_CACHE = {}
+
+
+def _load_vlw(name):
+    """Parsuje font VLW (TFT_eSPI Smooth Font) do slownika glifow."""
+    if name in _VLW_CACHE:
+        return _VLW_CACHE[name]
+    with open(os.path.join(FONTS, name), "rb") as f:
+        b = f.read()
+    gcount, _ver, _pt, _x, ascent, descent = struct.unpack(">IIIIII", b[:24])
+    # Najpierw wszystkie metryki (7 x int32), potem kolejno bitmapy h*w.
+    metrics = []
+    off = 24
+    for _ in range(gcount):
+        uni, h, w, adv, dy, dx, _ = struct.unpack(">IIIIiiI", b[off:off + 28])
+        metrics.append((uni, w, h, adv, dy, dx))
+        off += 28
+    glyphs = {}
+    boff = off
+    for uni, w, h, adv, dy, dx in metrics:
+        glyphs[uni] = (w, h, adv, dy, dx, boff)
+        boff += w * h
+    info = (glyphs, b, ascent, descent)
+    _VLW_CACHE[name] = info
+    return info
+
+
+def fvlw(d, x, y, s, name, col):
+    """Rysuje tekst fontem VLW (odpowiednik tft.loadFont + print)."""
+    glyphs, data, _asc, _desc = _load_vlw(name)
+    pen = x
+    for ch in s:
+        g = glyphs.get(ord(ch))
+        if not g:
+            continue
+        w, h, adv, dy, dx, boff = g
+        if w and h:
+            bm = Image.frombytes("L", (w, h), data[boff:boff + w * h])
+            d._image.paste(tuple(col), (pen + dx, y + dy, pen + dx + w, y + dy + h), bm)
+        pen += adv
+
+
 def station_radio(d, x0, y0, w, h, call, col, bgcol):
     """Transceiver (main.cpp: stationDrawRadio) - korpus, wyswietlacz, antena."""
     soft = blend(col, bgcol, 165)
@@ -324,7 +368,7 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
                     "poÅudnie", "poÅudniowy zachÃ³d", "zachÃ³d", "pÃ³Ånocny zachÃ³d"]
             di = int((bearing + 22.5) / 45.0) & 7 if bearing is not None else 0
             dv = "%d km  %s" % (distance, dirs[di])
-            f1(d, px + 84, ly, ascii_pl(dv), wave)
+            fvlw(d, px + 84, ly + 2, dv, "Inter-Regular12.vlw", wave)
         else:
             f1(d, px + 84, ly, "--- (brak QTH)", dim)
         ly += 18
