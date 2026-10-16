@@ -13062,6 +13062,140 @@ bool ensureQrzSession(String &sessionKey) {
   return true;
 }
 
+// ========== HAMDB.ORG API (Free, global; api.hamdb.org/v1) ==========
+// Format JSON: {"hamdb":{"callsign":{"call","grid","lat","lon","name","fname",
+// "addr1","addr2","state","zip","country","class",...},"messages":{"status":...}}}
+// Gdy znaku nie ma, kazde pole = "NOT_FOUND" i messages.status = "NOT_FOUND".
+bool fetchHamDbCallsignInfo(const String &callsign, String &outGrid, String &outCountry,
+                            String &outName, String &outEmail, String &outQth, double &outLat, double &outLon, bool &outHasLatLon) {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  outGrid = "";
+  outCountry = "";
+  outName = "";
+  outEmail = "";
+  outQth = "";
+  outLat = 0.0;
+  outLon = 0.0;
+  outHasLatLon = false;
+
+  String call = callsign;
+  call.toUpperCase();
+  call.trim();
+  if (call.length() == 0) return false;
+
+  // Cache najpierw (wspolny bufor qrzCache).
+  unsigned long now = millis();
+  for (int i = 0; i < QRZ_CACHE_SIZE; i++) {
+    if (qrzCache[i].callsign == call && (now - qrzCache[i].fetchedAtMs) < QRZ_CACHE_TTL_MS) {
+      outGrid = qrzCache[i].grid;
+      outCountry = qrzCache[i].country;
+      outName = qrzCache[i].name;
+      outEmail = qrzCache[i].email;
+      outQth = qrzCache[i].qth;
+      outLat = qrzCache[i].lat;
+      outLon = qrzCache[i].lon;
+      outHasLatLon = qrzCache[i].hasLatLon;
+      return (outGrid.length() > 0 || outCountry.length() > 0 || outName.length() > 0);
+    }
+  }
+
+  // HamDB wymaga http (Cloudflare robi 302 na /v1/...); HTTPClient nie podaza
+  // za przekierowaniem na innym hoscie, wiec uzywamy docelowego URL od razu.
+  String url = "http://api.hamdb.org/v1/" + call + "/json/esp32hamclock";
+  WiFiClient hamdbClient;
+  HTTPClient http;
+  http.setTimeout(5000);
+  http.begin(hamdbClient, url);
+  int code = http.GET();
+  if (code != 200) {
+    http.end();
+    Serial.print("[HAMDB] HTTP error: ");
+    Serial.println(code);
+    return false;
+  }
+  String body = http.getString();
+  http.end();
+
+  DynamicJsonDocument doc(2048);
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) {
+    Serial.print("[HAMDB] JSON parse error: ");
+    Serial.println(err.c_str());
+    return false;
+  }
+
+  JsonVariant cs = doc["hamdb"]["callsign"];
+  if (cs.isNull()) return false;
+
+  auto jstr = [](JsonVariant v) -> String {
+    if (v.isNull()) return "";
+    String s = v.as<String>();
+    if (s == "NOT_FOUND" || s == "null") return "";
+    return s;
+  };
+
+  String grid = jstr(cs["grid"]);
+  String country = jstr(cs["country"]);
+  // Nazwa: pelne "name" (np. "Klaus-Dietmar Brackmann"); fname jako zapas.
+  String name = jstr(cs["name"]);
+  if (name.length() == 0) name = jstr(cs["fname"]);
+
+  // QTH: "addr2, state" (np. "NEWINGTON, CT"), a gdy brak stanu - sam addr2.
+  String qth = jstr(cs["addr2"]);
+  String state = jstr(cs["state"]);
+  if (state.length() > 0) {
+    qth = (qth.length() > 0) ? (qth + ", " + state) : state;
+  }
+
+  String latStr = jstr(cs["lat"]);
+  String lonStr = jstr(cs["lon"]);
+
+  if (grid.length() == 0 && country.length() == 0 && name.length() == 0) {
+    // Nic sensownego - traktuj jak brak (NOT_FOUND).
+    writeQrzNegativeCache(call);
+    return false;
+  }
+
+  outGrid = grid;
+  outCountry = country;
+  outName = name;
+  outQth = qth;
+  outHasLatLon = (latStr.length() > 0 && lonStr.length() > 0);
+  if (outHasLatLon) {
+    outLat = latStr.toDouble();
+    outLon = lonStr.toDouble();
+  } else if (grid.length() >= 4) {
+    locatorToLatLon(grid, outLat, outLon);
+    outHasLatLon = (outLat != 0.0 || outLon != 0.0);
+  }
+
+  // Zapisz do cache (nadpisz najstarszy).
+  int oldestIdx = 0;
+  unsigned long oldestMs = qrzCache[0].fetchedAtMs;
+  for (int i = 1; i < QRZ_CACHE_SIZE; i++) {
+    if (qrzCache[i].fetchedAtMs < oldestMs) {
+      oldestMs = qrzCache[i].fetchedAtMs;
+      oldestIdx = i;
+    }
+  }
+  qrzCache[oldestIdx].callsign = call;
+  qrzCache[oldestIdx].grid = grid;
+  qrzCache[oldestIdx].country = country;
+  qrzCache[oldestIdx].name = name;
+  qrzCache[oldestIdx].email = outEmail;
+  qrzCache[oldestIdx].qth = qth;
+  qrzCache[oldestIdx].lat = (float)outLat;
+  qrzCache[oldestIdx].lon = (float)outLon;
+  qrzCache[oldestIdx].hasLatLon = outHasLatLon;
+  qrzCache[oldestIdx].notFound = false;
+  qrzCache[oldestIdx].fetchedAtMs = now;
+
+  return true;
+}
+
 // ========== CALLOOK.INFO API (Free alternative to QRZ) ==========
 bool fetchCallookCallsignInfo(const String &callsign, String &outGrid, String &outCountry,
                                String &outName, String &outEmail, String &outQth, double &outLat, double &outLon, bool &outHasLatLon) {
@@ -16807,10 +16941,10 @@ void openQrzPopup(const String &callsign) {
     drawQrzPopup();
   } else {
     // BĹ‚Ä…d pobierania z Callook - sprĂłbuj HamQTH (globalne API)
-    Serial.println("[QRZ POPUP] Callook failed, trying HamQTH...");
+    Serial.println("[QRZ POPUP] Callook failed, trying HamDB...");
     
-    if (fetchHamQthCallsignInfo(qrzPopupCallsign, grid, country, name, email, qth, lat, lon, hasLatLon)) {
-      Serial.print("[QRZ POPUP] HamQTH fetch - hasLatLon=");
+    if (fetchHamDbCallsignInfo(qrzPopupCallsign, grid, country, name, email, qth, lat, lon, hasLatLon)) {
+      Serial.print("[QRZ POPUP] HamDB fetch - hasLatLon=");
       Serial.print(hasLatLon ? "true" : "false");
       Serial.print(" lat=");
       Serial.print(lat, 6);
@@ -16998,7 +17132,7 @@ String stationName = "";
 String stationQth = "";
 String stationGrid = "";
 String stationCountry = "";
-String stationSource = "";     // zrodlo danych (QRZ.com / callook / HamQTH)
+String stationSource = "";     // zrodlo danych (QRZ.com / HamDB / callook)
 String stationEmail = "";
 double stationLat = 0.0;
 double stationLon = 0.0;
@@ -17042,7 +17176,9 @@ void stationDrawLoading() {
   tft.setTextDatum(TL_DATUM);
 }
 
-// Wykonuje szukanie znaku (QRZ.com -> callook -> HamQTH) w uiTaskLoop.
+// Wykonuje szukanie znaku (QRZ.com -> HamDB -> callook) w uiTaskLoop.
+// QRZ.com uzywa loginu i hasla z WWW (Ustawienia -> QRZ.com) - klucz API QRZ
+// sluzy tylko do logbooka, nie do wyszukiwania znakow.
 void stationLookupStart() {
   String call = stationCallsign;
   call.trim();
@@ -17066,11 +17202,11 @@ void stationLookupStart() {
   } else if (fetchQrzCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) {
     stationSource = "QRZ.com";
     stationFound = true;
+  } else if (fetchHamDbCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) {
+    stationSource = "HamDB";
+    stationFound = true;
   } else if (fetchCallookCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) {
     stationSource = "callook";
-    stationFound = true;
-  } else if (fetchHamQthCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) {
-    stationSource = "HamQTH";
     stationFound = true;
   } else {
     writeQrzNegativeCache(call);
@@ -20016,8 +20152,8 @@ String getMainHTML() {
     <div class="panel">
       <h2>QRZ.com</h2>
       <div class="row">
-        <div class="field"><label>QRZ Username</label><input id="qrz_user" type="text"></div>
-        <div class="field"><label>QRZ Password</label><input id="qrz_pass" type="password"></div>
+        <div class="field"><label>QRZ XML API Username</label><input id="qrz_user" type="text"></div>
+        <div class="field"><label>QRZ XML API Password</label><input id="qrz_pass" type="password"></div>
       </div>
       <div class="hint" id="qrzStatus"></div>
     </div>

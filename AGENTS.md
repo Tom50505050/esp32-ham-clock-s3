@@ -885,12 +885,16 @@ koncu `handleTouchNavigation()` (po PSK MAP). Uklad w obu stylach
 wchodzily w lewa strefe nawigacji ekranu (cornerX=80); przycisk SZUKAJ na
 x=90..240, y=258..288 - tez poza strefa. Stan: `stationKeyboardActive` (jak
 `pskKeyboardActive`) blokuje nawigacje w rogach. Szukanie w `stationLookupStart()`:
-cache (`getQrzCacheFresh`) -> `fetchQrzCallsignInfo` -> `fetchCallookCallsignInfo`
--> `fetchHamQthCallsignInfo`; po zakonczeniu `stationResultPending` powoduje
+cache (`getQrzCacheFresh`) -> `fetchQrzCallsignInfo` -> `fetchHamDbCallsignInfo`
+-> `fetchCallookCallsignInfo`; po zakonczeniu `stationResultPending` powoduje
 przerysowanie w `uiTaskLoop`. Wejscie na ekran (zmiana `currentScreen` w
 `drawScreen`) czysci `stationKeyboardActive`/`stationLoading`. Dane logowania QRZ
-(`qrzUsername`/`qrzPassword`) nie sa zapisywane trwale - bez nich zostaje
-callook (tylko USA) i HamQTH.
+(`qrzUsername`/`qrzPassword`) sa zapisywane w NVS i ustawiane z WWW
+(Ustawienia -> QRZ.com, pola `qrz_user`/`qrz_pass`); QRZ.com nie ma klucza API do
+wyszukiwania znakow - klucz API sluzy tylko do logbooka (upload). Bez loginu/hasla
+QRZ zostaje HamDB (globalne, darmowe) i callook (tylko USA).
+HamDB: `http://api.hamdb.org/v1/<CALL>/json/<APPNAME>` (http, bo Cloudflare robi
+302; pola `NOT_FOUND` traktowane jak brak).
 UWAGA rysowanie: `tft.drawString(s,x,y)` BEZ parametru fontu uzywa czcionki
 GLCD (font 1) skalowanej przez `setTextSize()` - nie Font 2. Dlatego pole
 wynikow uzywa `setTextSize(2)` + GLCD (~12x16 px na znak); `stepY = 30`, zeby

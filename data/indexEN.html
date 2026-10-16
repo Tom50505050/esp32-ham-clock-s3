@@ -1035,12 +1035,12 @@
                     <div class="form-group">
                         <label>QRZ.com Username </label>
                         <input type="text" id="qrz_user" name="qrz_user" placeholder="login QRZ">
-                        <small>QRZ.com API username (optional, for extra callsign info)</small>
+                        <small>QRZ XML API username (required for QRZ.com lookup). Without it the STACJA screen uses HamDB, then callook.</small>
                     </div>
                     <div class="form-group">
                         <label>QRZ.com Password (XML API):</label>
                         <input type="password" id="qrz_pass" name="qrz_pass" placeholder="QRZ password" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
-                        <small>QRZ.com API password (optional)</small>
+                        <small>QRZ password (with the username it opens the XML API session for callsign lookup)</small>
                     </div>
                     <div class="form-group">
                         <label>QRZ Status:</label>
