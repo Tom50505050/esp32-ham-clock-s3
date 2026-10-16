@@ -21142,15 +21142,15 @@ static uint16_t getDxColor(float distance) {
 // Panel informacyjny po prawej stronie mapy: licznik spotow + lista najnowszych
 // (znak, pasmo, tryb). Rysowany jako nakladka na mape.
 static void drawPskSpotListPanel() {
-  // Zwezona ramka (bylo 310/166) - zaslania mniej mapy po prawej stronie.
-  const int px = 340, py = 40, pw = 136, ph = 250;
+  // Zwezona ramka (bylo 310/166, potem 340/136) - zaslania mniej mapy.
+  const int px = 360, py = 40, pw = 116, ph = 250;
   const uint16_t bg = 0x18E3;  // ciemne tlo (jak menu ustawien)
   tft.fillRect(px, py, pw, ph, bg);
   tft.drawRect(px, py, pw, ph, UI_COL_ACCENT);
 
   tft.setTextSize(1);
   tft.setTextColor(UI_COL_ACCENT, bg);
-  tft.setCursor(px + 5, py + 5);
+  tft.setCursor(px + 4, py + 5);
   tft.print("SPOTY: " + String(pskSpotCount));
 
   // Najnowsze na gorze (tablica jest w kolejnosci dodawania).
@@ -21160,16 +21160,17 @@ static void drawPskSpotListPanel() {
     int ry = py + 18 + shown * 10;
     tft.fillRect(px + 3, ry + 1, 6, 6, getPskBandColor(pskSpots[i].band));
 
+    // Znak skrocony do 8 znakow - szersze nie mieszcza sie w wezszej ramce.
     String row = pskSpots[i].callsign;
-    if (row.length() > 9) row = row.substring(0, 9);
-    while (row.length() < 9) row += " ";
+    if (row.length() > 8) row = row.substring(0, 8);
+    while (row.length() < 8) row += " ";
     row += " " + String(pskSpots[i].band) + "m";
     String m = pskSpots[i].mode;
     if (m.length() > 3) m = m.substring(0, 3);
     if (m.length() > 0) row += " " + m;
 
     tft.setTextColor(TFT_WHITE, bg);
-    tft.setCursor(px + 12, ry);
+    tft.setCursor(px + 11, ry);
     tft.print(row);
   }
 }
