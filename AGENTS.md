@@ -26,6 +26,16 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
   Gdy pozycja dziala a TLE nie, to problem jest specyficzny dla danego hosta
   (blokada IP / geo / TLS), dlatego rozwiazaniem jest lancuch zrodel zapasowych.
 
+## PSK MAP: ramka spotow przeniesiona na lewa strone (16.10.2026)
+- Ramka `drawPskSpotListPanel()` byla po prawej (x=360..476, y=40..290) i
+  zaslaniala Azje oraz Australie (ok. 31% pikseli tego obszaru to lad).
+- Nowa pozycja: x=4..132, y=126..286 - pas poludniowego Atlantyku/Oceanu
+  Poludniowego, w ktorym mapa ma <1% ladu (sprawdzone na `data/Mapa swiata.bmp`
+  przez zliczanie pikseli roznych od koloru oceanu). Nic nie zaslania.
+- Wiersze listy: 22 -> 14 (mniejsza wysokosc ramki).
+- Podglad 1:1 przed/po: `tools/render_pskmap_preview.py` ->
+  `/workspace/share/pskmap-podglad.png` (wymaga Pillow).
+
 ## PSK Reporter: "nie dziala" = limit IP po stronie PSKReporter (15.10.2026)
 - OBJAW: ekran PSK MAP rysuje mape + czerwona kropke usera, ale zero spotow
   i zero linii DX.
