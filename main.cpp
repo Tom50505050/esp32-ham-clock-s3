@@ -2253,6 +2253,7 @@ struct QrzCacheEntry {
   float lon;
   bool hasLatLon;
   bool notFound;      // wpis negatywny: API nie zna tego znaku (np. callook = tylko USA)
+  String source;      // zrodlo, z ktorego pobrano ten wpis (QRZ.com / HamDB / callook)
   unsigned long fetchedAtMs;
 };
 const int QRZ_CACHE_SIZE = 20;
@@ -13191,6 +13192,7 @@ bool fetchHamDbCallsignInfo(const String &callsign, String &outGrid, String &out
   qrzCache[oldestIdx].lon = (float)outLon;
   qrzCache[oldestIdx].hasLatLon = outHasLatLon;
   qrzCache[oldestIdx].notFound = false;
+  qrzCache[oldestIdx].source = "HamDB";
   qrzCache[oldestIdx].fetchedAtMs = now;
 
   return true;
@@ -13325,6 +13327,7 @@ bool fetchCallookCallsignInfo(const String &callsign, String &outGrid, String &o
   qrzCache[oldestIdx].lon = (float)outLon;
   qrzCache[oldestIdx].hasLatLon = outHasLatLon;
   qrzCache[oldestIdx].notFound = false;
+  qrzCache[oldestIdx].source = "callook";
   qrzCache[oldestIdx].fetchedAtMs = now;
 
   Serial.print("[CALLOOK] Fetched: ");
@@ -13634,6 +13637,7 @@ bool fetchHamQthCallsignInfo(const String &callsign, String &outGrid, String &ou
   qrzCache[oldestIdx].lon = (float)outLon;
   qrzCache[oldestIdx].hasLatLon = outHasLatLon;
   qrzCache[oldestIdx].notFound = false;
+  qrzCache[oldestIdx].source = "HamQTH";
   qrzCache[oldestIdx].fetchedAtMs = now;
 
   Serial.print("[HAMQTH] Fetched: ");
@@ -13806,6 +13810,7 @@ bool fetchQrzCallsignInfo(const String &callsign, String &outGrid, String &outCo
   qrzCache[oldestIdx].lon = (float)outLon;
   qrzCache[oldestIdx].hasLatLon = outHasLatLon;
   qrzCache[oldestIdx].notFound = false;
+  qrzCache[oldestIdx].source = "QRZ.com";
   qrzCache[oldestIdx].fetchedAtMs = now;
 
   return (grid.length() > 0 || country.length() > 0 || name.length() > 0);
@@ -13813,7 +13818,7 @@ bool fetchQrzCallsignInfo(const String &callsign, String &outGrid, String &outCo
 
 bool getQrzCacheFresh(const String &callsign, String &outGrid, String &outCountry, String &outName,
                      String &outEmail, String &outQth, double &outLat, double &outLon, bool &outHasLatLon,
-                     unsigned long ttlMs) {
+                     unsigned long ttlMs, String *outSource = nullptr) {
   outGrid = "";
   outCountry = "";
   outName = "";
@@ -13836,6 +13841,7 @@ bool getQrzCacheFresh(const String &callsign, String &outGrid, String &outCountr
       outLat = qrzCache[i].lat;
       outLon = qrzCache[i].lon;
       outHasLatLon = qrzCache[i].hasLatLon;
+      if (outSource) *outSource = qrzCache[i].source;
       return (outGrid.length() > 0 || outCountry.length() > 0 || outName.length() > 0);
     }
   }
@@ -17164,6 +17170,7 @@ void stationDrawLoading() {
   const uint16_t card = classic ? TFT_BLACK : UI_COL_CARD;
   const uint16_t border = classic ? TFT_WHITE : UI_COL_BORDER;
   const uint16_t text = classic ? TFT_WHITE : UI_COL_TEXT;
+  const uint16_t dim = classic ? TFT_LIGHTGREY : UI_COL_DIM;
   tft.fillRect(20, 60, 440, 220, card);
   tft.drawRect(20, 60, 440, 220, border);
   tft.setTextDatum(MC_DATUM);
@@ -17172,7 +17179,9 @@ void stationDrawLoading() {
   tft.drawString(stationCallsign, 240, 110);
   tft.setTextSize(1);
   tft.setTextColor(text, card);
-  tft.drawString("Pobieranie danych...", 240, 160);
+  tft.drawString("Pobieranie danych...", 240, 150);
+  tft.setTextColor(dim, card);
+  tft.drawString("kolejno: QRZ.com -> HamDB -> callook", 240, 176);
   tft.setTextDatum(TL_DATUM);
 }
 
@@ -17196,8 +17205,8 @@ void stationLookupStart() {
   bool hasLatLon = false;
 
   // 1) cache (nie ponawiaj zapytan o ten sam znak)
-  if (getQrzCacheFresh(call, grid, country, name, email, qth, lat, lon, hasLatLon, QRZ_CACHE_TTL_MS)) {
-    stationSource = "cache";
+  if (getQrzCacheFresh(call, grid, country, name, email, qth, lat, lon, hasLatLon, QRZ_CACHE_TTL_MS, &stationSource)) {
+    if (stationSource.length() == 0) stationSource = "cache";
     stationFound = true;
   } else if (fetchQrzCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) {
     stationSource = "QRZ.com";
@@ -17297,6 +17306,9 @@ static void stationDrawResults() {
     tft.setTextSize(1);
     tft.setTextColor(dim, card);
     tft.drawString("Sprawdz poprawnosc znaku", 34, 160);
+    String src = "Zrodlo: ";
+    src += stationSource.length() ? stationSource : "-";
+    tft.drawString(src, 34, 185);
     }
   }
 

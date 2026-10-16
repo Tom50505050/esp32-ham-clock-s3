@@ -228,6 +228,7 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False)
         if notfound:
             f1s(d, 34, 120, "Nie znaleziono stacji", 2, UI_RED)
             f1(d, 34, 160, "Sprawdz poprawnosc znaku", dim)
+            f1(d, 34, 185, "Zrodlo: " + (source or "-"), dim)
         else:
             y = 116
             for label, val in fields:
@@ -241,7 +242,8 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False)
 def loading(d, callsign, classic):
     card(d, classic)
     f1sc(d, 240, 110, callsign, 2, CYAN if classic else UI_ACCENT)
-    f1c(d, 240, 160, "Pobieranie danych...", WHITE if classic else UI_TEXT)
+    f1c(d, 240, 150, "Pobieranie danych...", WHITE if classic else UI_TEXT)
+    f1c(d, 240, 176, "kolejno: QRZ.com -> HamDB -> callook", LIGHTGREY if classic else UI_DIM)
     search_button(d, classic)
 
 
@@ -293,16 +295,23 @@ save(im, "stacja-5-klasyczny-start.png")
 
 im, d = render(True)
 header(d, "STACJA", True)
-results(d, True, "DL1ABC", "callook",
+results(d, True, "DL1ABC", "HamDB",
         [("Imie: ", "Max Mustermann"), ("QTH:  ", "Berlin"), ("Grid: ", "JO62qm"),
          ("Kraj: ", "Germany")], distance=510)
 footer(d, True)
 save(im, "stacja-6-klasyczny-wynik.png")
 
-# --- sklejka 2x3 ---
+im, d = render(False)
+header(d, "STACJA", False)
+results(d, False, "SP9ZZZ", "-", [], notfound=True)
+footer(d, False)
+save(im, "stacja-7-nieznaleziony.png")
+
+# --- sklejka 2x4 ---
 names = ["stacja-1-start.png", "stacja-2-klawiatura.png", "stacja-3-szukanie.png",
-         "stacja-4-wynik.png", "stacja-5-klasyczny-start.png", "stacja-6-klasyczny-wynik.png"]
-sheet = Image.new("RGB", (480 * 2 + 30, 320 * 3 + 40), (40, 40, 40))
+         "stacja-4-wynik.png", "stacja-5-klasyczny-start.png", "stacja-6-klasyczny-wynik.png",
+         "stacja-7-nieznaleziony.png"]
+sheet = Image.new("RGB", (480 * 2 + 30, 320 * 4 + 40), (40, 40, 40))
 for i, n in enumerate(names):
     img = Image.open(os.path.join(OUT, n))
     x = (i % 2) * (480 + 10) + 10
