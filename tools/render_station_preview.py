@@ -258,7 +258,8 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
     text = WHITE if classic else UI_TEXT
     dim = LIGHTGREY if classic else UI_DIM
     accent = YELLOW if classic else UI_ACCENT
-    dxcol = CYAN if classic else UI_ACCENT2
+    dxcol = GREEN   # szukany znak (mocny zielony)
+    mycol = RED     # moj znak (czerwony)
 
     if not classic:
         for i in range(12):
@@ -285,7 +286,7 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
             d.line([px_, py_, x, y], fill=c)
             px_, py_ = x, y
 
-    station_radio(d, 14, 248, 120, 46, mycall or "SP9TNV", accent, bg)
+    station_radio(d, 14, 248, 120, 46, mycall or "SP9TNV", mycol, bg)
     station_radio(d, 346, 248, 120, 46, callsign if callsign else "---", dxcol, bg)
 
     if not callsign:
@@ -296,19 +297,19 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
         f1c(d, 240, 138, "Sprawdz poprawnosc znaku", dim)
         f1c(d, 240, 162, "Zrodlo: " + (source or "-"), dim)
     else:
-        f1sc(d, 240, 46, callsign, 3, accent)
-        d.line([px + 18, py + 84, px + pw - 18, py + 84], fill=border)
+        f1sc(d, 240, 34, callsign, 3, accent)
+        d.line([px + 18, py + 70, px + pw - 18, py + 70], fill=border)
         labels = ["Imie", "QTH", "Grid", "Kraj"]
         vals = []
         for label, val in fields:
             vals.append(val if val else "---")
         while len(vals) < 4:
             vals.append("---")
-        ly = py + 96
+        ly = py + 80
         for i in range(4):
             f1(d, px + 18, ly, labels[i], dim)
             f1(d, px + 84, ly, vals[i], text)
-            ly += 18
+            ly += 16
         f1(d, px + 18, ly, "Dyst", dim)
         if have_dist:
             dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
@@ -317,10 +318,11 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
             f1(d, px + 84, ly, dv, wave)
         else:
             f1(d, px + 84, ly, "--- (brak QTH)", dim)
+        ly += 18
         src = "Zrodlo: " + (source or "-")
         if source_time:
             src += "  " + source_time
-        f1c(d, 240, py + ph - 18, src, dim)
+        f1(d, px + 18, ly, src, dim)
 
     bx, by, bw, bh = 152, 256, 176, 28
     d.rounded_rectangle([bx, by, bx + bw - 1, by + bh - 1], radius=8, fill=accent)

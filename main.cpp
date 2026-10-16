@@ -17339,7 +17339,8 @@ static void stationDrawResults() {
   const uint16_t text   = classic ? TFT_WHITE : UI_COL_TEXT;
   const uint16_t dim    = classic ? TFT_LIGHTGREY : UI_COL_DIM;
   const uint16_t accent = classic ? TFT_YELLOW : UI_COL_ACCENT;
-  const uint16_t dxCol  = classic ? TFT_CYAN : UI_COL_ACCENT2;
+  const uint16_t myRadioCol = 0xF800;  // czerwony  - moj znak
+  const uint16_t dxRadioCol = 0x07E0;  // mocny zielony - znak wyszukiwany
 
   tft.fillRect(0, UI_HEADER_H, 480, UI_FOOTER_Y - UI_HEADER_H, bg);
 
@@ -17384,8 +17385,8 @@ static void stationDrawResults() {
   // Transceivery: lewy = operator, prawy = szukana stacja.
   String myCall = userCallsign.length() ? userCallsign : String(DEFAULT_CALLSIGN);
   String dxCall = stationCallsign.length() ? stationCallsign : String("---");
-  stationDrawRadio(14, 248, 120, 46, myCall, accent, bg);
-  stationDrawRadio(346, 248, 120, 46, dxCall, dxCol, bg);
+  stationDrawRadio(14, 248, 120, 46, myCall, myRadioCol, bg);
+  stationDrawRadio(346, 248, 120, 46, dxCall, dxRadioCol, bg);
 
   // Zawartosc karty.
   if (stationCallsign.length() == 0) {
@@ -17409,8 +17410,8 @@ static void stationDrawResults() {
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(accent, panel);
     tft.setTextSize(3);
-    tft.drawString(stationCallsign, 240, 60);
-    tft.drawFastHLine(px + 18, py + 84, pw - 36, border);
+    tft.drawString(stationCallsign, 240, 48);
+    tft.drawFastHLine(px + 18, py + 70, pw - 36, border);
     tft.setTextDatum(TL_DATUM);
 
     auto val = [](const String &v) -> String {
@@ -17420,14 +17421,14 @@ static void stationDrawResults() {
     const char *labels[4] = {"Imie", "QTH", "Grid", "Kraj"};
     const String values[4] = { val(stationName), val(stationQth),
                                val(stationGrid), val(stationCountry) };
-    int ly = py + 96;
+    int ly = py + 80;
     for (int i = 0; i < 4; i++) {
       tft.setTextSize(1);
       tft.setTextColor(dim, panel);
       tft.drawString(labels[i], px + 18, ly);
       tft.setTextColor(text, panel);
       tft.drawString(values[i], px + 84, ly);
-      ly += 18;
+      ly += 16;
     }
 
     // Dystans (+ kierunek, gdy znamy pozycje).
@@ -17444,15 +17445,14 @@ static void stationDrawResults() {
       tft.setTextColor(dim, panel);
       tft.drawString("--- (brak QTH)", px + 84, ly);
     }
+    ly += 18;
 
-    // Zrodlo + godzina pobrania (stopka karty).
+    // Zrodlo + godzina pobrania - pod polami.
     String src = "Zrodlo: ";
     src += stationSource.length() ? stationSource : "-";
     if (stationSourceTime.length()) { src += "  "; src += stationSourceTime; }
     tft.setTextColor(dim, panel);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString(src, 240, py + ph - 14);
-    tft.setTextDatum(TL_DATUM);
+    tft.drawString(src, px + 18, ly);
   }
 
   // Przycisk SZUKAJ (srodek, miedzy transceiverami).
