@@ -101,8 +101,55 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
+| **v1.2a** | 16.10.2026 | Poprawki ekranu **PSK MAP**: **kumulacja spotów** (dedup znak+pasmo+tryb, limit 200) · **auto-RESET** po 200 spotach · **panel informacyjny po prawej** (licznik + lista najnowszych, zwężona ramka) · **odświeżanie tylko spotów** (bez przerysowywania nagłówka, paska, ikony baterii i napisów) · **MQTT domyślnie włączone** (start bez HTTP) · eksport rozmów do Markdown |
 | **v1.2** | 15.10.2026 | Nowy ekran **APRS RADAR** i **Informacje systemowe** (zamiast Unlis Hunter) · **ISS Pass Tracking** przebudowany (n2yo visualpasses, mapa+radar+metryki, flagi kraju) · **GPS** (NMEA UART2 + automatyczny lokator Maidenhead) · **kolory w TFT**: kolor znaku (menu HSV + picker WWW) i **kolor zegara** · **globalny przełącznik stylu** KLASYCZNY/nowoczesny · **wspólny styl „ISS TRACKER"** na wszystkich ekranach · nowy **ekran startowy** (karta QSL → emblemat ESP32-HAM-CLOCK + VERSION 1.2) i **ekran powitalny** (godło PZK, czcionka VLW) · **WWW**: upload grafiki JPG/PNG/BMP, 14 pozycji, ikony SVG, naprawa „Instrukcja" · **WiFi**: przypinanie do BSSID AP, drabinka mocy TX (AUTH_EXPIRE) |
 | **v1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
+
+---
+
+## Zmiany między v1.2 a v1.2a
+
+Wydanie poprawkowe **v1.2a** (16.10.2026) dotyczy wyłącznie ekranu **PSK MAP**
+i narzędzi projektu. Nie zmieniono innych ekranów ani zależności.
+
+### Mapa spotów (PSK MAP)
+- **Kumulacja spotów** — spoty już się nie nadpisują. Nowy helper `pskAddSpot()`
+  dodaje spoty z **deduplikacją** (klucz: znak + pasmo + tryb). Limit podniesiono
+  z `PSK_MAX_SPOTS = 50` do **200**.
+- **Auto-RESET po 200 spotach** — po osiągnięciu limitu mapa sama się czyści
+  i startuje nowy cykl (w logu: `[PSK] AUTO-RESET: osiagnieto 200 spotow`).
+  Wcześniej `break` w pętli HTTP blokował to wyzwolenie.
+- **Panel informacyjny po prawej** (`drawPskSpotListPanel()`) — licznik
+  `SPOTY: N` + lista najnowszych (znak, pasmo, tryb) z kwadracikiem koloru pasma.
+  Ramkę **zwężono dwukrotnie**: 310/166 → 340/136 → **360/116** (prawa krawędź
+  bez zmian), żeby zasłaniała mniej mapy. Pole znaku skrócono z 9 do 8 znaków.
+- **Odświeżanie tylko spotów** (`drawPskMapSpotsOnly()`) — przy nowych spotach
+  rysowane są **wyłącznie spoty** + panel. Nagłówek „PSKReporter MAP", pasek,
+  przycisk menu, ikona baterii i napisy **pozostają nietknięte** (koniec migania).
+  Zmienna `lastPskSpotCount` śledzi, co już narysowano (rysowanie przyrostowe).
+- **MQTT domyślnie włączone** — `pskMqttEnabled = true` oraz NVS
+  `psk_mqtt_en = true`; start od razu po MQTT, bez pierwszego zapytania HTTP.
+- **Przycisk RESET** — `resetPskMapSpots()` zeruje `pskSpotCount`,
+  `lastPskSpotCount` i bufor MQTT, po czym wymusza pełne przerysowanie mapy.
+- `fetchPskReporterData()` i `copyPskMqttToDisplay()` **dopisują** spoty
+  (usunięto zerowanie licznika i przerywanie pętli na limicie).
+
+### Narzędzia i dokumentacja
+- **`tools/export_conversation.py`** — eksport dziennika zdarzeń rozmowy do
+  Markdown; tryb pełny i `--dialog` (tylko wypowiedzi), **redakcja sekretów**
+  (`gAAAAA*`, `ghp_*`, `github_pat_*`, `sk-*`, `api_key=…`, `Bearer …`).
+- **`conversations/`** — skrócony zapis rozmowy (`*-dialog.md`); pełna wersja
+  w `.gitignore`.
+- **`STAN_PRAC.md`** — notatka o stanie prac i punktach do weryfikacji.
+- **`AGENTS.md`** — opis MQTT domyślnego, kumulacji spotów, panelu bocznego
+  i procedury zapisu rozmów.
+
+### Wersja
+- `FIRMWARE_VERSION` zmieniona z `1.2.1` na **`1.2a`**.
+
+### Uwaga o kompatybilności
+- Brak zmian w zależnościach (TFT_eSPI, ArduinoJson, PubSubClient, …).
+- Pliki firmware i ZIP zmienione (nowy build); układ partycji bez zmian.
 
 ---
 

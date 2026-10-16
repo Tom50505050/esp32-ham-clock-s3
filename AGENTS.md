@@ -58,8 +58,8 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
      tylko przedluzalo blokade.
   6. 429 ustawia tez `pskRateLimited=true` (wczesniej flaga zostawala stara,
      wiec naglowek nie pokazywal limitu).
-  7. Banner wersji przy starcie (`===== ESP32-HAM-CLOCK v1.2.1 =====`) - pozwala
-     potwierdzic, ze wgrany jest nowy firmware (FIRMWARE_VERSION 1.2 -> 1.2.1).
+  7. Banner wersji przy starcie (`===== ESP32-HAM-CLOCK v1.2a =====`) - pozwala
+     potwierdzic, ze wgrany jest nowy firmware (FIRMWARE_VERSION 1.2 -> 1.2a).
 - DIAGNOSTYKA: "Spoty: 0" + brak "LIMIT PSKReporter" = zapytanie poszlo, ale
   zero wynikow (zly `receiverCallsign` / pusty lokator / okno czasu). "LIMIT
   PSKReporter - poczekaj" = IP zablokowane, odczekac. Po restarcie domowego IP

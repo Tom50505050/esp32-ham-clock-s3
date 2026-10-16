@@ -36,7 +36,7 @@ void normalizePolish(String &text);
 #endif
 
 // Wersja firmware
-#define FIRMWARE_VERSION "1.2.1"
+#define FIRMWARE_VERSION "1.2a"
 
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -2481,7 +2481,7 @@ void drawWelcomeScreenYellow() {
 
   tft.fillScreen(TFT_BLACK);
 
-  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2").
+  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2a").
   // Polskie znaki - wymaga UTF-8 w zrodle (--utf8-source).
   String lines[5];
   lines[0] = "ESP32-HAM-CLOCK v" FIRMWARE_VERSION;

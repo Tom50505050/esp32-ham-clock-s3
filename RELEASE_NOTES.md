@@ -1,3 +1,11 @@
+# ESP32-HAM-CLOCK — informacje o wydaniach
+
+Dokument obejmuje wydania **v1.2** i **v1.2a** dla platformy **ESP32-S3 N16R8**
+(16 MB flash, 8 MB PSRAM) z wyświetlaczem **ILI9488 3.5" IPS 480×320** po SPI
+i panelem dotykowym XPT2046.
+
+---
+
 # ESP32-HAM-CLOCK v1.2 — ESP32-S3 N16R8 + ILI9488 3.5"
 
 Wydanie **v1.2** dla platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM)
@@ -55,6 +63,40 @@ z wyświetlaczem **ILI9488 3.5" IPS 480×320** po SPI i panelem dotykowym XPT204
 
 ### Nowe pliki danych
 - `data/pzk-logo.bmp`, `data/fonts/Welcome-Regular21.vlw`, `iss_worldmask.h`.
+
+---
+
+# ESP32-HAM-CLOCK v1.2a — wydanie poprawkowe (PSK MAP)
+
+Wydanie **v1.2a** (16.10.2026) dla tej samej platformy
+(**ESP32-S3 N16R8** + **ILI9488 3.5"** + XPT2046). Zakres: ekran **PSK MAP**
+oraz narzędzia projektu. Pozostałe ekrany i zależności bez zmian.
+
+## Zmiany od v1.2
+
+### Mapa spotów (PSK MAP)
+- **Kumulacja spotów** — spoty narastają na mapie zamiast się nadpisywać.
+  Nowy `pskAddSpot()` z deduplikacją (znak + pasmo + tryb);
+  `PSK_MAX_SPOTS` **50 → 200**.
+- **Auto-RESET** po 200 spotach — mapa czyści się sama i startuje nowy cykl.
+- **Panel po prawej** (`drawPskSpotListPanel()`) — licznik `SPOTY: N` + lista
+  najnowszych; ramka zwężona **310/166 → 340/136 → 360/116** (prawa krawędź
+  bez zmian), pole znaku 9 → 8 znaków.
+- **Odświeżanie tylko spotów** (`drawPskMapSpotsOnly()`) — nagłówek „PSKReporter
+  MAP", pasek, przycisk menu, ikona baterii i napisy nie są przerysowywane
+  (koniec migania). Rysowanie przyrostowe przez `lastPskSpotCount`.
+- **MQTT domyślnie włączone** (`pskMqttEnabled = true`, NVS `psk_mqtt_en = true`).
+- **Przycisk RESET** — `resetPskMapSpots()` zeruje spoty i bufor MQTT.
+
+### Narzędzia i dokumentacja
+- `tools/export_conversation.py` — eksport rozmowy do Markdown z redakcją sekretów.
+- `conversations/`, `STAN_PRAC.md`, aktualizacje `AGENTS.md`.
+
+### Wersja
+- `FIRMWARE_VERSION`: `1.2.1` → **`1.2a`**.
+
+### Kompatybilność
+- Bez zmian zależności i układu partycji. Zmienione pliki firmware i ZIP.
 
 ## Pliki
 
