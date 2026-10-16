@@ -212,7 +212,7 @@ def card(d, classic):
     d.rectangle([21, 61, 458, 298], outline=(NAVY if classic else UI_FAINT))
 
 
-def results(d, classic, callsign, source, fields, distance=None, notfound=False):
+def results(d, classic, callsign, source, fields, distance=None, notfound=False, source_time=""):
     card(d, classic)
     text = WHITE if classic else UI_TEXT
     dim = LIGHTGREY if classic else UI_DIM
@@ -224,7 +224,10 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False)
         f1c(d, 240, 165, "nacisnij SZUKAJ i wpisz znak", dim)
     else:
         f1s(d, 34, 72, callsign, 2, accent)              # setTextSize(2) TL (34,72)
-        f1(d, 360, 74, "Zrodlo: " + (source or "-"), dim)  # setTextSize(1) TL (360,74)
+        src = "Zrodlo: " + (source or "-")
+        if source_time:
+            src += "  " + source_time
+        f1(d, 300, 74, src, dim)                         # setTextSize(1) TL (300,74)
         if notfound:
             f1s(d, 34, 120, "Nie znaleziono stacji", 2, UI_RED)
             f1(d, 34, 160, "Sprawdz poprawnosc znaku", dim)
@@ -234,7 +237,9 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False)
             for label, val in fields:
                 f1s(d, 34, y, "%s %s" % (label, val if val else "---"), 2, text)
                 y += 30
-            if distance is not None:
+            if distance == "unknown":
+                f1s(d, 34, y, "Dyst:  --- (brak QTH)", 2, dim)
+            elif distance is not None:
                 f1s(d, 34, y, "Dyst:  %d km" % distance, 2, accent)
     search_button(d, classic)
 
@@ -297,7 +302,7 @@ im, d = render(True)
 header(d, "STACJA", True)
 results(d, True, "DL1ABC", "HamDB",
         [("Imie: ", "Max Mustermann"), ("QTH:  ", "Berlin"), ("Grid: ", "JO62qm"),
-         ("Kraj: ", "Germany")], distance=510)
+         ("Kraj: ", "Germany")], distance=510, source_time="09:07")
 footer(d, True)
 save(im, "stacja-6-klasyczny-wynik.png")
 

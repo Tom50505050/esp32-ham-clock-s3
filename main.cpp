@@ -17153,6 +17153,7 @@ String stationKeyboardBuffer = "";
 bool   stationKeyboardActive = false;
 unsigned long stationLastErrorMs = 0;
 String stationLastError = "";
+String stationSourceTime = "";   // godzina pobrania danych (HH:MM, czas lokalny)
 
 static const int STATION_KB_TOP = 118;
 static const int STATION_KB_KEY_W = 32;
@@ -17232,7 +17233,19 @@ void stationLookupStart() {
     stationLat = lat;
     stationLon = lon;
     stationHasLatLon = hasLatLon;
-    stationDistanceKm = 0.0f;
+    stationDistanceKm = -1.0f;   // -1 = nieznana (brak pozycji stacji lub uzytkownika)
+    if (!hasLatLon && grid.length() >= 4) {
+      double glat = 0.0, glon = 0.0;
+      locatorToLatLon(grid, glat, glon);
+      if (glat != 0.0 || glon != 0.0) {
+        lat = glat;
+        lon = glon;
+        stationLat = glat;
+        stationLon = glon;
+        stationHasLatLon = true;
+        hasLatLon = true;
+      }
+    }
     if (hasLatLon) {
       double ulat = 0.0, ulon = 0.0;
       bool haveUser = false;
@@ -17240,6 +17253,16 @@ void stationLookupStart() {
       else if (userLocator.length() >= 4) { locatorToLatLon(userLocator, ulat, ulon); haveUser = true; }
       if (haveUser) stationDistanceKm = calculateDistance(ulat, ulon, lat, lon);
     }
+  }
+
+  // Godzina pobrania danych (czas lokalny) - pokazywana obok zrodla.
+  struct tm tinfo;
+  if (getTimeWithTimezone(&tinfo)) {
+    char tb[8];
+    snprintf(tb, sizeof(tb), "%02d:%02d", tinfo.tm_hour, tinfo.tm_min);
+    stationSourceTime = tb;
+  } else {
+    stationSourceTime = "";
   }
 
   stationLoading = false;
@@ -17280,7 +17303,8 @@ static void stationDrawResults() {
     tft.setTextColor(dim, card);
     String src = "Zrodlo: ";
     src += stationSource.length() ? stationSource : "-";
-    tft.drawString(src, 360, 74);
+    if (stationSourceTime.length()) { src += "  "; src += stationSourceTime; }
+    tft.drawString(src, 300, 74);
 
     if (stationFound) {
     tft.setTextColor(text, card);
@@ -17295,9 +17319,12 @@ static void stationDrawResults() {
     tft.drawString("QTH:   " + val(stationQth), 34, y); y += stepY;
     tft.drawString("Grid:  " + val(stationGrid), 34, y); y += stepY;
     tft.drawString("Kraj:  " + val(stationCountry), 34, y); y += stepY;
-    if (stationHasLatLon && stationDistanceKm > 0.0f) {
+    if (stationHasLatLon && stationDistanceKm >= 0.0f) {
       tft.setTextColor(accent, card);
       tft.drawString("Dyst:  " + String(stationDistanceKm, 0) + " km", 34, y);
+    } else if (stationHasLatLon) {
+      tft.setTextColor(dim, card);
+      tft.drawString("Dyst:  --- (brak QTH)", 34, y);
     }
   } else {
     tft.setTextColor(UI_COL_RED, card);
