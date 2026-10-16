@@ -100,8 +100,18 @@ void drawAprsRadar();
 void drawPotaCluster();
 void drawHamalertCluster();
 void drawMatrixClock();
-void drawQrzInfoScreen();
-void handleQrzInfoTouch(uint16_t x, uint16_t y);
+void drawStationScreen();
+void handleStationTouch(uint16_t x, uint16_t y);
+void stationStartKeyboard();
+void stationLookupStart();
+void stationDrawLoading();
+static void stationDrawResults();
+static void drawStationKeyboard();
+static void stationHandleKeyboardKey(uint16_t x, uint16_t y);
+extern String stationCallsign;
+extern bool stationKeyboardActive;
+extern bool stationLoading;
+extern bool stationResultPending;
 
 void drawHamburgerMenuButton3D(int x, int y);
 void handleTouchCalibrationTouch(int16_t rawX, int16_t rawY, uint16_t x, uint16_t y, bool isNewTap);
@@ -327,7 +337,8 @@ enum ScreenType : uint8_t {
   SCREEN_SYSTEM_INFO = 11,
   SCREEN_WEATHER_FORECAST = 12,
   SCREEN_PSK_MAP = 13,
-  SCREEN_ISS_PASS_TRACKING = 14
+  SCREEN_ISS_PASS_TRACKING = 14,
+  SCREEN_STATION = 15
 };
 
 #define LOG_VERBOSE false
@@ -658,7 +669,7 @@ bool littleFsReady = false;
 bool splashPathLoaded = false;
 
 // ========== SYSTEM MENU I NAWIGACJI ==========
-const int SCREEN_PAGE_COUNT = 14;
+const int SCREEN_PAGE_COUNT = 15;
 const ScreenType DEFAULT_SCREEN_ORDER[SCREEN_PAGE_COUNT] = {
   SCREEN_HAM_CLOCK,
   SCREEN_DX_CLUSTER,
@@ -673,6 +684,7 @@ const ScreenType DEFAULT_SCREEN_ORDER[SCREEN_PAGE_COUNT] = {
   SCREEN_PSK_MAP,
   SCREEN_MATRIX_CLOCK,
   SCREEN_SYSTEM_INFO,
+  SCREEN_STATION,
   SCREEN_ISS_PASS_TRACKING
 };
 
@@ -690,6 +702,7 @@ ScreenType screenOrder[SCREEN_PAGE_COUNT] = {
   SCREEN_PSK_MAP,
   SCREEN_MATRIX_CLOCK,
   SCREEN_SYSTEM_INFO,
+  SCREEN_STATION,
   SCREEN_ISS_PASS_TRACKING
 };
 ScreenType currentScreen = SCREEN_OFF;  // Ustawiany po wczytaniu preferencji
@@ -2779,6 +2792,11 @@ void drawScreen(ScreenType screenNum) {
       // On first enter to radar screen, show zoom/info hints for a short time.
       screen6RadarHintUntilMs = millis() + SCREEN6_RADAR_HINT_DURATION_MS;
     }
+    if (screenNum == SCREEN_STATION) {
+      // Wejscie na ekran STACJA: zamknij klawiature, pokaz wyniki.
+      stationKeyboardActive = false;
+      stationLoading = false;
+    }
     lastDrawnScreen = screenNum;
   }
 
@@ -2809,6 +2827,7 @@ void drawScreen(ScreenType screenNum) {
       case SCREEN_SUN_SPOTS:        uiHeader((tftLanguage == TFT_LANG_EN) ? "PROPAGATION" : "PROPAGACJA", false); break;
       case SCREEN_BAND_INFO:        uiHeader("SOLAR PROPAGATION INDEX", false); break;
       case SCREEN_SYSTEM_INFO:      uiHeader("SYSTEM INFO", true); break;
+      case SCREEN_STATION:          uiHeader((tftLanguage == TFT_LANG_EN) ? "STATION INFO" : "STACJA", false); break;
       default: break;
     }
   }
@@ -2852,6 +2871,9 @@ void drawScreen(ScreenType screenNum) {
       break;
     case SCREEN_PSK_MAP:
       drawPskMap();
+      break;
+    case SCREEN_STATION:
+      drawStationScreen();
       break;
     case SCREEN_ISS_PASS_TRACKING:
       issForceNextPassRefresh = true;  // odswiez plan przelotow przy wejsciu
@@ -5400,7 +5422,7 @@ bool readTouchPoint(uint16_t &x, uint16_t &y) {
   return true;
 }
 
-const int SCREEN_ORDER_COUNT = 14;//SCREEN_PAGE_COUNT;
+const int SCREEN_ORDER_COUNT = 15;//SCREEN_PAGE_COUNT;
 
 ScreenType normalizeScreenType(uint8_t raw) {
   switch (raw) {
@@ -5417,6 +5439,7 @@ ScreenType normalizeScreenType(uint8_t raw) {
     case SCREEN_PSK_MAP:
     case SCREEN_MATRIX_CLOCK:
     case SCREEN_SYSTEM_INFO:
+    case SCREEN_STATION:
     case SCREEN_ISS_PASS_TRACKING:
       return (ScreenType)raw;
     default:
@@ -5441,6 +5464,7 @@ const char* screenTypeToCodeStr(ScreenType t) {
     case SCREEN_PSK_MAP: return "pskmap";
     case SCREEN_MATRIX_CLOCK: return "matrix";
     case SCREEN_SYSTEM_INFO: return "systeminfo";
+    case SCREEN_STATION: return "station";
     case SCREEN_ISS_PASS_TRACKING: return "iss";
     case SCREEN_OFF:
     default:
@@ -5465,6 +5489,7 @@ ScreenType screenCodeToType(const String &code) {
   if (c == "pskmap" || c == "pskreporter") return SCREEN_PSK_MAP;
   if (c == "matrix") return SCREEN_MATRIX_CLOCK;
   if (c == "systeminfo" || c == "unlishunter") return SCREEN_SYSTEM_INFO;
+  if (c == "station" || c == "stacja" || c == "qrz" || c == "callsign") return SCREEN_STATION;
   if (c == "iss") return SCREEN_ISS_PASS_TRACKING;
   return SCREEN_OFF;
 }
@@ -5477,12 +5502,12 @@ void loadDefaultScreenOrder() {
 
 void ensureScreenOrderValid() {
   bool hasActive = false;
-  bool seen[15] = {false}; // indeksy odpowiadajÄ… ScreenType wartoĹ›ciom (0..14)
+  bool seen[16] = {false}; // indeksy odpowiadajÄ… ScreenType wartoĹ›ciom (0..15)
   for (int i = 0; i < SCREEN_ORDER_COUNT; i++) {
     screenOrder[i] = normalizeScreenType(screenOrder[i]);
     ScreenType t = screenOrder[i];
     if (t != SCREEN_OFF) {
-      if (t >= 0 && t <= SCREEN_ISS_PASS_TRACKING) {
+      if (t >= 0 && t <= SCREEN_STATION) {
         if (seen[t]) {
           // drugi raz ten sam ekran Ă˘â‚¬â€ś usuĹ„ duplikat
           screenOrder[i] = SCREEN_OFF;
@@ -5863,7 +5888,7 @@ void handleTouchNavigation() {
     // Nawigacja: dolne obszary dotyku (ok. 80x180)
     // Zamienione kierunki: lewa strona = w prawo (next), prawa strona = w lewo (prev)
     // TYLKO gdy nie jesteĹ›my w ĹĽadnym menu i nie ma aktywnej klawiatury
-    if (!inMenu && !brightnessMenuActive && !screenSaverMenuActive && !screenSleepMenuActive && !touchCalActive && !pskKeyboardActive) {
+    if (!inMenu && !brightnessMenuActive && !screenSaverMenuActive && !screenSleepMenuActive && !touchCalActive && !pskKeyboardActive && !stationKeyboardActive) {
       const uint16_t cornerY = 60;
       const uint16_t cornerX = 80;
       if (y >= cornerY && x < cornerX) {
@@ -5882,6 +5907,10 @@ void handleTouchNavigation() {
     // ObsĹ‚uga PSK map - na koĹ„cu, aby nie blokowaÄ‡ nawigacji w rogach
     if (currentScreen == SCREEN_PSK_MAP) {
       handlePskMapTouch(x, y);
+      return;
+    }
+    if (currentScreen == SCREEN_STATION) {
+      handleStationTouch(x, y);
       return;
     }
   } else {
@@ -16962,6 +16991,323 @@ void openQrzPopup(const String &callsign) {
 }
 }
 
+// ========== EKRAN "STACJA" (szukaj znaku) ==========
+
+String stationCallsign = "";   // pole znaku
+String stationName = "";
+String stationQth = "";
+String stationGrid = "";
+String stationCountry = "";
+String stationSource = "";     // zrodlo danych (QRZ.com / callook / HamQTH)
+String stationEmail = "";
+double stationLat = 0.0;
+double stationLon = 0.0;
+bool   stationHasLatLon = false;
+float  stationDistanceKm = 0.0f;
+bool   stationFound = false;
+bool   stationLoading = false;
+bool   stationLookupDone = false;
+bool   stationResultPending = false;  // sygnal dla uiTask: przerysuj wyniki
+unsigned long stationLookupStartMs = 0;
+String stationKeyboardBuffer = "";
+bool   stationKeyboardActive = false;
+unsigned long stationLastErrorMs = 0;
+String stationLastError = "";
+
+static const int STATION_KB_TOP = 118;
+static const int STATION_KB_KEY_W = 32;
+static const int STATION_KB_KEY_H = 26;
+static const int STATION_KB_GAP = 4;
+
+void stationStartKeyboard() {
+  stationKeyboardActive = true;
+  stationKeyboardBuffer = stationCallsign;
+  drawStationKeyboard();
+}
+
+void stationDrawLoading() {
+  const bool classic = uiStyleClassic();
+  const uint16_t card = classic ? TFT_BLACK : UI_COL_CARD;
+  const uint16_t border = classic ? TFT_WHITE : UI_COL_BORDER;
+  const uint16_t text = classic ? TFT_WHITE : UI_COL_TEXT;
+  tft.fillRect(20, 60, 440, 220, card);
+  tft.drawRect(20, 60, 440, 220, border);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextSize(2);
+  tft.setTextColor(classic ? TFT_CYAN : UI_COL_ACCENT, card);
+  tft.drawString(stationCallsign, 240, 110);
+  tft.setTextSize(1);
+  tft.setTextColor(text, card);
+  tft.drawString("Pobieranie danych...", 240, 160);
+  tft.setTextDatum(TL_DATUM);
+}
+
+// Wykonuje szukanie znaku (QRZ.com -> callook -> HamQTH) w uiTaskLoop.
+void stationLookupStart() {
+  String call = stationCallsign;
+  call.trim();
+  call.toUpperCase();
+  if (call.length() == 0) return;
+  stationCallsign = call;
+  stationLoading = true;
+  stationLookupDone = false;
+  stationFound = false;
+  stationLastError = "";
+  stationLookupStartMs = millis();
+
+  String grid, country, name, email, qth;
+  double lat = 0.0, lon = 0.0;
+  bool hasLatLon = false;
+
+  // 1) cache (nie ponawiaj zapytan o ten sam znak)
+  if (getQrzCacheFresh(call, grid, country, name, email, qth, lat, lon, hasLatLon, QRZ_CACHE_TTL_MS)) {
+    stationSource = "cache";
+    stationFound = true;
+  } else if (fetchQrzCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) {
+    stationSource = "QRZ.com";
+    stationFound = true;
+  } else if (fetchCallookCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) {
+    stationSource = "callook";
+    stationFound = true;
+  } else if (fetchHamQthCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) {
+    stationSource = "HamQTH";
+    stationFound = true;
+  } else {
+    writeQrzNegativeCache(call);
+    stationFound = false;
+    stationLastError = "Nie znaleziono";
+  }
+
+  if (stationFound) {
+    stationGrid = grid;
+    stationCountry = country;
+    stationName = name;
+    stationEmail = email;
+    stationQth = qth;
+    stationLat = lat;
+    stationLon = lon;
+    stationHasLatLon = hasLatLon;
+    stationDistanceKm = 0.0f;
+    if (hasLatLon) {
+      double ulat = 0.0, ulon = 0.0;
+      bool haveUser = false;
+      if (userLatLonValid) { ulat = userLat; ulon = userLon; haveUser = true; }
+      else if (userLocator.length() >= 4) { locatorToLatLon(userLocator, ulat, ulon); haveUser = true; }
+      if (haveUser) stationDistanceKm = calculateDistance(ulat, ulon, lat, lon);
+    }
+  }
+
+  stationLoading = false;
+  stationLookupDone = true;
+  stationResultPending = true;   // przerysuj wyniki w uiTaskLoop
+  stationLastErrorMs = millis();
+}
+
+static void stationDrawResults() {
+  const bool classic = uiStyleClassic();
+  const uint16_t card = classic ? TFT_BLACK : UI_COL_CARD;
+  const uint16_t border = classic ? TFT_BLUE : UI_COL_BORDER;
+  const uint16_t text = classic ? TFT_WHITE : UI_COL_TEXT;
+  const uint16_t dim = classic ? TFT_LIGHTGREY : UI_COL_DIM;
+  const uint16_t accent = classic ? TFT_YELLOW : UI_COL_ACCENT;
+
+  tft.fillRect(20, 60, 440, 240, card);
+  tft.drawRect(20, 60, 440, 240, border);
+  tft.drawRect(21, 61, 438, 238, classic ? TFT_NAVY : UI_COL_FAINT);
+
+  tft.setTextDatum(TL_DATUM);
+  if (stationCallsign.length() == 0) {
+    // Ekran startowy: brak wpisanego znaku.
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(accent, card);
+    tft.setTextSize(2);
+    tft.drawString("Podaj znak stacji", 240, 130);
+    tft.setTextSize(1);
+    tft.setTextColor(dim, card);
+    tft.drawString("nacisnij SZUKAJ i wpisz znak", 240, 165);
+    tft.setTextDatum(TL_DATUM);
+  } else {
+    // Naglowek wyniku: znak + zrodlo danych
+    tft.setTextColor(accent, card);
+    tft.setTextSize(2);
+    tft.drawString(stationCallsign, 34, 72);
+    tft.setTextSize(1);
+    tft.setTextColor(dim, card);
+    String src = "Zrodlo: ";
+    src += stationSource.length() ? stationSource : "-";
+    tft.drawString(src, 360, 74);
+
+    if (stationFound) {
+    tft.setTextColor(text, card);
+    tft.setTextSize(2);
+    int y = 120;
+    const int stepY = 34;
+    auto val = [](const String &v) -> String {
+      if (v.length() == 0 || v == "null") return "---";
+      return v;
+    };
+    tft.drawString("Imie:  " + val(stationName), 34, y); y += stepY;
+    tft.drawString("QTH:   " + val(stationQth), 34, y); y += stepY;
+    tft.drawString("Grid:  " + val(stationGrid), 34, y); y += stepY;
+    tft.drawString("Kraj:  " + val(stationCountry), 34, y); y += stepY;
+    if (stationHasLatLon && stationDistanceKm > 0.0f) {
+      tft.setTextColor(accent, card);
+      tft.drawString("Dyst:  " + String(stationDistanceKm, 0) + " km", 34, y);
+    }
+  } else {
+    tft.setTextColor(UI_COL_RED, card);
+    tft.setTextSize(2);
+    tft.drawString("Nie znaleziono stacji", 34, 120);
+    tft.setTextSize(1);
+    tft.setTextColor(dim, card);
+    tft.drawString("Sprawdz poprawnosc znaku", 34, 160);
+    }
+  }
+
+  // Przycisk SZUKAJ (x>=90, aby nie kolidowac z nawigacja w lewym dolnym rogu)
+  tft.fillRect(90, 258, 150, 30, classic ? TFT_GREEN : UI_COL_ACCENT);
+  tft.drawRect(90, 258, 150, 30, classic ? TFT_WHITE : UI_COL_ACCENT2);
+  tft.setTextColor(classic ? TFT_BLACK : UI_COL_BG);
+  tft.setTextSize(2);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString("SZUKAJ", 165, 273);
+  tft.setTextDatum(TL_DATUM);
+}
+
+// Rysuje klawiature ekranowa (QRO) do wpisania znaku.
+static void drawStationKeyboard() {
+  const bool classic = uiStyleClassic();
+  const uint16_t card = classic ? 0x18E3 : UI_COL_CARD;
+  const uint16_t key = classic ? TFT_DARKGREY : UI_COL_BORDER;
+
+  tft.fillRect(20, STATION_KB_TOP, 440, 195, card);
+  tft.drawRect(20, STATION_KB_TOP, 440, 195, classic ? TFT_WHITE : UI_COL_ACCENT);
+
+  tft.fillRect(90, STATION_KB_TOP + 8, 230, 28, TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setTextColor(classic ? TFT_YELLOW : UI_COL_ACCENT, TFT_BLACK);
+  tft.setCursor(95, STATION_KB_TOP + 14);
+  String shown = stationKeyboardBuffer;
+  if (shown.length() > 18) shown = shown.substring(shown.length() - 18);
+  tft.print(shown);
+  tft.print("_");
+
+  const char* rows[] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM.-/:"};
+  // startX = 84: klawisze nie wchodza w lewa strefe nawigacji ekranu.
+  int startX[] = {84, 84, 84, 84};
+  int startY[] = {STATION_KB_TOP + 44, STATION_KB_TOP + 70, STATION_KB_TOP + 96, STATION_KB_TOP + 122};
+  for (int r = 0; r < 4; r++) {
+    for (int i = 0; i < (int)strlen(rows[r]); i++) {
+      int x = startX[r] + i * (STATION_KB_KEY_W + STATION_KB_GAP);
+      int y = startY[r];
+      uint16_t fill = (r == 0 || (r == 3 && i >= 7)) ? (classic ? TFT_BLUE : UI_COL_ACCENT2) : key;
+      tft.fillRect(x, y, STATION_KB_KEY_W, STATION_KB_KEY_H, fill);
+      tft.drawRect(x, y, STATION_KB_KEY_W, STATION_KB_KEY_H, classic ? TFT_WHITE : UI_COL_FAINT);
+      tft.setTextSize(1);
+      tft.setTextColor(classic ? TFT_WHITE : UI_COL_TEXT);
+      tft.setCursor(x + 12, y + 9);
+      tft.print(rows[r][i]);
+    }
+  }
+
+  tft.fillRect(330, STATION_KB_TOP + 8, 58, 28, TFT_RED);
+  tft.drawRect(330, STATION_KB_TOP + 8, 58, 28, classic ? TFT_WHITE : UI_COL_FAINT);
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(344, STATION_KB_TOP + 18);
+  tft.print("DEL");
+
+  tft.fillRect(396, STATION_KB_TOP + 8, 54, 28, TFT_ORANGE);
+  tft.drawRect(396, STATION_KB_TOP + 8, 54, 28, classic ? TFT_WHITE : UI_COL_FAINT);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(407, STATION_KB_TOP + 18);
+  tft.print("CLR");
+
+  tft.fillRect(250, STATION_KB_TOP + 158, 85, 28, classic ? TFT_GREEN : UI_COL_ACCENT);
+  tft.drawRect(250, STATION_KB_TOP + 158, 85, 28, classic ? TFT_WHITE : UI_COL_ACCENT2);
+  tft.setTextColor(classic ? TFT_BLACK : UI_COL_BG);
+  tft.setTextSize(2);
+  tft.setCursor(278, STATION_KB_TOP + 164);
+  tft.print("OK");
+
+  tft.fillRect(350, STATION_KB_TOP + 158, 85, 28, TFT_RED);
+  tft.drawRect(350, STATION_KB_TOP + 158, 85, 28, classic ? TFT_WHITE : UI_COL_FAINT);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(386, STATION_KB_TOP + 164);
+  tft.print("X");
+}
+
+// Obsluga dotkniecia klawiatury ekranowej ekranu STACJA.
+static void stationHandleKeyboardKey(uint16_t x, uint16_t y) {
+  const char* rows[] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM.-/:"};
+  int startX[] = {84, 84, 84, 84};
+  int startY[] = {STATION_KB_TOP + 44, STATION_KB_TOP + 70, STATION_KB_TOP + 96, STATION_KB_TOP + 122};
+  for (int r = 0; r < 4; r++) {
+    for (int i = 0; i < (int)strlen(rows[r]); i++) {
+      int kx = startX[r] + i * (STATION_KB_KEY_W + STATION_KB_GAP);
+      int ky = startY[r];
+      if (x >= kx && x <= kx + STATION_KB_KEY_W && y >= ky && y <= ky + STATION_KB_KEY_H) {
+        if (stationKeyboardBuffer.length() < 12) stationKeyboardBuffer += rows[r][i];
+        drawStationKeyboard();
+        return;
+      }
+    }
+  }
+  if (x >= 330 && x <= 388 && y >= STATION_KB_TOP + 8 && y <= STATION_KB_TOP + 36) {
+    if (stationKeyboardBuffer.length() > 0) stationKeyboardBuffer.remove(stationKeyboardBuffer.length() - 1);
+    drawStationKeyboard();
+    return;
+  }
+  if (x >= 396 && x <= 450 && y >= STATION_KB_TOP + 8 && y <= STATION_KB_TOP + 36) {
+    stationKeyboardBuffer = "";
+    drawStationKeyboard();
+    return;
+  }
+  if (x >= 250 && x <= 335 && y >= STATION_KB_TOP + 158 && y <= STATION_KB_TOP + 186) {
+    stationCallsign = stationKeyboardBuffer;
+    stationKeyboardActive = false;
+    stationDrawLoading();     // natychmiast komunikat, potem szukanie (uiTask)
+    stationLookupStart();
+    return;
+  }
+  if (x >= 350 && x <= 435 && y >= STATION_KB_TOP + 158 && y <= STATION_KB_TOP + 186) {
+    stationKeyboardActive = false;
+    drawScreen(SCREEN_STATION);
+    return;
+  }
+}
+
+void drawStationScreen() {
+  // Naglowek i stopke rysuje drawScreen() (styl ISS).
+  tft.setTextDatum(TL_DATUM);
+  if (stationLoading) {
+    stationDrawLoading();
+    return;
+  }
+  if (stationKeyboardActive) {
+    drawStationKeyboard();
+    return;
+  }
+  stationDrawResults();
+}
+
+void handleStationTouch(uint16_t x, uint16_t y) {
+  if (stationKeyboardActive) {
+    stationHandleKeyboardKey(x, y);
+    return;
+  }
+  // Przycisk SZUKAJ
+  if (x >= 90 && x <= 240 && y >= 258 && y <= 288) {
+    stationStartKeyboard();
+    return;
+  }
+  // Dotkniecie pola znaku -> klawiatura
+  if (y >= 66 && y <= 96) {
+    stationStartKeyboard();
+    return;
+  }
+}
+
 // ========== MENU WYGASZACZA EKRANU ==========
 
 void drawScreenSaverMenu() {
@@ -20365,6 +20711,14 @@ void uiTaskLoop(void *parameter) {
       if (screenSaverActive && !screenSaverMenuActive) {
         drawScreenSaver();
       }
+    }
+
+    // Ekran STACJA: po zakonczeniu szukania odswiez wyniki (szukanie jest
+    // synchroniczne w handlerze dotyku - patrz handleStationTouch).
+    if (stationResultPending && currentScreen == SCREEN_STATION &&
+        !inMenu && !aprsAlertScreenActive && !qrzPopupActive && !stationKeyboardActive) {
+      stationResultPending = false;
+      drawScreen(SCREEN_STATION);
     }
 
     // Sprawdzanie wygaszacza ekranu - co sekundÄ™

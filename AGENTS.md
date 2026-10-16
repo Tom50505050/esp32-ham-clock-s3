@@ -854,15 +854,33 @@ Zastapil ekran "Unlis Hunter" (gra usunieta). Dashboard telemetrii w stylu
 - Wykres i metryki rysowane bezposrednio na tft (bez sprite) - aktualizacje
   co 1 s, wiec nie ma ciaglego ruchu po SPI jak przy radarze.
 
-## WWW: lista "Ekrany TFT (kolejnosc)" - 14 pozycji
+## WWW: lista "Ekrany TFT (kolejnosc)" - 15 pozycji
 Pelne UI jest serwowane z LittleFS (`data/index.html` / `data/indexEN.html`),
-NIE z wbudowanego stringa w main.cpp. Lista kolejnosci ekranow ma 14 pozycji
-(`screen_slot_1..14`, `screenOptionsDefault` dlugosci 14, petle JS `i < 14`).
-Opcje: 14 ekranow + OFF (w tym `pskmap`, `systeminfo`, `iss`). Kody musza byc
-zgodne z `screenCodeToType()` w firmware (`bandinfo`, `sunspots`, `systeminfo`).
+NIE z wbudowanego stringa w main.cpp. Lista kolejnosci ekranow ma 15 pozycji
+(`screen_slot_1..15`, `screenOptionsDefault` dlugosci 15, petle JS `i < 15`).
+Opcje: 15 ekranow + OFF (w tym `pskmap`, `systeminfo`, `station`, `iss`). Kody
+musza byc zgodne z `screenCodeToType()` w firmware (`bandinfo`, `sunspots`,
+`systeminfo`, `station`).
 UWAGA: stary kod w main.cpp (`SCREENS`, `screenOrderRow`) jest martwy - nie
 edytuj go, bo nie jest serwowany. Po zmianie `data/*.html` trzeba przebudowac
 LittleFS (`pio run -t buildfs`) i wgrac image FS, nie tylko firmware.
+
+## Ekran TFT "STACJA" (szukaj znaku QRZ) - 20.10.2026
+Nowy `ScreenType` `SCREEN_STATION = 15` (`screenTypeToCodeStr` -> "station").
+Rysowanie: `drawStationScreen()` (wywolywane z `drawScreen`); naglowek z
+`uiHeader("STACJA"/"STATION INFO", false)`. Dotyk: `handleStationTouch()` na
+koncu `handleTouchNavigation()` (po PSK MAP). Uklad w obu stylach
+(`uiStyleClassic()`): klasyczny = czarne tlo + kolorowe obramowania, nowoczesny
+= `UI_COL_*`. Klawiatura QRO rysowana od x=84 (startX=84), zeby klawisze nie
+wchodzily w lewa strefe nawigacji ekranu (cornerX=80); przycisk SZUKAJ na
+x=90..240, y=258..288 - tez poza strefa. Stan: `stationKeyboardActive` (jak
+`pskKeyboardActive`) blokuje nawigacje w rogach. Szukanie w `stationLookupStart()`:
+cache (`getQrzCacheFresh`) -> `fetchQrzCallsignInfo` -> `fetchCallookCallsignInfo`
+-> `fetchHamQthCallsignInfo`; po zakonczeniu `stationResultPending` powoduje
+przerysowanie w `uiTaskLoop`. Wejscie na ekran (zmiana `currentScreen` w
+`drawScreen`) czysci `stationKeyboardActive`/`stationLoading`. Dane logowania QRZ
+(`qrzUsername`/`qrzPassword`) nie sa zapisywane trwale - bez nich zostaje
+callook (tylko USA) i HamQTH.
 
 ## Nawigacja ekranow: NIE dodawaj wczesnego `return` per-ekran
 `handleTouchNavigation()` obsluguje menu, popupy, potem nawigacje w rogach
