@@ -271,7 +271,7 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
     d.rounded_rectangle([px, py, px + pw - 1, py + ph - 1], radius=10, fill=panel, outline=border)
     d.rounded_rectangle([px + 1, py + 1, px + pw - 2, py + ph - 2], radius=9,
                         outline=blend(border, panel, 150))
-    d.rounded_rectangle([px + 14, py + 8, px + pw - 15, py + 10], radius=2, fill=accent)
+    d.rounded_rectangle([px + 14, py + 6, px + pw - 15, py + 8], radius=2, fill=accent)
 
     have_dist = isinstance(distance, (int, float))
     wave = POLARITY(distance) if have_dist else dim
@@ -297,15 +297,15 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
         f1c(d, 240, 138, "Sprawdz poprawnosc znaku", dim)
         f1c(d, 240, 162, "Zrodlo: " + (source or "-"), dim)
     else:
-        f1sc(d, 240, 34, callsign, 3, accent)
-        d.line([px + 18, py + 70, px + pw - 18, py + 70], fill=border)
+        f1sc(d, 240, 44, callsign, 3, accent)
+        d.line([px + 18, py + 78, px + pw - 18, py + 78], fill=border)
         labels = ["Imie", "QTH", "Grid", "Kraj"]
         vals = []
         for label, val in fields:
             vals.append(val if val else "---")
         while len(vals) < 4:
             vals.append("---")
-        ly = py + 80
+        ly = py + 86
         for i in range(4):
             f1(d, px + 18, ly, labels[i], dim)
             f1(d, px + 84, ly, vals[i], text)

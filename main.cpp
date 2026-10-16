@@ -17360,7 +17360,7 @@ static void stationDrawResults() {
   tft.drawRoundRect(px, py, pw, ph, 10, border);
   tft.drawRoundRect(px + 1, py + 1, pw - 2, ph - 2, 9, blend565(border, panel, 150, 255));
   // Akcentowany pasek u gory karty.
-  tft.fillRoundRect(px + 14, py + 8, pw - 28, 3, 2, accent);
+  tft.fillRoundRect(px + 14, py + 6, pw - 28, 3, 2, accent);
 
   // Linie fal miedzy antenami (kolor wg pasma/dystansu, gdy pozycja znana).
   double ulat = 0.0, ulon = 0.0;
@@ -17410,8 +17410,8 @@ static void stationDrawResults() {
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(accent, panel);
     tft.setTextSize(3);
-    tft.drawString(stationCallsign, 240, 48);
-    tft.drawFastHLine(px + 18, py + 70, pw - 36, border);
+    tft.drawString(stationCallsign, 240, 56);
+    tft.drawFastHLine(px + 18, py + 78, pw - 36, border);
     tft.setTextDatum(TL_DATUM);
 
     auto val = [](const String &v) -> String {
@@ -17421,7 +17421,7 @@ static void stationDrawResults() {
     const char *labels[4] = {"Imie", "QTH", "Grid", "Kraj"};
     const String values[4] = { val(stationName), val(stationQth),
                                val(stationGrid), val(stationCountry) };
-    int ly = py + 80;
+    int ly = py + 86;
     for (int i = 0; i < 4; i++) {
       tft.setTextSize(1);
       tft.setTextColor(dim, panel);
