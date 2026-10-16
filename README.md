@@ -101,9 +101,52 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
+| **v1.2b** | 16.10.2026 | Nowy ekran **STACJA** (15. ekran): wyszukiwanie znaku w **QRZ.com → HamDB → callook.info** · dwa transceivery (lewy czerwony = Twój znak, prawy zielony = szukany), **czarny napis znaku na kolorowym wyświetlaczu radia** · karta wyniku (Imię/QTH/Grid/Kraj) · **dystans + kierunek geograficzny** (skróty N/NE/E/SE/S/SW/W/NW) · linie fal kolorowane wg odległości · źródło danych i godzina pobrania · klawiatura ekranowa · narzędzie podglądu 1:1 `tools/render_station_preview.py` |
 | **v1.2a** | 16.10.2026 | Poprawki ekranu **PSK MAP**: **kumulacja spotów** (dedup znak+pasmo+tryb, limit 200) · **auto-RESET** po 200 spotach · **panel informacyjny po prawej** (licznik + lista najnowszych, zwężona ramka) · **odświeżanie tylko spotów** (bez przerysowywania nagłówka, paska, ikony baterii i napisów) · **MQTT domyślnie włączone** (start bez HTTP) · eksport rozmów do Markdown |
 | **v1.2** | 15.10.2026 | Nowy ekran **APRS RADAR** i **Informacje systemowe** (zamiast Unlis Hunter) · **ISS Pass Tracking** przebudowany (n2yo visualpasses, mapa+radar+metryki, flagi kraju) · **GPS** (NMEA UART2 + automatyczny lokator Maidenhead) · **kolory w TFT**: kolor znaku (menu HSV + picker WWW) i **kolor zegara** · **globalny przełącznik stylu** KLASYCZNY/nowoczesny · **wspólny styl „ISS TRACKER"** na wszystkich ekranach · nowy **ekran startowy** (karta QSL → emblemat ESP32-HAM-CLOCK + VERSION 1.2) i **ekran powitalny** (godło PZK, czcionka VLW) · **WWW**: upload grafiki JPG/PNG/BMP, 14 pozycji, ikony SVG, naprawa „Instrukcja" · **WiFi**: przypinanie do BSSID AP, drabinka mocy TX (AUTH_EXPIRE) |
 | **v1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
+
+---
+
+## Zmiany między v1.2a a v1.2b
+
+Wydanie **v1.2b** (16.10.2026) dodaje **nowy ekran STACJA** (15. ekran) oraz
+narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
+
+### Nowy ekran STACJA (15. ekran)
+- **Wyszukiwanie znaku** — po wpisaniu znaku (klawiatura ekranowa) dane pobierane
+  są kolejno ze źródeł **QRZ.com → HamDB → callook.info** (pierwsze trafienie
+  wygrywa; nazwa źródła pokazywana jest na ekranie).
+- **Dwa transceivery** — lewy **czerwony** = Twój znak (operator), prawy
+  **zielony** = szukany znak. Napis znaku jest **czarny na tle w kolorze radia**,
+  a korpusy radia zachowują swoje kolory.
+- **Karta wyniku** — pola **Imię / QTH / Grid / Kraj** oraz linia
+  **dystans + kierunek geograficzny** (np. `42 km  NE`), a pod nimi **źródło
+  danych i godzina pobrania** (HH:MM, czas lokalny).
+- **Kierunek geograficzny skrótami** — `N, NE, E, SE, S, SW, W, NW` (8 azymutów,
+  po 45°), liczony z lokatora/QTH względem Twojej pozycji.
+- **Linie fal** między antenami, kolorowane wg odległości (funkcja
+  `propPolarityColor()`), czyli wizualna „propagacja" między stacjami.
+- **Stany ekranu**: start („Podaj znak stacji"), klawiatura ekranowa, pobieranie
+  („Pobieranie danych…", kolejność źródeł), wynik oraz „Nie znaleziono".
+- **Styl klasyczny i nowoczesny** — ekran respektuje globalny przełącznik stylu
+  (`uiStyleClassic()`); układ i dane są wspólne dla obu stylów.
+
+### Integracja z UI WWW
+- Nowa pozycja **STACJA** na liście ekranów (`data/index.html`,
+  `data/indexEN.html`) — kod `station`, lista stron rozszerzona z 14 do **15**.
+
+### Narzędzia (`tools/`)
+- `tools/render_station_preview.py` — podgląd ekranu STACJA 1:1 (Pillow) dla
+  stanów: start, klawiatura, pobieranie, wynik, wariant klasyczny, brak wyniku.
+- `tools/render_pskmap_preview.py` — podgląd ekranu PSK MAP.
+
+### Wersja
+- `FIRMWARE_VERSION`: `1.2a` → **`1.2b`**.
+
+### Kompatybilność
+- Bez zmian zależności (TFT_eSPI, ArduinoJson, PubSubClient, …) i układu partycji.
+- Zmienione pliki firmware i ZIP (nowy build).
 
 ---
 

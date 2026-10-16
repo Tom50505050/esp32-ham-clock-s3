@@ -2,6 +2,28 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Ekran STACJA (15. ekran) — wyszukiwarka znaku (16.10.2026, v1.2b)
+- Nowy ekran `SCREEN_STATION = 15` (`station`): wpisujesz znak, firmware pobiera
+  dane kolejno ze zrodel **QRZ.com -> HamDB -> callook.info** (pierwsze trafienie
+  wygrywa; nazwa zrodla pokazywana na ekranie). Funkcje: `stationLookupStart()`,
+  `fetchHamDbCallsignInfo()`, `drawStationScreen()`, `stationDrawResults()`,
+  `drawStationKeyboard()`, `handleStationTouch()`, `stationDrawLoading()`.
+- Dwa transceivery (`stationDrawRadio()`): lewy **czerwony** = Twoj znak, prawy
+  **zielony** = szukany. Napis znaku jest **czarny na tle w kolorze radia**
+  (wyswietlacz radia = kolor radia, tekst czarny) - korpusy radia zachowuja kolory.
+- Karta wyniku: **Imie / QTH / Grid / Kraj**, linia **dystans + kierunek**,
+  pod nimi **zrodlo + godzina pobrania** (HH:MM, czas lokalny).
+- Kierunek geograficzny **skrotami**: `N, NE, E, SE, S, SW, W, NW` (8 azymutow po
+  45 stopni), liczony `calculateBearing()` z lokatora/QTH wzgledem pozycji usera.
+  Wiersz np. `42 km  NE`. Linie fal miedzy antenami kolorowane wg odleglosci
+  (`propPolarityColor()`).
+- Ekran respektuje globalny przelacznik stylu (`uiStyleClassic()`) - uklad i dane
+  sa WSPOLNE dla stylu klasycznego i nowoczesnego (rozni sie tylko paleta).
+- UI WWW: nowa pozycja `station` w `data/index.html` i `data/indexEN.html`
+  (lista stron 14 -> 15).
+- Podglad 1:1: `tools/render_station_preview.py` (Pillow) -> pliki
+  `stacja-1-start.png` ... `stacja-7-nieznaleziony.png` + `stacja-podglad.png`.
+
 ## ISS: "brak danych" najblizszy/nastepny przelot — PRZYCZYNA = TLE z celestrak (15.10.2026)
 - OBJAW: na ekranie ISS TRACKER panele "NAJBLIZSZY PRZELOT"/"NASTEPNE
   PRZELOTY" pokazywaly "brak danych", mimo ze pozycja ISS i kraj dzialaly.
@@ -68,8 +90,8 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
      tylko przedluzalo blokade.
   6. 429 ustawia tez `pskRateLimited=true` (wczesniej flaga zostawala stara,
      wiec naglowek nie pokazywal limitu).
-  7. Banner wersji przy starcie (`===== ESP32-HAM-CLOCK v1.2a =====`) - pozwala
-     potwierdzic, ze wgrany jest nowy firmware (FIRMWARE_VERSION 1.2 -> 1.2a).
+  7. Banner wersji przy starcie (`===== ESP32-HAM-CLOCK v1.2b =====`) - pozwala
+     potwierdzic, ze wgrany jest nowy firmware (FIRMWARE_VERSION 1.2a -> 1.2b).
 - DIAGNOSTYKA: "Spoty: 0" + brak "LIMIT PSKReporter" = zapytanie poszlo, ale
   zero wynikow (zly `receiverCallsign` / pusty lokator / okno czasu). "LIMIT
   PSKReporter - poczekaj" = IP zablokowane, odczekac. Po restarcie domowego IP

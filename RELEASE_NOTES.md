@@ -1,8 +1,64 @@
 # ESP32-HAM-CLOCK — informacje o wydaniach
 
-Dokument obejmuje wydania **v1.2** i **v1.2a** dla platformy **ESP32-S3 N16R8**
-(16 MB flash, 8 MB PSRAM) z wyświetlaczem **ILI9488 3.5" IPS 480×320** po SPI
-i panelem dotykowym XPT2046.
+Dokument obejmuje wydania **v1.2**, **v1.2a** i **v1.2b** dla platformy
+**ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM) z wyświetlaczem
+**ILI9488 3.5" IPS 480×320** po SPI i panelem dotykowym XPT2046.
+
+---
+
+# ESP32-HAM-CLOCK v1.2b — nowy ekran STACJA
+
+Wydanie **v1.2b** (16.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 3.5"**
++ XPT2046. Zakres: **nowy ekran STACJA (15. ekran)**, integracja z UI WWW oraz
+narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
+
+## Zmiany od v1.2a
+
+### Nowy ekran STACJA (15. ekran)
+- **Wyszukiwanie znaku** — dane pobierane kolejno ze źródeł
+  **QRZ.com → HamDB → callook.info** (pierwsze trafienie wygrywa; nazwa źródła
+  pokazywana na ekranie). Nowe funkcje: `stationLookupStart()`,
+  `fetchHamDbCallsignInfo()`, obsługa callook.
+- **Dwa transceivery** (`stationDrawRadio()`) — lewy **czerwony** = Twój znak,
+  prawy **zielony** = szukany znak. Napis znaku jest **czarny na tle w kolorze
+  radia** (czytelny na jasnym wyświetlaczu), a korpusy radia zachowują kolory.
+- **Karta wyniku** — pola **Imię / QTH / Grid / Kraj**, linia
+  **dystans + kierunek geograficzny** (np. `42 km  NE`) oraz **źródło danych
+  i godzina pobrania** (HH:MM, czas lokalny).
+- **Kierunek skrótami** — `N, NE, E, SE, S, SW, W, NW` (8 azymutów po 45°),
+  liczony funkcją `calculateBearing()` z lokatora/QTH względem Twojej pozycji.
+- **Linie fal** między antenami kolorowane wg odległości
+  (`propPolarityColor()`).
+- **Stany ekranu** — start, klawiatura ekranowa (`drawStationKeyboard()`,
+  `handleStationTouch()`), pobieranie (`stationDrawLoading()`), wynik oraz
+  „Nie znaleziono".
+- **Styl klasyczny i nowoczesny** — ekran respektuje `uiStyleClassic()`; układ
+  i dane wspólne dla obu stylów.
+
+### UI WWW
+- Nowa pozycja **STACJA** (`station`) na liście ekranów w `data/index.html`
+  i `data/indexEN.html`; liczba stron zwiększona z 14 do **15**.
+
+### Narzędzia (`tools/`)
+- `tools/render_station_preview.py` — podgląd ekranu STACJA 1:1 (Pillow):
+  start, klawiatura, pobieranie, wynik, wariant klasyczny, brak wyniku.
+- `tools/render_pskmap_preview.py` — podgląd ekranu PSK MAP.
+
+### Wersja
+- `FIRMWARE_VERSION`: `1.2a` → **`1.2b`**.
+
+### Kompatybilność
+- Bez zmian zależności i układu partycji. Zmienione pliki firmware i ZIP.
+
+## Pliki
+
+| Plik | Opis | Offset |
+|---|---|---|
+| `merged-flash.bin` | cały obraz 16 MB (bootloader + partycje + firmware + LittleFS) | `0x0` |
+| `merged-flash-notouch.bin` | to samo, wariant bez obsługi dotyku | `0x0` |
+| `firmware.bin` | firmware | `0x10000` |
+| `littlefs.bin` | dane / UI WWW | `0x810000` |
+| `esp32-ham-clock-s3.zip` | paczka projektu (źródła + `data/` + pliki `.bin`) | — |
 
 ---
 
