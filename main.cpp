@@ -17294,7 +17294,6 @@ static uint16_t propPolarityColor(float distKm) {
 static void stationDrawRadio(int x0, int y0, int w, int h, const String &call,
                              uint16_t col, uint16_t bgCol) {
   const uint16_t soft = blend565(col, bgCol, 165, 255);   // przygaszona obwodka
-  const uint16_t glow = blend565(col, bgCol, 60, 255);    // tlo wyswietlacza
 
   tft.fillRoundRect(x0, y0, w, h, 7, bgCol);
   tft.drawRoundRect(x0, y0, w, h, 7, col);
@@ -17307,13 +17306,13 @@ static void stationDrawRadio(int x0, int y0, int w, int h, const String &call,
   tft.fillCircle(ax, y0 - 24, 3, col);
   tft.drawCircle(ax, y0 - 24, 5, soft);
 
-  // Wyswietlacz z wpisanym znakiem.
+  // Wyswietlacz w kolorze radia, znak (napis) czarny.
   const int dx = x0 + 8, dy = y0 + 9, dw = w - 48, dh = 22;
-  tft.fillRoundRect(dx, dy, dw, dh, 3, glow);
-  tft.drawRoundRect(dx, dy, dw, dh, 3, col);
+  tft.fillRoundRect(dx, dy, dw, dh, 3, col);
+  tft.drawRoundRect(dx, dy, dw, dh, 3, blend565(col, TFT_WHITE, 90, 255));
   tft.setTextDatum(MC_DATUM);
   tft.setTextSize(2);
-  tft.setTextColor(col, glow);
+  tft.setTextColor(TFT_BLACK, col);
   tft.drawString(call, dx + dw / 2, dy + dh / 2 - 1);
 
   // Galki po prawej.

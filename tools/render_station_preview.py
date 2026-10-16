@@ -230,7 +230,6 @@ def blend(a, b, t, mx=255):
 def station_radio(d, x0, y0, w, h, call, col, bgcol):
     """Transceiver (main.cpp: stationDrawRadio) - korpus, wyswietlacz, antena."""
     soft = blend(col, bgcol, 165)
-    glow = blend(col, bgcol, 60)
     d.rounded_rectangle([x0, y0, x0 + w - 1, y0 + h - 1], radius=7, fill=bgcol, outline=col)
     d.rounded_rectangle([x0 + 2, y0 + 2, x0 + w - 3, y0 + h - 3], radius=6, outline=soft)
     ax = x0 + w // 2
@@ -239,8 +238,9 @@ def station_radio(d, x0, y0, w, h, call, col, bgcol):
     d.ellipse([ax - 3, y0 - 27, ax + 3, y0 - 21], fill=col)
     d.ellipse([ax - 5, y0 - 29, ax + 5, y0 - 19], outline=soft)
     dx, dy, dw, dh = x0 + 8, y0 + 9, w - 48, 22
-    d.rounded_rectangle([dx, dy, dx + dw - 1, dy + dh - 1], radius=3, fill=glow, outline=col)
-    f1sc(d, dx + dw // 2, dy + dh // 2 - 5, call, 2, col)
+    d.rounded_rectangle([dx, dy, dx + dw - 1, dy + dh - 1], radius=3, fill=col,
+                        outline=blend(col, WHITE, 90))
+    f1sc(d, dx + dw // 2, dy + dh // 2 - 5, call, 2, BLACK)
     d.ellipse([x0 + w - 23, y0 + 9, x0 + w - 11, y0 + 21], outline=col)
     d.ellipse([x0 + w - 19, y0 + 13, x0 + w - 15, y0 + 17], fill=col)
     d.ellipse([x0 + w - 23, y0 + 27, x0 + w - 11, y0 + 39], outline=soft)
