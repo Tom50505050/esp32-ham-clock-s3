@@ -881,6 +881,12 @@ przerysowanie w `uiTaskLoop`. Wejscie na ekran (zmiana `currentScreen` w
 `drawScreen`) czysci `stationKeyboardActive`/`stationLoading`. Dane logowania QRZ
 (`qrzUsername`/`qrzPassword`) nie sa zapisywane trwale - bez nich zostaje
 callook (tylko USA) i HamQTH.
+UWAGA rysowanie: `tft.drawString(s,x,y)` BEZ parametru fontu uzywa czcionki
+GLCD (font 1) skalowanej przez `setTextSize()` - nie Font 2. Dlatego pole
+wynikow uzywa `setTextSize(2)` + GLCD (~12x16 px na znak); `stepY = 30`, zeby
+5 pol (Imie/QTH/Grid/Kraj/Dyst) zmiescilo sie nad przyciskiem SZUKAJ (y=258).
+Podglad ukladu (1:1, prawdziwe bitmapy czcionek): `tools/render_station_preview.py`
+-> `/workspace/share/stacja-*.png` (wymaga Pillow).
 
 ## Nawigacja ekranow: NIE dodawaj wczesnego `return` per-ekran
 `handleTouchNavigation()` obsluguje menu, popupy, potem nawigacje w rogach

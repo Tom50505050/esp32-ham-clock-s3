@@ -17140,8 +17140,8 @@ static void stationDrawResults() {
     if (stationFound) {
     tft.setTextColor(text, card);
     tft.setTextSize(2);
-    int y = 120;
-    const int stepY = 34;
+    int y = 116;
+    const int stepY = 30;   // 5 pol (z Dyst.) nie moze wejsc na przycisk SZUKAJ (y=258)
     auto val = [](const String &v) -> String {
       if (v.length() == 0 || v == "null") return "---";
       return v;
