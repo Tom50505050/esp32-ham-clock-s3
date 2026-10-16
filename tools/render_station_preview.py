@@ -222,90 +222,78 @@ def card(d, classic):
     d.rectangle([21, 61, 458, 298], outline=(NAVY if classic else UI_FAINT))
 
 
-def results(d, classic, callsign, source, fields, distance=None, notfound=False, source_time="", bearing=None):
+def station_radio(d, x0, y0, w, h, call, col, bgcol):
+    """Transceiver (main.cpp: stationDrawRadio): korpus, wyswietlacz, antena."""
+    d.rounded_rectangle([x0, y0, x0 + w - 1, y0 + h - 1], radius=4, fill=bgcol, outline=col)
+    ax = x0 + w // 2
+    d.line([ax, y0, ax, y0 - 26], fill=col)
+    d.ellipse([ax - 2, y0 - 28, ax + 2, y0 - 24], fill=col)
+    dx, dy, dw, dh = x0 + 8, y0 + 8, w - 40, 18
+    d.rectangle([dx, dy, dx + dw - 1, dy + dh - 1], fill=bgcol, outline=col)
+    f1c(d, dx + dw // 2, dy + dh // 2 - 1, call, col)
+    for i in range(4):
+        xx = x0 + 12 + i * 5
+        d.line([xx, y0 + 30, xx, y0 + 35], fill=col)
+    d.ellipse([x0 + w - 23, y0 + 9, x0 + w - 13, y0 + 19], outline=col)
+    d.ellipse([x0 + w - 23, y0 + 25, x0 + w - 13, y0 + 35], outline=col)
+
+
+def results(d, classic, callsign, source, fields, distance=None, notfound=False,
+            source_time="", bearing=None, mycall="SP9TNV"):
     bg = BLACK if classic else UI_BG
+    panel = BLACK if classic else UI_CARD
+    border = BLUE if classic else UI_BORDER
+    text = WHITE if classic else UI_TEXT
     dim = LIGHTGREY if classic else UI_DIM
     accent = YELLOW if classic else UI_ACCENT
-    grid = c565(0x0320) if classic else ARP_GRID
-    node = GREEN if classic else UI_ACCENT2
-    cx, cy, r = 240, 165, 124
+    radioL = GREEN if classic else UI_ACCENT2
 
-    # Tlo radaru (main.cpp: fillCircle + 3 pierscienie + krzyz).
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=c565(0x0120))
-    for rr in (r, (r * 2) // 3, r // 3):
-        d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], outline=grid)
-    d.line([cx - r, cy, cx + r, cy], fill=grid)
-    d.line([cx, cy - r, cx, cy + r], fill=grid)
-    f1(d, cx - 3, cy - r - 9, "N", dim)
-    f1(d, cx - 3, cy + r + 2, "S", dim)
-    f1(d, cx + r + 2, cy - 4, "E", dim)
-    f1(d, cx - r - 9, cy - 4, "W", dim)
+    mycall_txt = mycall if mycall else "SP9TNV"
+    dxcall_txt = callsign if callsign else "-"
+    station_radio(d, 22, 250, 118, 42, mycall_txt, radioL, bg)
+    station_radio(d, 340, 250, 118, 42, dxcall_txt, accent, bg)
 
-    # SZUKAJ (lewy dolny rog) - w kazdym stanie.
-    d.rectangle([12, 274, 131, 297], fill=GREEN if classic else UI_ACCENT,
-                outline=WHITE if classic else UI_ACCENT2)
-    f1sc(d, 72, 281, "SZUKAJ", 2, BLACK if classic else UI_BG)
+    have_dist = isinstance(distance, (int, float))
+    wave = POLARITY(distance) if have_dist else dim
+    xL, xR, yC = 92, 388, 224
+    pts = []
+    for off in (-5, 0, 5):
+        px, py = xL, yC + off
+        for i in range(1, 65):
+            x = xL + (xR - xL) * i // 64
+            y = yC + off + int(math.sin(i * 0.5) * 5.0)
+            d.line([px, py, x, y], fill=wave)
+            px, py = x, y
+
+    d.rectangle([120, 34, 359, 199], fill=panel, outline=border)
 
     if not callsign:
-        f1sc(d, cx, 140, "Podaj znak stacji", 2, accent)
-        f1(d, cx - 78, 178, "nacisnij SZUKAJ i wpisz znak", dim)
+        f1sc(d, 240, 100, "Podaj znak stacji", 2, accent)
+        f1c(d, 240, 132, "nacisnij SZUKAJ i wpisz znak", dim)
         return
     if notfound:
-        f1sc(d, cx, 130, "Nie znaleziono stacji", 2, UI_RED)
-        f1(d, cx - 78, 164, "Sprawdz poprawnosc znaku", dim)
-        src = "Zrodlo: " + (source or "-")
-        if source_time:
-            src += "  " + source_time
-        f1(d, cx - len(src) * 3, 188, src, dim)
+        f1sc(d, 240, 96, "Nie znaleziono", 2, UI_RED)
+        f1c(d, 240, 130, "Sprawdz poprawnosc znaku", dim)
         return
 
-    userY = cy + 72
-
-    def node_box(nx, ny, call, col):
-        d.rectangle([nx - 46, ny - 12, nx + 46, ny + 12], fill=bg, outline=col)
-        f1c(d, nx, ny - 3, call, col)
-
-    node_box(cx, userY, "SP9TNV", node)
-
-    have_dist = isinstance(distance, (int, float)) and bearing is not None
-    if have_dist:
-        rr = int(distance / 2000.0 * (r - 18))
-        rr = max(16, min(rr, r - 6))
-        a = math.radians(bearing)
-        stx = cx + int(math.sin(a) * rr)
-        sty = cy - int(math.cos(a) * rr)
-    else:
-        stx, sty = cx, 70
-    node_box(stx, sty, callsign, accent)
-
-    if have_dist:
-        pc = POLARITY(distance)
-        dx, dy = stx - cx, sty - userY
-        ln = math.hypot(dx, dy) or 1.0
-        nx, ny = -dy / ln, dx / ln
-        for s in (1, 2):
-            d.line([cx + nx * 5 * s, userY + ny * 5 * s, stx, sty], fill=pc)
-            d.line([cx - nx * 5 * s, userY - ny * 5 * s, stx, sty], fill=pc)
-        d.ellipse([cx - 2, userY - 2, cx + 2, userY + 2], fill=pc)
-        d.ellipse([stx - 3, sty - 3, stx + 3, sty + 3], fill=pc)
-        dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-        didx = int((bearing + 22.5) / 45.0) & 7
-        info = "%d km  %s  %ddeg" % (int(distance + 0.5), dirs[didx], int(bearing + 0.5))
-        f1sc(d, cx, cy + 36, info, 2, pc)
-    else:
-        f1c(d, cx, cy - 3, "brak pozycji - ustaw lokator lub GPS", dim)
-
-    py = 214
+    f1sc(d, 240, 52, callsign, 2, accent)
+    y = 80
     for label, val in fields:
-        f1(d, 10, py, "%s %s" % (label, val if val else "---"), dim)
-        py += 13
-    for col, txt, yy in ((POLARITY(300), "<500 km", 211),
-                         (POLARITY(1000), "<1500 km", 227),
-                         (POLARITY(2000), ">1500 km", 243)):
-        d.rectangle([300, yy, 307, yy + 7], fill=col)
-        f1(d, 312, yy, txt, dim)
+        f1(d, 132, y, "%s %s" % (label, val if val else "---"), text)
+        y += 16
+    if have_dist:
+        f1(d, 132, y, "Dyst: %d km" % distance, wave)
+    else:
+        f1(d, 132, y, "Dyst: --- (brak QTH)", dim)
 
+    src = "Zrodlo: " + (source or "-")
+    if source_time:
+        src += "  " + source_time
+    f1c(d, 240, 184, src, dim)
 
+    d.rectangle([180, 206, 299, 227], fill=GREEN if classic else UI_ACCENT,
+                outline=WHITE if classic else UI_ACCENT2)
+    f1sc(d, 240, 210, "SZUKAJ", 2, BLACK if classic else UI_BG)
 
 def loading(d, callsign, classic):
     card(d, classic)
