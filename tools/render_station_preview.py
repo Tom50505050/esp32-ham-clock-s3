@@ -222,20 +222,32 @@ def card(d, classic):
     d.rectangle([21, 61, 458, 298], outline=(NAVY if classic else UI_FAINT))
 
 
+def blend(a, b, t, mx=255):
+    """Mieszanie dwoch kolorow RGB (main.cpp: blend565)."""
+    return tuple((a[i] * (mx - t) + b[i] * t) // mx for i in range(3))
+
+
 def station_radio(d, x0, y0, w, h, call, col, bgcol):
-    """Transceiver (main.cpp: stationDrawRadio): korpus, wyswietlacz, antena."""
-    d.rounded_rectangle([x0, y0, x0 + w - 1, y0 + h - 1], radius=4, fill=bgcol, outline=col)
+    """Transceiver (main.cpp: stationDrawRadio) - korpus, wyswietlacz, antena."""
+    soft = blend(col, bgcol, 165)
+    glow = blend(col, bgcol, 60)
+    d.rounded_rectangle([x0, y0, x0 + w - 1, y0 + h - 1], radius=7, fill=bgcol, outline=col)
+    d.rounded_rectangle([x0 + 2, y0 + 2, x0 + w - 3, y0 + h - 3], radius=6, outline=soft)
     ax = x0 + w // 2
-    d.line([ax, y0, ax, y0 - 26], fill=col)
-    d.ellipse([ax - 2, y0 - 28, ax + 2, y0 - 24], fill=col)
-    dx, dy, dw, dh = x0 + 8, y0 + 8, w - 40, 18
-    d.rectangle([dx, dy, dx + dw - 1, dy + dh - 1], fill=bgcol, outline=col)
-    f1c(d, dx + dw // 2, dy + dh // 2 - 1, call, col)
-    for i in range(4):
+    d.line([ax, y0, ax, y0 - 22], fill=col)
+    d.line([ax - 1, y0, ax - 1, y0 - 22], fill=soft)
+    d.ellipse([ax - 3, y0 - 27, ax + 3, y0 - 21], fill=col)
+    d.ellipse([ax - 5, y0 - 29, ax + 5, y0 - 19], outline=soft)
+    dx, dy, dw, dh = x0 + 8, y0 + 9, w - 48, 22
+    d.rounded_rectangle([dx, dy, dx + dw - 1, dy + dh - 1], radius=3, fill=glow, outline=col)
+    f1sc(d, dx + dw // 2, dy + dh // 2 - 5, call, 2, col)
+    d.ellipse([x0 + w - 23, y0 + 9, x0 + w - 11, y0 + 21], outline=col)
+    d.ellipse([x0 + w - 19, y0 + 13, x0 + w - 15, y0 + 17], fill=col)
+    d.ellipse([x0 + w - 23, y0 + 27, x0 + w - 11, y0 + 39], outline=soft)
+    d.ellipse([x0 + w - 19, y0 + 31, x0 + w - 15, y0 + 35], fill=soft)
+    for i in range(3):
         xx = x0 + 12 + i * 5
-        d.line([xx, y0 + 30, xx, y0 + 35], fill=col)
-    d.ellipse([x0 + w - 23, y0 + 9, x0 + w - 13, y0 + 19], outline=col)
-    d.ellipse([x0 + w - 23, y0 + 25, x0 + w - 13, y0 + 35], outline=col)
+        d.line([xx, y0 + h - 10, xx, y0 + h - 6], fill=soft)
 
 
 def results(d, classic, callsign, source, fields, distance=None, notfound=False,
@@ -246,54 +258,77 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
     text = WHITE if classic else UI_TEXT
     dim = LIGHTGREY if classic else UI_DIM
     accent = YELLOW if classic else UI_ACCENT
-    radioL = GREEN if classic else UI_ACCENT2
+    dxcol = CYAN if classic else UI_ACCENT2
 
-    mycall_txt = mycall if mycall else "SP9TNV"
-    dxcall_txt = callsign if callsign else "-"
-    station_radio(d, 22, 250, 118, 42, mycall_txt, radioL, bg)
-    station_radio(d, 340, 250, 118, 42, dxcall_txt, accent, bg)
+    if not classic:
+        for i in range(12):
+            band = blend(c565(0x0841), (0, 0, 0), i * 255 // 11)
+            yb = 26 + i * 22
+            d.rectangle([0, yb, 479, yb + 22], fill=band)
+
+    px, py, pw, ph = 110, 30, 260, 180
+    d.rounded_rectangle([px, py, px + pw - 1, py + ph - 1], radius=10, fill=panel, outline=border)
+    d.rounded_rectangle([px + 1, py + 1, px + pw - 2, py + ph - 2], radius=9,
+                        outline=blend(border, panel, 150))
+    d.rounded_rectangle([px + 14, py + 8, px + pw - 15, py + 10], radius=2, fill=accent)
 
     have_dist = isinstance(distance, (int, float))
     wave = POLARITY(distance) if have_dist else dim
-    xL, xR, yC = 92, 388, 224
-    pts = []
-    for off in (-5, 0, 5):
-        px, py = xL, yC + off
+    xL, xR, yC = 74, 406, 226
+    for off in (-9, 0, 9):
+        c = wave if off == 0 else blend(wave, bg, 150)
+        amp = 6.0 if off == 0 else 4.0
+        px_, py_ = xL, yC + off
         for i in range(1, 65):
             x = xL + (xR - xL) * i // 64
-            y = yC + off + int(math.sin(i * 0.5) * 5.0)
-            d.line([px, py, x, y], fill=wave)
-            px, py = x, y
+            y = yC + off + int(math.sin(i * 0.45) * amp)
+            d.line([px_, py_, x, y], fill=c)
+            px_, py_ = x, y
 
-    d.rectangle([120, 34, 359, 199], fill=panel, outline=border)
+    station_radio(d, 14, 248, 120, 46, mycall or "SP9TNV", accent, bg)
+    station_radio(d, 346, 248, 120, 46, callsign if callsign else "---", dxcol, bg)
 
     if not callsign:
-        f1sc(d, 240, 100, "Podaj znak stacji", 2, accent)
-        f1c(d, 240, 132, "nacisnij SZUKAJ i wpisz znak", dim)
-        return
-    if notfound:
-        f1sc(d, 240, 96, "Nie znaleziono", 2, UI_RED)
-        f1c(d, 240, 130, "Sprawdz poprawnosc znaku", dim)
-        return
-
-    f1sc(d, 240, 52, callsign, 2, accent)
-    y = 80
-    for label, val in fields:
-        f1(d, 132, y, "%s %s" % (label, val if val else "---"), text)
-        y += 16
-    if have_dist:
-        f1(d, 132, y, "Dyst: %d km" % distance, wave)
+        f1sc(d, 240, 108, "Podaj znak stacji", 2, accent)
+        f1c(d, 240, 140, "nacisnij SZUKAJ i wpisz znak", dim)
+    elif notfound:
+        f1sc(d, 240, 104, "Nie znaleziono", 2, UI_RED)
+        f1c(d, 240, 138, "Sprawdz poprawnosc znaku", dim)
+        f1c(d, 240, 162, "Zrodlo: " + (source or "-"), dim)
     else:
-        f1(d, 132, y, "Dyst: --- (brak QTH)", dim)
+        f1sc(d, 240, 46, callsign, 3, accent)
+        d.line([px + 18, py + 84, px + pw - 18, py + 84], fill=border)
+        labels = ["Imie", "QTH", "Grid", "Kraj"]
+        vals = []
+        for label, val in fields:
+            vals.append(val if val else "---")
+        while len(vals) < 4:
+            vals.append("---")
+        ly = py + 96
+        for i in range(4):
+            f1(d, px + 18, ly, labels[i], dim)
+            f1(d, px + 84, ly, vals[i], text)
+            ly += 18
+        f1(d, px + 18, ly, "Dyst", dim)
+        if have_dist:
+            dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+            di = int((bearing + 22.5) / 45.0) & 7 if bearing is not None else 0
+            dv = "%d km  %s" % (distance, dirs[di])
+            f1(d, px + 84, ly, dv, wave)
+        else:
+            f1(d, px + 84, ly, "--- (brak QTH)", dim)
+        src = "Zrodlo: " + (source or "-")
+        if source_time:
+            src += "  " + source_time
+        f1c(d, 240, py + ph - 18, src, dim)
 
-    src = "Zrodlo: " + (source or "-")
-    if source_time:
-        src += "  " + source_time
-    f1c(d, 240, 184, src, dim)
-
-    d.rectangle([180, 206, 299, 227], fill=GREEN if classic else UI_ACCENT,
-                outline=WHITE if classic else UI_ACCENT2)
-    f1sc(d, 240, 210, "SZUKAJ", 2, BLACK if classic else UI_BG)
+    bx, by, bw, bh = 152, 256, 176, 28
+    d.rounded_rectangle([bx, by, bx + bw - 1, by + bh - 1], radius=8, fill=accent)
+    d.rounded_rectangle([bx, by, bx + bw - 1, by + bh // 2], radius=8,
+                        fill=blend(accent, WHITE, 60))
+    d.rounded_rectangle([bx, by, bx + bw - 1, by + bh - 1], radius=8,
+                        outline=blend(accent, WHITE, 120))
+    f1sc(d, bx + bw // 2, by + bh // 2 - 7, "SZUKAJ", 2, BLACK if classic else UI_BG)
 
 def loading(d, callsign, classic):
     card(d, classic)

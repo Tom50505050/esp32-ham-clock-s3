@@ -17273,39 +17273,64 @@ void stationLookupStart() {
 
 
 
-// Polaryzacja linii fal: krotka trasa w pasmach wysokich, dluga w niskich.
-static uint16_t propPolarityColor(float distKm) {
-  if (distKm < 500.0f)  return 0x07FF;  // cyjan  - trasa krotka / wysokie pasma
-  if (distKm < 1500.0f) return 0xFFE0;  // zolty  - trasa srednia / 20m
-  return 0xF800;                        // czerwony - trasa dluga / niskie pasma
+// Mieszanie dwoch kolorow RGB565 (t/max udzialu koloru a).
+static uint16_t blend565(uint16_t a, uint16_t b, uint8_t t, uint8_t mx) {
+  uint8_t ar = (a >> 11) & 0x1F, ag = (a >> 5) & 0x3F, ab = a & 0x1F;
+  uint8_t br = (b >> 11) & 0x1F, bg2 = (b >> 5) & 0x3F, bb = b & 0x1F;
+  uint8_t r = (uint8_t)((ar * (mx - t) + br * t) / mx);
+  uint8_t g = (uint8_t)((ag * (mx - t) + bg2 * t) / mx);
+  uint8_t bl = (uint8_t)((ab * (mx - t) + bb * t) / mx);
+  return (uint16_t)((r << 11) | (g << 5) | bl);
 }
 
-// Rysuje ikone transceivera (korpus + wyswietlacz ze znakiem + antena).
+// Polaryzacja linii fal: krotka trasa w pasmach wysokich, dluga w niskich.
+static uint16_t propPolarityColor(float distKm) {
+  if (distKm < 500.0f)  return 0x06FF;  // cyjan  - trasa krotka / wysokie pasma
+  if (distKm < 1500.0f) return 0xFE60;  // zolty  - trasa srednia / 20m
+  return 0xF9C0;                        // czerwony - trasa dluga / niskie pasma
+}
+
+// Rysuje ikone transceivera: korpus, wyswietlacz ze znakiem, antena, galki.
 static void stationDrawRadio(int x0, int y0, int w, int h, const String &call,
                              uint16_t col, uint16_t bgCol) {
-  tft.fillRoundRect(x0, y0, w, h, 4, bgCol);
-  tft.drawRoundRect(x0, y0, w, h, 4, col);
+  const uint16_t soft = blend565(col, bgCol, 165, 255);   // przygaszona obwodka
+  const uint16_t glow = blend565(col, bgCol, 60, 255);    // tlo wyswietlacza
 
-  int ax = x0 + w / 2;
-  tft.drawLine(ax, y0, ax, y0 - 26, col);
-  tft.fillCircle(ax, y0 - 26, 2, col);
+  tft.fillRoundRect(x0, y0, w, h, 7, bgCol);
+  tft.drawRoundRect(x0, y0, w, h, 7, col);
+  tft.drawRoundRect(x0 + 2, y0 + 2, w - 4, h - 4, 6, soft);
 
-  int dx = x0 + 8, dy = y0 + 8, dw = w - 40, dh = 18;
-  tft.fillRect(dx, dy, dw, dh, bgCol);
-  tft.drawRect(dx, dy, dw, dh, col);
+  // Antena z malym "swiatlem" na koncu.
+  const int ax = x0 + w / 2;
+  tft.drawLine(ax, y0, ax, y0 - 22, col);
+  tft.drawLine(ax - 1, y0, ax - 1, y0 - 22, soft);
+  tft.fillCircle(ax, y0 - 24, 3, col);
+  tft.drawCircle(ax, y0 - 24, 5, soft);
+
+  // Wyswietlacz z wpisanym znakiem.
+  const int dx = x0 + 8, dy = y0 + 9, dw = w - 48, dh = 22;
+  tft.fillRoundRect(dx, dy, dw, dh, 3, glow);
+  tft.drawRoundRect(dx, dy, dw, dh, 3, col);
   tft.setTextDatum(MC_DATUM);
-  tft.setTextSize(1);
-  tft.setTextColor(col, bgCol);
+  tft.setTextSize(2);
+  tft.setTextColor(col, glow);
   tft.drawString(call, dx + dw / 2, dy + dh / 2 - 1);
 
-  for (int i = 0; i < 4; i++) tft.drawFastVLine(x0 + 12 + i * 5, y0 + 30, 6, col);
-  tft.drawCircle(x0 + w - 18, y0 + 14, 5, col);
-  tft.drawCircle(x0 + w - 18, y0 + 30, 5, col);
+  // Galki po prawej.
+  tft.drawCircle(x0 + w - 17, y0 + 15, 6, col);
+  tft.fillCircle(x0 + w - 17, y0 + 15, 2, col);
+  tft.drawCircle(x0 + w - 17, y0 + 33, 6, soft);
+  tft.fillCircle(x0 + w - 17, y0 + 33, 2, soft);
+
+  // Gril glosnika (krotkie linie) po lewej na dole.
+  for (int i = 0; i < 3; i++)
+    tft.drawFastVLine(x0 + 12 + i * 5, y0 + h - 10, 5, soft);
+
   tft.setTextDatum(TL_DATUM);
 }
 
 // Ekran STACJA: dwa transceivery na dole (lewy = moj znak, prawy = szukany),
-// w srodku dane szukanego znaku, a miedzy antenami linie fal (propagacja).
+// w srodku karta z danymi znaku, a miedzy antenami linie fal (propagacja).
 static void stationDrawResults() {
   const bool classic = uiStyleClassic();
   const uint16_t bg     = classic ? TFT_BLACK : UI_COL_BG;
@@ -17314,16 +17339,27 @@ static void stationDrawResults() {
   const uint16_t text   = classic ? TFT_WHITE : UI_COL_TEXT;
   const uint16_t dim    = classic ? TFT_LIGHTGREY : UI_COL_DIM;
   const uint16_t accent = classic ? TFT_YELLOW : UI_COL_ACCENT;
-  const uint16_t radioL = classic ? TFT_GREEN : UI_COL_ACCENT2;
+  const uint16_t dxCol  = classic ? TFT_CYAN : UI_COL_ACCENT2;
 
   tft.fillRect(0, UI_HEADER_H, 480, UI_FOOTER_Y - UI_HEADER_H, bg);
+
+  // Delikatny gradient tla (ciemny granat u gory -> glebszy u dolu).
+  if (!classic) {
+    for (int i = 0; i < 12; i++) {
+      uint16_t band = blend565(0x0841, 0x0000, (uint8_t)(i * 255 / 11), 255);
+      tft.fillRect(0, UI_HEADER_H + i * ((UI_FOOTER_Y - UI_HEADER_H) / 12),
+                   480, (UI_FOOTER_Y - UI_HEADER_H) / 12 + 1, band);
+    }
+  }
   tft.setTextDatum(TL_DATUM);
 
-  // Transceivery: lewy = operator, prawy = szukana stacja.
-  String myCall = userCallsign.length() ? userCallsign : String(DEFAULT_CALLSIGN);
-  stationDrawRadio(22, 250, 118, 42, myCall, radioL, bg);
-  String dxCall = stationCallsign.length() ? stationCallsign : String("-");
-  stationDrawRadio(340, 250, 118, 42, dxCall, accent, bg);
+  // Karta z danymi szukanego znaku (srodek).
+  const int px = 110, py = 30, pw = 260, ph = 180;
+  tft.fillRoundRect(px, py, pw, ph, 10, panel);
+  tft.drawRoundRect(px, py, pw, ph, 10, border);
+  tft.drawRoundRect(px + 1, py + 1, pw - 2, ph - 2, 9, blend565(border, panel, 150, 255));
+  // Akcentowany pasek u gory karty.
+  tft.fillRoundRect(px + 14, py + 8, pw - 28, 3, 2, accent);
 
   // Linie fal miedzy antenami (kolor wg pasma/dystansu, gdy pozycja znana).
   double ulat = 0.0, ulon = 0.0;
@@ -17332,83 +17368,105 @@ static void stationDrawResults() {
   else if (userLocator.length() >= 4) { locatorToLatLon(userLocator, ulat, ulon); haveUser = true; }
   const bool haveDist = stationHasLatLon && stationDistanceKm >= 0.0f && haveUser;
   const uint16_t waveCol = haveDist ? propPolarityColor(stationDistanceKm) : dim;
-  const int xL = 92, xR = 388, yC = 224;
-  for (int off = -5; off <= 5; off += 5) {
-    int px = xL, py = yC + off;
+  const int xL = 74, xR = 406, yC = 226;
+  for (int off = -9; off <= 9; off += 9) {
+    const uint16_t c = (off == 0) ? waveCol : blend565(waveCol, bg, 150, 255);
+    const float amp = (off == 0) ? 6.0f : 4.0f;
+    int prevX = xL, prevY = yC + off;
     for (int i = 1; i <= 64; i++) {
       int x = xL + (xR - xL) * i / 64;
-      int y = yC + off + (int)(sinf(i * 0.5f) * 5.0f);
-      tft.drawLine(px, py, x, y, waveCol);
-      px = x; py = y;
+      int y = yC + off + (int)(sinf(i * 0.45f) * amp);
+      tft.drawLine(prevX, prevY, x, y, c);
+      prevX = x; prevY = y;
     }
   }
 
-  // Panel danych szukanego znaku (srodek).
-  tft.fillRect(120, 34, 240, 166, panel);
-  tft.drawRect(120, 34, 240, 166, border);
+  // Transceivery: lewy = operator, prawy = szukana stacja.
+  String myCall = userCallsign.length() ? userCallsign : String(DEFAULT_CALLSIGN);
+  String dxCall = stationCallsign.length() ? stationCallsign : String("---");
+  stationDrawRadio(14, 248, 120, 46, myCall, accent, bg);
+  stationDrawRadio(346, 248, 120, 46, dxCall, dxCol, bg);
 
+  // Zawartosc karty.
   if (stationCallsign.length() == 0) {
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(accent, panel); tft.setTextSize(2);
-    tft.drawString("Podaj znak stacji", 240, 100);
+    tft.drawString("Podaj znak stacji", 240, 108);
     tft.setTextSize(1); tft.setTextColor(dim, panel);
-    tft.drawString("nacisnij SZUKAJ i wpisz znak", 240, 132);
+    tft.drawString("nacisnij SZUKAJ i wpisz znak", 240, 140);
     tft.setTextDatum(TL_DATUM);
-    return;
-  }
-  if (!stationFound) {
+  } else if (!stationFound) {
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(UI_COL_RED, panel); tft.setTextSize(2);
-    tft.drawString("Nie znaleziono", 240, 96);
+    tft.drawString("Nie znaleziono", 240, 104);
     tft.setTextSize(1); tft.setTextColor(dim, panel);
-    tft.drawString("Sprawdz poprawnosc znaku", 240, 130);
+    tft.drawString("Sprawdz poprawnosc znaku", 240, 138);
+    String ns = "Zrodlo: ";
+    ns += stationSource.length() ? stationSource : "-";
+    tft.drawString(ns, 240, 162);
     tft.setTextDatum(TL_DATUM);
-    return;
-  }
-
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(accent, panel);
-  tft.setTextSize(2);
-  tft.drawString(stationCallsign, 240, 52);
-  tft.setTextDatum(TL_DATUM);
-
-  auto val = [](const String &v) -> String {
-    if (v.length() == 0 || v == "null") return "---";
-    return v;
-  };
-  tft.setTextSize(1);
-  tft.setTextColor(text, panel);
-  int y = 80;
-  tft.drawString("Imie: " + val(stationName), 132, y); y += 16;
-  tft.drawString("QTH:  " + val(stationQth), 132, y); y += 16;
-  tft.drawString("Grid: " + val(stationGrid), 132, y); y += 16;
-  tft.drawString("Kraj: " + val(stationCountry), 132, y); y += 16;
-  if (haveDist) {
-    tft.setTextColor(waveCol, panel);
-    tft.drawString("Dyst: " + String(stationDistanceKm, 0) + " km", 132, y);
   } else {
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(accent, panel);
+    tft.setTextSize(3);
+    tft.drawString(stationCallsign, 240, 60);
+    tft.drawFastHLine(px + 18, py + 84, pw - 36, border);
+    tft.setTextDatum(TL_DATUM);
+
+    auto val = [](const String &v) -> String {
+      if (v.length() == 0 || v == "null") return "---";
+      return v;
+    };
+    const char *labels[4] = {"Imie", "QTH", "Grid", "Kraj"};
+    const String values[4] = { val(stationName), val(stationQth),
+                               val(stationGrid), val(stationCountry) };
+    int ly = py + 96;
+    for (int i = 0; i < 4; i++) {
+      tft.setTextSize(1);
+      tft.setTextColor(dim, panel);
+      tft.drawString(labels[i], px + 18, ly);
+      tft.setTextColor(text, panel);
+      tft.drawString(values[i], px + 84, ly);
+      ly += 18;
+    }
+
+    // Dystans (+ kierunek, gdy znamy pozycje).
     tft.setTextColor(dim, panel);
-    tft.drawString("Dyst: --- (brak QTH)", 132, y);
+    tft.drawString("Dyst", px + 18, ly);
+    if (haveDist) {
+      static const char *dirs[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+      float b = calculateBearing(ulat, ulon, stationLat, stationLon);
+      int di = (int)((b + 22.5f) / 45.0f) & 7;
+      String dv = String(stationDistanceKm, 0) + " km  " + dirs[di];
+      tft.setTextColor(waveCol, panel);
+      tft.drawString(dv, px + 84, ly);
+    } else {
+      tft.setTextColor(dim, panel);
+      tft.drawString("--- (brak QTH)", px + 84, ly);
+    }
+
+    // Zrodlo + godzina pobrania (stopka karty).
+    String src = "Zrodlo: ";
+    src += stationSource.length() ? stationSource : "-";
+    if (stationSourceTime.length()) { src += "  "; src += stationSourceTime; }
+    tft.setTextColor(dim, panel);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString(src, 240, py + ph - 14);
+    tft.setTextDatum(TL_DATUM);
   }
 
-  // Zrodlo + godzina pobrania (dol panelu).
-  String src = "Zrodlo: ";
-  src += stationSource.length() ? stationSource : "-";
-  if (stationSourceTime.length()) { src += "  "; src += stationSourceTime; }
-  tft.setTextColor(dim, panel);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString(src, 240, 184);
-  tft.setTextDatum(TL_DATUM);
-
-  // Przycisk SZUKAJ (srodek, tuz pod panelem danych).
-  tft.fillRect(180, 206, 120, 22, classic ? TFT_GREEN : UI_COL_ACCENT);
-  tft.drawRect(180, 206, 120, 22, classic ? TFT_WHITE : UI_COL_ACCENT2);
+  // Przycisk SZUKAJ (srodek, miedzy transceiverami).
+  const int bx = 152, by = 256, bw = 176, bh = 28;
+  tft.fillRoundRect(bx, by, bw, bh, 8, accent);
+  tft.fillRoundRect(bx, by, bw, bh / 2, 8, blend565(accent, TFT_WHITE, 60, 255));
+  tft.drawRoundRect(bx, by, bw, bh, 8, blend565(accent, TFT_WHITE, 120, 255));
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(classic ? TFT_BLACK : UI_COL_BG);
   tft.setTextSize(2);
-  tft.drawString("SZUKAJ", 240, 210);
+  tft.drawString("SZUKAJ", bx + bw / 2, by + bh / 2 - 1);
   tft.setTextDatum(TL_DATUM);
 }
+
 
 
 
@@ -17534,13 +17592,13 @@ void handleStationTouch(uint16_t x, uint16_t y) {
     stationHandleKeyboardKey(x, y);
     return;
   }
-  // SZUKAJ (srodek, pod panelem danych) albo prawy transceiver
+  // SZUKAJ (srodek, pod karta) albo prawy transceiver
   // (wpisanie/zmiana szukanego znaku) -> klawiatura.
-  if (x >= 180 && x <= 300 && y >= 206 && y <= 228) {
+  if (x >= 152 && x <= 328 && y >= 256 && y <= 284) {
     stationStartKeyboard();
     return;
   }
-  if (x >= 340 && x <= 458 && y >= 200 && y <= 292) {
+  if (x >= 346 && x <= 466 && y >= 200 && y <= 294) {
     stationStartKeyboard();
     return;
   }
