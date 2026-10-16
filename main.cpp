@@ -21493,11 +21493,14 @@ static uint16_t getDxColor(float distance) {
   else return TFT_MAGENTA;                     // DX (Transatlantyki itp.)
 }
 
-// Panel informacyjny po prawej stronie mapy: licznik spotow + lista najnowszych
+// Panel informacyjny po LEWEJ stronie mapy: licznik spotow + lista najnowszych
 // (znak, pasmo, tryb). Rysowany jako nakladka na mape.
+// Ramka lezy nad poludniowym Atlantykiem / Oceanem Poludniowym (x=4..132,
+// y=126..286) - w tym pasie nie ma kontynentow (sprawdzone na "Mapa swiata.bmp":
+// <1% pikseli ladu), wiec nic nie zaslania. Wczesniej panel byl po prawej
+// (x=360..476), gdzie zaslanial Azje i Australie.
 static void drawPskSpotListPanel() {
-  // Zwezona ramka (bylo 310/166, potem 340/136) - zaslania mniej mapy.
-  const int px = 360, py = 40, pw = 116, ph = 250;
+  const int px = 4, py = 126, pw = 128, ph = 160;
   const uint16_t bg = 0x18E3;  // ciemne tlo (jak menu ustawien)
   tft.fillRect(px, py, pw, ph, bg);
   tft.drawRect(px, py, pw, ph, UI_COL_ACCENT);
@@ -21508,13 +21511,13 @@ static void drawPskSpotListPanel() {
   tft.print("SPOTY: " + String(pskSpotCount));
 
   // Najnowsze na gorze (tablica jest w kolejnosci dodawania).
-  const int maxRows = 22;
+  const int maxRows = 14;
   int shown = 0;
   for (int i = pskSpotCount - 1; i >= 0 && shown < maxRows; i--, shown++) {
     int ry = py + 18 + shown * 10;
     tft.fillRect(px + 3, ry + 1, 6, 6, getPskBandColor(pskSpots[i].band));
 
-    // Znak skrocony do 8 znakow - szersze nie mieszcza sie w wezszej ramce.
+    // Znak skrocony do 8 znakow - szersze nie mieszcza sie w ramce.
     String row = pskSpots[i].callsign;
     if (row.length() > 8) row = row.substring(0, 8);
     while (row.length() < 8) row += " ";
