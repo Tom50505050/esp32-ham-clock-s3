@@ -3,6 +3,7 @@
 Renderuje realne bitmapy czcionek TFT_eSPI (Font 2 = Font16, Font 1 = GLCD 5x7),
 wiec uklad zgadza sie z urzadzeniem. Wynik: PNG w /workspace/share/.
 """
+import math
 import os
 import re
 from PIL import Image, ImageDraw
@@ -65,6 +66,43 @@ UI_TEXT = c565(0xEF7E)
 UI_DIM = c565(0x9D98)
 UI_FAINT = c565(0x6BF2)
 UI_RED = c565(0xF800)
+ARP_GRID = c565(0x0320)  # ARP_COL_GRID - ciemna zielen siatki radaru APRS
+
+
+def mini_radar(d, cx, cy, r, classic, bearing=None, dist_km=None, has_data=True):
+    """Mini-radar STACJA w stylu APRS (patrz stationDrawMiniRadar w main.cpp)."""
+    bg = BLACK if classic else UI_BG
+    grid = c565(0x0020) if classic else ARP_GRID
+    marker = GREEN if classic else UI_ACCENT
+    dim = LIGHTGREY if classic else UI_DIM
+
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=bg)
+    for rr in (r, (r * 2) // 3, r // 3):
+        d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], outline=grid)
+    d.line([cx - r, cy, cx + r, cy], fill=grid)
+    d.line([cx, cy - r, cx, cy + r], fill=grid)
+
+    f1c(d, cx, cy - r + 5, "N", dim)
+    f1c(d, cx, cy + r - 5, "S", dim)
+    f1c(d, cx + r - 5, cy - 3, "E", dim)
+    f1c(d, cx - r + 5, cy - 3, "W", dim)
+
+    if not has_data or bearing is None or dist_km is None:
+        f1c(d, cx, cy - 3, "---", dim)
+        return
+
+    rr = int(dist_km / 2000.0 * (r - 8))
+    rr = max(4, min(rr, r - 3))
+    a = math.radians(bearing)
+    px = cx + int(math.sin(a) * rr)
+    py = cy - int(math.cos(a) * rr)
+    d.line([cx, cy, px, py], fill=marker)
+    d.ellipse([px - 3, py - 3, px + 3, py + 3], fill=marker)
+    d.ellipse([cx - 2, cy - 2, cx + 2, cy + 2], fill=marker)
+
+    dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    label = "%d km %s" % (int(dist_km + 0.5), dirs[int((bearing + 22.5) / 45.0) & 7])
+    f1c(d, cx, cy + r + 8, label, marker)
 
 
 def tw1(s):
@@ -212,7 +250,7 @@ def card(d, classic):
     d.rectangle([21, 61, 458, 298], outline=(NAVY if classic else UI_FAINT))
 
 
-def results(d, classic, callsign, source, fields, distance=None, notfound=False, source_time=""):
+def results(d, classic, callsign, source, fields, distance=None, notfound=False, source_time="", bearing=None):
     card(d, classic)
     text = WHITE if classic else UI_TEXT
     dim = LIGHTGREY if classic else UI_DIM
@@ -233,6 +271,10 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
             f1(d, 34, 160, "Sprawdz poprawnosc znaku", dim)
             f1(d, 34, 185, "Zrodlo: " + (source or "-"), dim)
         else:
+            # Mini-radar APRS po prawej (main.cpp: stationDrawMiniRadar(368,150,52)).
+            mini_radar(d, 368, 150, 52, classic, bearing=bearing, dist_km=distance
+                       if isinstance(distance, (int, float)) else None,
+                       has_data=isinstance(distance, (int, float)))
             y = 116
             for label, val in fields:
                 f1s(d, 34, y, "%s %s" % (label, val if val else "---"), 2, text)
@@ -287,7 +329,7 @@ im, d = render(False)
 header(d, "STACJA", False)
 results(d, False, "SP9TNV", "QRZ.com",
         [("Imie: ", "Jan Kowalski"), ("QTH:  ", "Krakow"), ("Grid: ", "KN09ax"),
-         ("Kraj: ", "Poland")], distance=42)
+         ("Kraj: ", "Poland")], distance=42, source_time="14:32", bearing=42)
 footer(d, False)
 save(im, "stacja-4-wynik.png")
 
@@ -302,7 +344,7 @@ im, d = render(True)
 header(d, "STACJA", True)
 results(d, True, "DL1ABC", "HamDB",
         [("Imie: ", "Max Mustermann"), ("QTH:  ", "Berlin"), ("Grid: ", "JO62qm"),
-         ("Kraj: ", "Germany")], distance=510, source_time="09:07")
+         ("Kraj: ", "Germany")], distance=510, source_time="09:07", bearing=287)
 footer(d, True)
 save(im, "stacja-6-klasyczny-wynik.png")
 

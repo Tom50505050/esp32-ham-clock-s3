@@ -17271,6 +17271,66 @@ void stationLookupStart() {
   stationLastErrorMs = millis();
 }
 
+// Mini-radar w stylu APRS na ekranie STACJA. Srodek = pozycja uzytkownika
+// (GPS lub lokator), znacznik = szukana stacja: kierunek = azymut, promien =
+// odleglosc. Zielona fosforyzujaca siatka jak na pelnym radarze APRS.
+static void stationDrawMiniRadar(int cx, int cy, int r, bool classic) {
+  const uint16_t bg     = classic ? TFT_BLACK : UI_COL_BG;
+  const uint16_t grid   = classic ? TFT_DARKGREEN : ARP_COL_GRID;
+  const uint16_t marker = classic ? TFT_GREEN : UI_COL_ACCENT;
+  const uint16_t dimCol = classic ? TFT_LIGHTGREY : UI_COL_DIM;
+
+  tft.fillCircle(cx, cy, r, bg);
+  tft.drawCircle(cx, cy, r, grid);
+  tft.drawCircle(cx, cy, (r * 2) / 3, grid);
+  tft.drawCircle(cx, cy, r / 3, grid);
+  tft.drawLine(cx - r, cy, cx + r, cy, grid);
+  tft.drawLine(cx, cy - r, cx, cy + r, grid);
+
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextSize(1);
+  tft.setTextColor(dimCol, bg);
+  tft.drawString("N", cx, cy - r + 5);
+  tft.drawString("S", cx, cy + r - 5);
+  tft.drawString("E", cx + r - 5, cy);
+  tft.drawString("W", cx - r + 5, cy);
+
+  // Srodek radaru = pozycja uzytkownika (GPS lub lokator), jak w radarze APRS.
+  double ulat = 0.0, ulon = 0.0;
+  bool haveUser = false;
+  if (userLatLonValid && !(userLat == 0.0 && userLon == 0.0)) { ulat = userLat; ulon = userLon; haveUser = true; }
+  else if (userLocator.length() >= 4) { locatorToLatLon(userLocator, ulat, ulon); haveUser = true; }
+
+  if (!stationHasLatLon || stationDistanceKm < 0.0f || !haveUser) {
+    tft.setTextColor(dimCol, bg);
+    tft.drawString("---", cx, cy);
+    tft.setTextDatum(TL_DATUM);
+    return;
+  }
+
+  float bearingDeg = calculateBearing(ulat, ulon, stationLat, stationLon);
+
+  // Skala: promien odpowiada maks. zasiegowi listy spotow (<=2000 km).
+  const float maxRange = 2000.0f;
+  float rPix = (stationDistanceKm / maxRange) * (float)(r - 8);
+  if (rPix < 4.0f) rPix = 4.0f;               // bliskie stacje widoczne
+  if (rPix > (float)(r - 3)) rPix = (float)(r - 3);
+
+  float a = bearingDeg * (float)M_PI / 180.0f;
+  int px = cx + (int)(sin(a) * rPix);
+  int py = cy - (int)(cos(a) * rPix);
+
+  tft.drawLine(cx, cy, px, py, marker);
+  tft.fillCircle(px, py, 3, marker);
+  tft.fillCircle(cx, cy, 2, marker);
+
+  static const char *dirs[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+  int dirIdx = (int)((bearingDeg + 22.5f) / 45.0f) & 7;
+  tft.setTextColor(marker, bg);
+  tft.drawString(String((int)(stationDistanceKm + 0.5f)) + " km " + dirs[dirIdx], cx, cy + r + 8);
+  tft.setTextDatum(TL_DATUM);
+}
+
 static void stationDrawResults() {
   const bool classic = uiStyleClassic();
   const uint16_t card = classic ? TFT_BLACK : UI_COL_CARD;
@@ -17307,6 +17367,8 @@ static void stationDrawResults() {
     tft.drawString(src, 300, 74);
 
     if (stationFound) {
+    // Mini-radar w stylu APRS po prawej stronie karty (nie koliduje z polami).
+    stationDrawMiniRadar(368, 150, 52, classic);
     tft.setTextColor(text, card);
     tft.setTextSize(2);
     int y = 116;
