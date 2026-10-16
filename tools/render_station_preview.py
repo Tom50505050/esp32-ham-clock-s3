@@ -68,41 +68,13 @@ UI_FAINT = c565(0x6BF2)
 UI_RED = c565(0xF800)
 ARP_GRID = c565(0x0320)  # ARP_COL_GRID - ciemna zielen siatki radaru APRS
 
-
-def mini_radar(d, cx, cy, r, classic, bearing=None, dist_km=None, has_data=True):
-    """Mini-radar STACJA w stylu APRS (patrz stationDrawMiniRadar w main.cpp)."""
-    bg = BLACK if classic else UI_BG
-    grid = c565(0x0020) if classic else ARP_GRID
-    marker = GREEN if classic else UI_ACCENT
-    dim = LIGHTGREY if classic else UI_DIM
-
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=bg)
-    for rr in (r, (r * 2) // 3, r // 3):
-        d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], outline=grid)
-    d.line([cx - r, cy, cx + r, cy], fill=grid)
-    d.line([cx, cy - r, cx, cy + r], fill=grid)
-
-    f1c(d, cx, cy - r + 5, "N", dim)
-    f1c(d, cx, cy + r - 5, "S", dim)
-    f1c(d, cx + r - 5, cy - 3, "E", dim)
-    f1c(d, cx - r + 5, cy - 3, "W", dim)
-
-    if not has_data or bearing is None or dist_km is None:
-        f1c(d, cx, cy - 3, "---", dim)
-        return
-
-    rr = int(dist_km / 2000.0 * (r - 8))
-    rr = max(4, min(rr, r - 3))
-    a = math.radians(bearing)
-    px = cx + int(math.sin(a) * rr)
-    py = cy - int(math.cos(a) * rr)
-    d.line([cx, cy, px, py], fill=marker)
-    d.ellipse([px - 3, py - 3, px + 3, py + 3], fill=marker)
-    d.ellipse([cx - 2, cy - 2, cx + 2, cy + 2], fill=marker)
-
-    dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-    label = "%d km %s" % (int(dist_km + 0.5), dirs[int((bearing + 22.5) / 45.0) & 7])
-    f1c(d, cx, cy + r + 8, label, marker)
+# Kolory linii propagacji wg dystansu (main.cpp: propPolarityColor).
+def POLARITY(km):
+    if km < 500:
+        return CYAN
+    if km < 1500:
+        return YELLOW
+    return RED
 
 
 def tw1(s):
@@ -251,39 +223,88 @@ def card(d, classic):
 
 
 def results(d, classic, callsign, source, fields, distance=None, notfound=False, source_time="", bearing=None):
-    card(d, classic)
-    text = WHITE if classic else UI_TEXT
+    bg = BLACK if classic else UI_BG
     dim = LIGHTGREY if classic else UI_DIM
     accent = YELLOW if classic else UI_ACCENT
+    grid = c565(0x0320) if classic else ARP_GRID
+    node = GREEN if classic else UI_ACCENT2
+    cx, cy, r = 240, 165, 124
+
+    # Tlo radaru (main.cpp: fillCircle + 3 pierscienie + krzyz).
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=c565(0x0120))
+    for rr in (r, (r * 2) // 3, r // 3):
+        d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], outline=grid)
+    d.line([cx - r, cy, cx + r, cy], fill=grid)
+    d.line([cx, cy - r, cx, cy + r], fill=grid)
+    f1(d, cx - 3, cy - r - 9, "N", dim)
+    f1(d, cx - 3, cy + r + 2, "S", dim)
+    f1(d, cx + r + 2, cy - 4, "E", dim)
+    f1(d, cx - r - 9, cy - 4, "W", dim)
+
+    # SZUKAJ (lewy dolny rog) - w kazdym stanie.
+    d.rectangle([12, 274, 131, 297], fill=GREEN if classic else UI_ACCENT,
+                outline=WHITE if classic else UI_ACCENT2)
+    f1sc(d, 72, 281, "SZUKAJ", 2, BLACK if classic else UI_BG)
+
     if not callsign:
-        # setTextSize(2) + drawString MC_DATUM (240,130) => GLCD 2x
-        f1sc(d, 240, 130, "Podaj znak stacji", 2, accent)
-        # setTextSize(1) + drawString MC_DATUM (240,165)
-        f1c(d, 240, 165, "nacisnij SZUKAJ i wpisz znak", dim)
-    else:
-        f1s(d, 34, 72, callsign, 2, accent)              # setTextSize(2) TL (34,72)
+        f1sc(d, cx, 140, "Podaj znak stacji", 2, accent)
+        f1(d, cx - 78, 178, "nacisnij SZUKAJ i wpisz znak", dim)
+        return
+    if notfound:
+        f1sc(d, cx, 130, "Nie znaleziono stacji", 2, UI_RED)
+        f1(d, cx - 78, 164, "Sprawdz poprawnosc znaku", dim)
         src = "Zrodlo: " + (source or "-")
         if source_time:
             src += "  " + source_time
-        f1(d, 300, 74, src, dim)                         # setTextSize(1) TL (300,74)
-        if notfound:
-            f1s(d, 34, 120, "Nie znaleziono stacji", 2, UI_RED)
-            f1(d, 34, 160, "Sprawdz poprawnosc znaku", dim)
-            f1(d, 34, 185, "Zrodlo: " + (source or "-"), dim)
-        else:
-            # Mini-radar APRS po prawej (main.cpp: stationDrawMiniRadar(368,150,52)).
-            mini_radar(d, 368, 150, 52, classic, bearing=bearing, dist_km=distance
-                       if isinstance(distance, (int, float)) else None,
-                       has_data=isinstance(distance, (int, float)))
-            y = 116
-            for label, val in fields:
-                f1s(d, 34, y, "%s %s" % (label, val if val else "---"), 2, text)
-                y += 30
-            if distance == "unknown":
-                f1s(d, 34, y, "Dyst:  --- (brak QTH)", 2, dim)
-            elif distance is not None:
-                f1s(d, 34, y, "Dyst:  %d km" % distance, 2, accent)
-    search_button(d, classic)
+        f1(d, cx - len(src) * 3, 188, src, dim)
+        return
+
+    userY = cy + 72
+
+    def node_box(nx, ny, call, col):
+        d.rectangle([nx - 46, ny - 12, nx + 46, ny + 12], fill=bg, outline=col)
+        f1c(d, nx, ny - 3, call, col)
+
+    node_box(cx, userY, "SP9TNV", node)
+
+    have_dist = isinstance(distance, (int, float)) and bearing is not None
+    if have_dist:
+        rr = int(distance / 2000.0 * (r - 18))
+        rr = max(16, min(rr, r - 6))
+        a = math.radians(bearing)
+        stx = cx + int(math.sin(a) * rr)
+        sty = cy - int(math.cos(a) * rr)
+    else:
+        stx, sty = cx, 70
+    node_box(stx, sty, callsign, accent)
+
+    if have_dist:
+        pc = POLARITY(distance)
+        dx, dy = stx - cx, sty - userY
+        ln = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / ln, dx / ln
+        for s in (1, 2):
+            d.line([cx + nx * 5 * s, userY + ny * 5 * s, stx, sty], fill=pc)
+            d.line([cx - nx * 5 * s, userY - ny * 5 * s, stx, sty], fill=pc)
+        d.ellipse([cx - 2, userY - 2, cx + 2, userY + 2], fill=pc)
+        d.ellipse([stx - 3, sty - 3, stx + 3, sty + 3], fill=pc)
+        dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        didx = int((bearing + 22.5) / 45.0) & 7
+        info = "%d km  %s  %ddeg" % (int(distance + 0.5), dirs[didx], int(bearing + 0.5))
+        f1sc(d, cx, cy + 36, info, 2, pc)
+    else:
+        f1c(d, cx, cy - 3, "brak pozycji - ustaw lokator lub GPS", dim)
+
+    py = 214
+    for label, val in fields:
+        f1(d, 10, py, "%s %s" % (label, val if val else "---"), dim)
+        py += 13
+    for col, txt, yy in ((POLARITY(300), "<500 km", 211),
+                         (POLARITY(1000), "<1500 km", 227),
+                         (POLARITY(2000), ">1500 km", 243)):
+        d.rectangle([300, yy, 307, yy + 7], fill=col)
+        f1(d, 312, yy, txt, dim)
+
 
 
 def loading(d, callsign, classic):
@@ -291,7 +312,7 @@ def loading(d, callsign, classic):
     f1sc(d, 240, 110, callsign, 2, CYAN if classic else UI_ACCENT)
     f1c(d, 240, 150, "Pobieranie danych...", WHITE if classic else UI_TEXT)
     f1c(d, 240, 176, "kolejno: QRZ.com -> HamDB -> callook", LIGHTGREY if classic else UI_DIM)
-    search_button(d, classic)
+
 
 
 def render(classic):

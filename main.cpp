@@ -17271,145 +17271,192 @@ void stationLookupStart() {
   stationLastErrorMs = millis();
 }
 
-// Mini-radar w stylu APRS na ekranie STACJA. Srodek = pozycja uzytkownika
-// (GPS lub lokator), znacznik = szukana stacja: kierunek = azymut, promien =
-// odleglosc. Zielona fosforyzujaca siatka jak na pelnym radarze APRS.
-static void stationDrawMiniRadar(int cx, int cy, int r, bool classic) {
-  const uint16_t bg     = classic ? TFT_BLACK : UI_COL_BG;
-  const uint16_t grid   = classic ? TFT_DARKGREEN : ARP_COL_GRID;
-  const uint16_t marker = classic ? TFT_GREEN : UI_COL_ACCENT;
-  const uint16_t dimCol = classic ? TFT_LIGHTGREY : UI_COL_DIM;
 
-  tft.fillCircle(cx, cy, r, bg);
-  tft.drawCircle(cx, cy, r, grid);
-  tft.drawCircle(cx, cy, (r * 2) / 3, grid);
-  tft.drawCircle(cx, cy, r / 3, grid);
-  tft.drawLine(cx - r, cy, cx + r, cy, grid);
-  tft.drawLine(cx, cy - r, cx, cy + r, grid);
 
-  tft.setTextDatum(MC_DATUM);
+// Polaryzacja linii propagacji: krotka trasa w pasmach wysokich, dluga w niskich.
+static uint16_t propPolarityColor(float distKm) {
+  if (distKm < 500.0f)  return 0x07FF;  // cyjan  - trasa krotka / wysokie pasma
+  if (distKm < 1500.0f) return 0xFFE0;  // zolty  - trasa srednia / 20m
+  return 0xF800;                        // czerwony - trasa dluga / niskie pasma
+}
+
+// Pelnoekranowy radar STACJA w stylu APRS: lokalizacja operatora na dole,
+// szukana stacja na gorze, miedzy nimi linie propagacji + odczyt azymutu/dystansu.
+static void stationDrawResults() {
+  const bool classic = uiStyleClassic();
+  const uint16_t card    = classic ? TFT_BLACK : UI_COL_CARD;
+  const uint16_t border  = classic ? TFT_BLUE : UI_COL_BORDER;
+  const uint16_t dim     = classic ? TFT_LIGHTGREY : UI_COL_DIM;
+  const uint16_t accent  = classic ? TFT_YELLOW : UI_COL_ACCENT;
+  const uint16_t bg      = classic ? TFT_BLACK : UI_COL_BG;
+  const uint16_t gridCol = classic ? 0x0320 : ARP_COL_GRID;
+  const uint16_t nodeCol = classic ? TFT_GREEN : UI_COL_ACCENT2;
+
+  const int cx = 240;
+  const int cy = 165;
+  const int r  = 124;
+
+  // Zachowujemy tytul i zrodlo z naglowka; reszte ekranu rysujemy od zera.
+  tft.fillRect(0, UI_HEADER_H, 480, UI_FOOTER_Y - UI_HEADER_H, bg);
+  tft.setTextDatum(TL_DATUM);
+
+  // Tlo radaru: zielona fosforyzujaca siatka APRS.
+  tft.fillCircle(cx, cy, r, 0x0120);
+  tft.drawCircle(cx, cy, r, gridCol);
+  tft.drawCircle(cx, cy, (r * 2) / 3, gridCol);
+  tft.drawCircle(cx, cy, r / 3, gridCol);
+  tft.drawLine(cx - r, cy, cx + r, cy, gridCol);
+  tft.drawLine(cx, cy - r, cx, cy + r, gridCol);
   tft.setTextSize(1);
-  tft.setTextColor(dimCol, bg);
-  tft.drawString("N", cx, cy - r + 5);
-  tft.drawString("S", cx, cy + r - 5);
-  tft.drawString("E", cx + r - 5, cy);
-  tft.drawString("W", cx - r + 5, cy);
+  tft.setTextColor(dim, bg);
+  tft.drawString("N", cx - 3, cy - r - 9);
+  tft.drawString("S", cx - 3, cy + r + 2);
+  tft.drawString("E", cx + r + 2, cy - 4);
+  tft.drawString("W", cx - r - 9, cy - 4);
 
-  // Srodek radaru = pozycja uzytkownika (GPS lub lokator), jak w radarze APRS.
+  // Przycisk SZUKAJ (lewy dolny rog) - widoczny w kazdym stanie.
+  tft.fillRect(12, 274, 120, 24, classic ? TFT_GREEN : UI_COL_ACCENT);
+  tft.drawRect(12, 274, 120, 24, classic ? TFT_WHITE : UI_COL_ACCENT2);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(classic ? TFT_BLACK : UI_COL_BG);
+  tft.setTextSize(2);
+  tft.drawString("SZUKAJ", 72, 281);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextSize(1);
+
+  // Wejscie bez znaku: komunikat startowy na srodku ekranu.
+  if (stationCallsign.length() == 0) {
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(accent, bg);
+    tft.setTextSize(2);
+    tft.drawString("Podaj znak stacji", cx, 140);
+    tft.setTextSize(1);
+    tft.setTextColor(dim, bg);
+    tft.drawString("nacisnij SZUKAJ i wpisz znak", cx, 178);
+    tft.setTextDatum(TL_DATUM);
+    return;
+  }
+
+  // Nie znaleziono: komunikat + zrodlo.
+  if (!stationFound) {
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(UI_COL_RED, bg);
+    tft.setTextSize(2);
+    tft.drawString("Nie znaleziono stacji", cx, 130);
+    tft.setTextSize(1);
+    tft.setTextColor(dim, bg);
+    tft.drawString("Sprawdz poprawnosc znaku", cx, 164);
+    String ns = "Zrodlo: ";
+    ns += stationSource.length() ? stationSource : "-";
+    if (stationSourceTime.length()) { ns += "  "; ns += stationSourceTime; }
+    tft.drawString(ns, cx, 188);
+    tft.setTextDatum(TL_DATUM);
+    return;
+  }
+
+  // Pozycja operatora (GPS lub lokator).
+  // Etykieta zrodla + godzina pobrania (prawy gorny rog, ponizej naglowka).
+  {
+    String src = "Zrodlo: ";
+    src += stationSource.length() ? stationSource : "-";
+    if (stationSourceTime.length()) { src += "  "; src += stationSourceTime; }
+    tft.setTextSize(1);
+    tft.setTextColor(dim, bg);
+    tft.setTextDatum(TR_DATUM);
+    tft.drawString(src, 470, UI_HEADER_H + 4);
+    tft.setTextDatum(TL_DATUM);
+  }
+
   double ulat = 0.0, ulon = 0.0;
   bool haveUser = false;
   if (userLatLonValid && !(userLat == 0.0 && userLon == 0.0)) { ulat = userLat; ulon = userLon; haveUser = true; }
   else if (userLocator.length() >= 4) { locatorToLatLon(userLocator, ulat, ulon); haveUser = true; }
 
-  if (!stationHasLatLon || stationDistanceKm < 0.0f || !haveUser) {
-    tft.setTextColor(dimCol, bg);
-    tft.drawString("---", cx, cy);
-    tft.setTextDatum(TL_DATUM);
-    return;
-  }
-
-  float bearingDeg = calculateBearing(ulat, ulon, stationLat, stationLon);
-
-  // Skala: promien odpowiada maks. zasiegowi listy spotow (<=2000 km).
-  const float maxRange = 2000.0f;
-  float rPix = (stationDistanceKm / maxRange) * (float)(r - 8);
-  if (rPix < 4.0f) rPix = 4.0f;               // bliskie stacje widoczne
-  if (rPix > (float)(r - 3)) rPix = (float)(r - 3);
-
-  float a = bearingDeg * (float)M_PI / 180.0f;
-  int px = cx + (int)(sin(a) * rPix);
-  int py = cy - (int)(cos(a) * rPix);
-
-  tft.drawLine(cx, cy, px, py, marker);
-  tft.fillCircle(px, py, 3, marker);
-  tft.fillCircle(cx, cy, 2, marker);
-
-  static const char *dirs[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
-  int dirIdx = (int)((bearingDeg + 22.5f) / 45.0f) & 7;
-  tft.setTextColor(marker, bg);
-  tft.drawString(String((int)(stationDistanceKm + 0.5f)) + " km " + dirs[dirIdx], cx, cy + r + 8);
-  tft.setTextDatum(TL_DATUM);
-}
-
-static void stationDrawResults() {
-  const bool classic = uiStyleClassic();
-  const uint16_t card = classic ? TFT_BLACK : UI_COL_CARD;
-  const uint16_t border = classic ? TFT_BLUE : UI_COL_BORDER;
-  const uint16_t text = classic ? TFT_WHITE : UI_COL_TEXT;
-  const uint16_t dim = classic ? TFT_LIGHTGREY : UI_COL_DIM;
-  const uint16_t accent = classic ? TFT_YELLOW : UI_COL_ACCENT;
-
-  tft.fillRect(20, 60, 440, 240, card);
-  tft.drawRect(20, 60, 440, 240, border);
-  tft.drawRect(21, 61, 438, 238, classic ? TFT_NAVY : UI_COL_FAINT);
-
-  tft.setTextDatum(TL_DATUM);
-  if (stationCallsign.length() == 0) {
-    // Ekran startowy: brak wpisanego znaku.
+  const int userY = cy + 72;
+  auto drawNode = [&](int nx, int ny, const String &call, uint16_t col) {
+    tft.fillRect(nx - 46, ny - 12, 92, 24, bg);
+    tft.drawRect(nx - 46, ny - 12, 92, 24, col);
     tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(accent, card);
-    tft.setTextSize(2);
-    tft.drawString("Podaj znak stacji", 240, 130);
     tft.setTextSize(1);
-    tft.setTextColor(dim, card);
-    tft.drawString("nacisnij SZUKAJ i wpisz znak", 240, 165);
+    tft.setTextColor(col, bg);
+    tft.drawString(call, nx, ny - 3);
+    tft.setTextDatum(TL_DATUM);
+  };
+
+  // Lokalizacja operatora (dol) + krotki znak z ustawien.
+  String userCall = userCallsign.length() ? userCallsign : String(DEFAULT_CALLSIGN);
+  drawNode(cx, userY, userCall, nodeCol);
+
+  // Stacja szukana (gora). Bez pozycji stacji pokazujemy sam znacznik.
+  const bool haveDist = stationHasLatLon && stationDistanceKm >= 0.0f;
+  float bearingDeg = 0.0f;
+  if (haveUser) bearingDeg = calculateBearing(ulat, ulon, stationLat, stationLon);
+  int stX = cx, stY = 70;
+  if (haveDist && haveUser) {
+    const float maxRange = 2000.0f;
+    float rPix = (stationDistanceKm / maxRange) * (float)(r - 18);
+    if (rPix < 16.0f) rPix = 16.0f;
+    if (rPix > (float)(r - 6)) rPix = (float)(r - 6);
+    float a = bearingDeg * (float)M_PI / 180.0f;
+    stX = cx + (int)(sin(a) * rPix);
+    stY = cy - (int)(cos(a) * rPix);
+  }
+  drawNode(stX, stY, stationCallsign, accent);
+
+  // Linie propagacji: trojnik od operatora do stacji w kolorze wg dystansu.
+  if (haveDist && haveUser) {
+    uint16_t pc = propPolarityColor(stationDistanceKm);
+    int dx = stX - cx, dy = stY - userY;
+    float len = sqrtf((float)dx * dx + (float)dy * dy);
+    if (len < 1.0f) len = 1.0f;
+    float nx = -dy / len, ny = dx / len;   // prostopadla
+    const float spread = 5.0f;
+    tft.drawLine(cx + (int)(nx * spread), userY + (int)(ny * spread), stX, stY, pc);
+    tft.drawLine(cx - (int)(nx * spread), userY - (int)(ny * spread), stX, stY, pc);
+    tft.drawLine(cx + (int)(nx * spread * 2), userY + (int)(ny * spread * 2), stX, stY, pc);
+    tft.drawLine(cx - (int)(nx * spread * 2), userY - (int)(ny * spread * 2), stX, stY, pc);
+    tft.fillCircle(cx, userY, 2, pc);
+    tft.fillCircle(stX, stY, 3, pc);
+
+    static const char *dirs[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+    int dirIdx = (int)((bearingDeg + 22.5f) / 45.0f) & 7;
+    String info = String((int)(stationDistanceKm + 0.5f)) + " km  "
+                + dirs[dirIdx] + "  " + String((int)(bearingDeg + 0.5f)) + "deg";
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextSize(2);
+    tft.setTextColor(pc, bg);
+    tft.drawString(info, cx, cy + 36);
     tft.setTextDatum(TL_DATUM);
   } else {
-    // Naglowek wyniku: znak + zrodlo danych
-    tft.setTextColor(accent, card);
-    tft.setTextSize(2);
-    tft.drawString(stationCallsign, 34, 72);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(dim, bg);
     tft.setTextSize(1);
-    tft.setTextColor(dim, card);
-    String src = "Zrodlo: ";
-    src += stationSource.length() ? stationSource : "-";
-    if (stationSourceTime.length()) { src += "  "; src += stationSourceTime; }
-    tft.drawString(src, 300, 74);
-
-    if (stationFound) {
-    // Mini-radar w stylu APRS po prawej stronie karty (nie koliduje z polami).
-    stationDrawMiniRadar(368, 150, 52, classic);
-    tft.setTextColor(text, card);
-    tft.setTextSize(2);
-    int y = 116;
-    const int stepY = 30;   // 5 pol (z Dyst.) nie moze wejsc na przycisk SZUKAJ (y=258)
-    auto val = [](const String &v) -> String {
-      if (v.length() == 0 || v == "null") return "---";
-      return v;
-    };
-    tft.drawString("Imie:  " + val(stationName), 34, y); y += stepY;
-    tft.drawString("QTH:   " + val(stationQth), 34, y); y += stepY;
-    tft.drawString("Grid:  " + val(stationGrid), 34, y); y += stepY;
-    tft.drawString("Kraj:  " + val(stationCountry), 34, y); y += stepY;
-    if (stationHasLatLon && stationDistanceKm >= 0.0f) {
-      tft.setTextColor(accent, card);
-      tft.drawString("Dyst:  " + String(stationDistanceKm, 0) + " km", 34, y);
-    } else if (stationHasLatLon) {
-      tft.setTextColor(dim, card);
-      tft.drawString("Dyst:  --- (brak QTH)", 34, y);
-    }
-  } else {
-    tft.setTextColor(UI_COL_RED, card);
-    tft.setTextSize(2);
-    tft.drawString("Nie znaleziono stacji", 34, 120);
-    tft.setTextSize(1);
-    tft.setTextColor(dim, card);
-    tft.drawString("Sprawdz poprawnosc znaku", 34, 160);
-    String src = "Zrodlo: ";
-    src += stationSource.length() ? stationSource : "-";
-    tft.drawString(src, 34, 185);
-    }
+    tft.drawString("brak pozycji - ustaw lokator lub GPS", cx, cy);
+    tft.setTextDatum(TL_DATUM);
   }
 
-  // Przycisk SZUKAJ (x>=90, aby nie kolidowac z nawigacja w lewym dolnym rogu)
-  tft.fillRect(90, 258, 150, 30, classic ? TFT_GREEN : UI_COL_ACCENT);
-  tft.drawRect(90, 258, 150, 30, classic ? TFT_WHITE : UI_COL_ACCENT2);
-  tft.setTextColor(classic ? TFT_BLACK : UI_COL_BG);
-  tft.setTextSize(2);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString("SZUKAJ", 165, 273);
-  tft.setTextDatum(TL_DATUM);
+  // Panel danych (lewy dolny rog) i legenda propagacji (prawy dolny rog).
+  auto val = [](const String &v) -> String {
+    if (v.length() == 0 || v == "null") return "---";
+    return v;
+  };
+  tft.setTextSize(1);
+  tft.setTextColor(dim, bg);
+  int py = 214;
+  tft.drawString("Imie: " + val(stationName), 10, py); py += 13;
+  tft.drawString("QTH:  " + val(stationQth), 10, py); py += 13;
+  tft.drawString("Grid: " + val(stationGrid), 10, py); py += 13;
+  tft.drawString("Kraj: " + val(stationCountry), 10, py);
+
+  tft.setTextColor(dim, bg);
+  tft.fillRect(300, 210, 8, 8, 0x07FF);
+  tft.drawString("<500 km", 312, 211);
+  tft.fillRect(300, 226, 8, 8, 0xFFE0);
+  tft.drawString("<1500 km", 312, 227);
+  tft.fillRect(300, 242, 8, 8, 0xF800);
+  tft.drawString(">1500 km", 312, 243);
 }
+
 
 // Rysuje klawiature ekranowa (QRO) do wpisania znaku.
 static void drawStationKeyboard() {
@@ -17533,16 +17580,13 @@ void handleStationTouch(uint16_t x, uint16_t y) {
     stationHandleKeyboardKey(x, y);
     return;
   }
-  // Przycisk SZUKAJ
-  if (x >= 90 && x <= 240 && y >= 258 && y <= 288) {
+  // Ekran wyniku (radar pelnoekranowy): SZUKAJ w lewym dolnym rogu,
+  // reszta ekranu ponownie otwiera klawiature do zmiany znaku.
+  if (x >= 12 && x <= 132 && y >= 274 && y <= UI_FOOTER_Y - 2) {
     stationStartKeyboard();
     return;
   }
-  // Dotkniecie pola znaku -> klawiatura
-  if (y >= 66 && y <= 96) {
-    stationStartKeyboard();
-    return;
-  }
+  stationStartKeyboard();
 }
 
 // ========== MENU WYGASZACZA EKRANU ==========
