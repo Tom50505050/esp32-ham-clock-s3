@@ -17430,16 +17430,29 @@ static void stationDrawResults() {
       ly += 16;
     }
 
-    // Dystans (+ kierunek, gdy znamy pozycje).
+    // Dystans + kierunek geograficzny (pelne nazwy po polsku, np. 'północny wschód').
     tft.setTextColor(dim, panel);
     tft.drawString("Dyst", px + 18, ly);
     if (haveDist) {
-      static const char *dirs[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+      static const char *dirsPL[8] = {"północ", "północny wschód", "wschód",
+                                      "południowy wschód", "południe",
+                                      "południowy zachód", "zachód", "północny zachód"};
       float b = calculateBearing(ulat, ulon, stationLat, stationLon);
       int di = (int)((b + 22.5f) / 45.0f) & 7;
-      String dv = String(stationDistanceKm, 0) + " km  " + dirs[di];
-      tft.setTextColor(waveCol, panel);
-      tft.drawString(dv, px + 84, ly);
+      String dv = String(stationDistanceKm, 0) + " km  " + dirsPL[di];
+      // Pelne polskie nazwy wymagaja fontu VLW (ROM Font 1 nie ma ogonkow).
+      if (littleFsReady && LittleFS.exists(ROBOTO_FONT12_FILE) && ESP.getFreeHeap() > 80000) {
+        tft.loadFont(ROBOTO_FONT12_NAME, LittleFS);
+        tft.setTextColor(waveCol, panel);
+        tft.setTextDatum(TL_DATUM);
+        tft.setCursor(px + 84, ly + 2);
+        tft.print(dv);
+        tft.unloadFont();
+        tft.setTextSize(1);
+      } else {
+        tft.setTextColor(waveCol, panel);
+        tft.drawString(toAsciiPolish(dv), px + 84, ly);
+      }
     } else {
       tft.setTextColor(dim, panel);
       tft.drawString("--- (brak QTH)", px + 84, ly);

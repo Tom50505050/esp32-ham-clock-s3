@@ -212,7 +212,7 @@ def keyboard(d, buf, classic):
 def search_button(d, classic):
     d.rectangle([90, 258, 239, 287], fill=GREEN if classic else UI_ACCENT,
                 outline=(WHITE if classic else UI_ACCENT2))
-    # setTextSize(2)+drawString(...,165,273) MC_DATUM => GLCD 2x wyśrodkowane
+    # setTextSize(2)+drawString(...,165,273) MC_DATUM => GLCD 2x wyÃÂrodkowane
     f1sc(d, 165, 273, "SZUKAJ", 2, BLACK if classic else UI_BG)
 
 
@@ -225,6 +225,14 @@ def card(d, classic):
 def blend(a, b, t, mx=255):
     """Mieszanie dwoch kolorow RGB (main.cpp: blend565)."""
     return tuple((a[i] * (mx - t) + b[i] * t) // mx for i in range(3))
+
+
+_PL_MAP = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
+
+
+def ascii_pl(s):
+    """Podgladowy font GLCD nie ma ogonkow - jak main.cpp: toAsciiPolish()."""
+    return s.translate(_PL_MAP)
 
 
 def station_radio(d, x0, y0, w, h, call, col, bgcol):
@@ -312,10 +320,11 @@ def results(d, classic, callsign, source, fields, distance=None, notfound=False,
             ly += 16
         f1(d, px + 18, ly, "Dyst", dim)
         if have_dist:
-            dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+            dirs = ["pÃ³Ånoc", "pÃ³Ånocny wschÃ³d", "wschÃ³d", "poÅudniowy wschÃ³d",
+                    "poÅudnie", "poÅudniowy zachÃ³d", "zachÃ³d", "pÃ³Ånocny zachÃ³d"]
             di = int((bearing + 22.5) / 45.0) & 7 if bearing is not None else 0
             dv = "%d km  %s" % (distance, dirs[di])
-            f1(d, px + 84, ly, dv, wave)
+            f1(d, px + 84, ly, ascii_pl(dv), wave)
         else:
             f1(d, px + 84, ly, "--- (brak QTH)", dim)
         ly += 18
