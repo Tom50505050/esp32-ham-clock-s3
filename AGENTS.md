@@ -1556,3 +1556,27 @@ reporter"), ekran POTA Cluster tez bez danych. Dwie NIEZALEZNE przyczyny:
    - Weryfikacja hostowa (ArduinoJson 6.21.5, `g++`): 96 KB -> `Ok`, 239 spotow.
 - Pliki: `main.cpp`. Build 2 env SUCCESS.
 
+## Naprawa PSK cz.2: "Transfer-Encoding: chunked" psul parsowanie (17.10.2026)
+Po wgraniu v1.2b uzytkownik zglosil, ze PSK Reporter nadal nie pobiera danych
+i nie rysuje linii (mimo poprawnego HTTP 200). Trzecia, ukryta przyczyna:
+
+- **`pskreporter.info` odpowiada z `Transfer-Encoding: chunked`** (naglowek
+  potwierdzony: brak `Content-Length`, jest `Transfer-Encoding: chunked`).
+- Kod czytal cialo przez **`http.getStreamPtr()`** i podawal go wprost do
+  `deserializeJson`. `getStreamPtr()` zwraca **SUROWY** socket, wiec w strumieniu
+  sa naglowki chunkow: `456c\r\n{ "currentSeconds":...`. ArduinoJson konczyl
+  z `err=Ok`, ale **bez pola `receptionReport`** (0 spotow -> pusta mapa, brak
+  linii). Udowodnione hostowo (`g++`, ArduinoJson 6.21.5):
+  - raw chunked -> `err=Ok`, `reports=-1` (brak tablicy);
+  - po zdjeciu chunkow -> `err=Ok`, `reports=60`.
+- Fix: odczyt przez **`HTTPClient::writeToStream()`** (poprawnie sklada chunki)
+  do wlasnego sinku **`PskHttpBodySink : Stream`**, ktory odklada gotowe cialo
+  w **PSRAM** (`PSK_HTTP_BODY_CAP = 768 KB`), potem
+  `deserializeJson(doc, (const char*)body.data(), body.len, ...)`. `getString()`
+  tez sklada chunki, ale trzyma do ~500 KB w wewnetrznym RAM - dlatego sink PSRAM.
+- POTA (`api.pota.app`) wysyla `Content-Length` (identity), wiec chunked dotyczy
+  tylko PSK.
+- Wniosek na przyszlosc: dla kazdego endpointu sprawdzaj `Transfer-Encoding`.
+  Gdy `chunked`, NIE parsuj `getStreamPtr()` bezposrednio - uzyj
+  `writeToStream()`/`getString()` albo zdjac chunki samodzielnie.
+

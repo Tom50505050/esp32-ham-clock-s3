@@ -96,14 +96,22 @@ z UI WWW oraz narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
 - `FIRMWARE_VERSION`: `1.2a` → **`1.2b`**.
 
 ### Naprawa: PSK Reporter i POTA Cluster (brak danych)
-- **PSK Reporter (pusta mapa).** Dwie nakładające się przyczyny po stronie usługi:
-  domyślny host HTTP `retrieve.pskreporter.info/query` zwracał Cloudflare
-  **522/523** i 0 bajtów (origin down), a broker `mqtt.pskreporter.info`
-  **przestał publikować feed PSK** (został tylko WSPR). Poprawki:
+- **PSK Reporter (pusta mapa).** Trzy nakładające się przyczyny:
+  1. domyślny host HTTP `retrieve.pskreporter.info/query` zwracał Cloudflare
+     **522/523** i 0 bajtów (origin down);
+  2. broker `mqtt.pskreporter.info` **przestał publikować feed PSK** (został
+     tylko WSPR);
+  3. odpowiedź `pskreporter.info` przychodzi z **`Transfer-Encoding: chunked`**,
+     a kod parsował **surowy socket** (`getStreamPtr()`), w którym w środku JSON
+     są nagłówki chunków (np. `456c\r\n{...`). ArduinoJson kończył wtedy bez
+     pola `receptionReport` (0 spotów, brak linii), mimo statusu HTTP 200.
+  Poprawki:
   - domyślny URL HTTP → **`https://pskreporter.info/query?`** (działa, dane na żywo);
   - domyślny tryb → **HTTP** (`pskMqttEnabled=false`) + jednorazowa **migracja NVS**
     wyłączająca MQTT na istniejących urządzeniach (własny broker użytkownika
     zostaje); gdyby MQTT wrócił, temat to `pskr/filter/v2raw_1pc/...`;
+  - odczyt ciała przez **`HTTPClient::writeToStream()`** (poprawnie składa chunki)
+    do bufora w **PSRAM** (`PskHttpBodySink`), a nie z surowego socketu;
   - bufor parsowania JSON 24 KB → **512 KB w PSRAM** (odpowiedź bywa ~500 KB,
     gdy serwer zignoruje `rptlimit`).
 - **POTA Cluster (brak danych).** API zwraca teraz całą listę aktywnych spotów

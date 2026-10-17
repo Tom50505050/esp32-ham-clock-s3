@@ -228,6 +228,9 @@ const unsigned long PSK_MIN_FETCH_INTERVAL_MS = 300000; // min. 5 min
 // Gorny limit eskalowanego backoffu przy powtarzajacych sie limitach.
 const unsigned long PSK_MAX_BACKOFF_MS = 1800000; // 30 min
 int pskLimitStreak = 0;  // ile razy z rzedu trafilismy na limit (eskalacja backoffu)
+// Bufor na cialo odpowiedzi HTTP (po zdjeciu chunkow) - trzymany w PSRAM.
+// Musi pomiescic pelna odpowiedz, gdy serwer zignoruje rptlimit (~500 KB).
+const size_t PSK_HTTP_BODY_CAP = 786432; // 768 KB
 
 // Konfiguracja PSKReporter (zapisana w NVS)
 String pskReceiverCallsign = "";  // znak odbiornika do filtrowania
@@ -14569,6 +14572,50 @@ struct PskPsramAllocator {
   void* reallocate(void* ptr, size_t new_size) { return heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
 };
 
+// Sink HTTP zbierajacy cialo odpowiedzi wprost w PSRAM.
+// Po co: HTTPClient::getStreamPtr() zwraca SUROWY socket. Gdy serwer odpowiada
+// z "Transfer-Encoding: chunked" (tak robi pskreporter.info), w strumieniu sa
+// naglowki chunkow ("456c\r\n" ... "\r\n") w srodku JSON. deserializeJson na
+// takim strumieniu konczy sie brakiem pola receptionReport (mapa pusta, bez
+// linii). HTTPClient::writeToStream() poprawnie sklada chunki, a ten sink
+// odklada gotowe cialo w PSRAM (String z getString() trzymalby do ~500 KB
+// w wewnetrznym RAM).
+struct PskHttpBodySink : public Stream {
+  uint8_t* buf = nullptr;
+  size_t len = 0;
+  size_t cap = 0;
+  bool overflow = false;
+
+  bool begin(size_t capacity) {
+    buf = (uint8_t*)heap_caps_malloc(capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    cap = capacity;
+    len = 0;
+    overflow = false;
+    return buf != nullptr;
+  }
+  void reset() {
+    if (buf) heap_caps_free(buf);
+    buf = nullptr;
+    len = 0;
+    cap = 0;
+    overflow = false;
+  }
+  size_t write(uint8_t b) override { return write(&b, 1); }
+  size_t write(const uint8_t* data, size_t n) override {
+    if (!buf) return 0;
+    size_t room = cap - len;
+    size_t take = (n < room) ? n : room;
+    if (take) { memcpy(buf + len, data, take); len += take; }
+    if (take < n) overflow = true;
+    return take;
+  }
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+  void flush() override {}
+  char* data() { return (char*)buf; }
+};
+
 // Pobierz spoty POTA z publicznego API i uzupeĹ‚nij bufor + kolejkÄ™ QRZ
 bool fetchPotaApi() {
   if (!wifiConnected) return false;
@@ -23066,14 +23113,28 @@ bool fetchPskReporterData() {
     return false;
   }
 
-  // Parsowanie strumieniowe z filtrem zamiast getString()+deserializeJson()
-  // - unika trzymania caĹ‚ej odpowiedzi w pamiÄ™ci DWA razy naraz (raz jako
-  // String, raz jako dokument JSON) i pomija w locie pola, ktĂłrych i tak
-  // nie uĹĽywamy, wiÄ™c dokument jest mniejszy i szybszy do przetworzenia.
-  // Samo opĂłĹşnienie sieciowe do serwera pskreporter.info (ktĂłry bywa wolny
-  // przy wiÄ™kszych oknach czasowych/limitach spotĂłw) tym niestety nie da
-  // siÄ™ skrĂłciÄ‡ - to poza naszÄ… kontrolÄ….
-  WiFiClient *stream = http.getStreamPtr();
+  // Odczyt ciala przez HTTPClient::writeToStream() zamiast surowego socketu:
+  // pskreporter.info odpowiada z "Transfer-Encoding: chunked", a getStreamPtr()
+  // zwraca SUROWY strumien z naglowkami chunkow ("456c\r\n..."), ktore psuly
+  // deserializacje (brak receptionReport -> pusta mapa, brak linii). writeToStream
+  // sklada chunki poprawnie, a PskHttpBodySink odklada gotowe cialo w PSRAM.
+  PskHttpBodySink body;
+  if (!body.begin(PSK_HTTP_BODY_CAP)) {
+    Serial.println("[PSK] Brak pamieci PSRAM na bufor odpowiedzi");
+    http.end();
+    return false;
+  }
+  int written = http.writeToStream(&body);
+  http.end();
+  if (written < 0) {
+    Serial.printf("[PSK] Blad odczytu ciala: %d\n", written);
+    body.reset();
+    return false;
+  }
+  if (body.overflow) {
+    Serial.printf("[PSK] Odpowiedz wieksza niz bufor (%u B) - obciecie\n",
+                  (unsigned)PSK_HTTP_BODY_CAP);
+  }
 
   DynamicJsonDocument filter(256);
   // Zachowaj pole message - PSKReporter wstawia tam powod odrzucenia zapytania.
@@ -23088,8 +23149,8 @@ bool fetchPskReporterData() {
   // uznaje nas za aktywnego klienta), odpowiedz bywa ~500 KB i filtrowany
   // dokument rosnie do ~340 KB - 24 KB w wewnetrznym RAM dawalo "NoMemory".
   BasicJsonDocument<PskPsramAllocator> doc(524288);
-  DeserializationError error = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
-  http.end();
+  DeserializationError error = deserializeJson(doc, (const char*)body.data(), body.len, DeserializationOption::Filter(filter));
+  body.reset();
 
   if (error) {
     Serial.print("[PSK] JSON parse error: ");
