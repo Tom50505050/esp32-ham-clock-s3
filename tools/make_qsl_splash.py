@@ -16,6 +16,21 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 W, H = 480, 320
 OUT = "data/splash.bmp"
 
+
+def firmware_version():
+    """Czyta FIRMWARE_VERSION z main.cpp, zeby ekran startowy byl zawsze zgodny."""
+    import re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(root, "main.cpp"), encoding="utf-8", errors="ignore") as f:
+            m = re.search(r'#define\s+FIRMWARE_VERSION\s+"([^"]+)"', f.read())
+            if m:
+                return m.group(1)
+    except OSError:
+        pass
+    return "1.2b"
+
+
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FONT_REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_SERIF_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
@@ -50,7 +65,9 @@ def airmail_border(im, x0, y0, x1, y1, band=7, stripe=10):
     im.paste(Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB"), (0, 0))
 
 
-def make_card(version="V1.2"):
+def make_card(version=None):
+    if version is None:
+        version = firmware_version()
     im = Image.new("RGB", (W, H), NAVY)
     d = ImageDraw.Draw(im)
 

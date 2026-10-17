@@ -10,6 +10,8 @@ set BAUD=921600
 echo.
 echo === Wgrywanie scalonego obrazu (firmware + fonty + LittleFS) na %PORT% ===
 echo.
+echo Plik: merged-flash.bin (offset 0x0). Wariant bez dotyku: merged-flash-notouch.bin
+echo.
 
 py -m esptool --chip esp32s3 --port %PORT% --baud %BAUD% write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB -z 0x0 merged-flash.bin
 if errorlevel 1 (
@@ -21,4 +23,5 @@ if errorlevel 1 (
 echo.
 echo Gotowe. Nacisnij RST, jesli plytka nie zrestartowala sie sama.
 echo Podglad: py -m serial.tools.miniterm %PORT% 115200
+echo Przez przegladarke: https://jason2866.github.io/WebSerial_ESPTool/ (merged-flash.bin, offset 0x0)
 endlocal

@@ -2,7 +2,7 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
-## GPS w nagłówku + ekran satelitów, nowe logi online (17.10.2026, v1.2c)
+## GPS w nagłówku + ekran satelitów, nowe logi online (17.10.2026, v1.2b)
 - **Ikona GPS** w nagłówku ekranu zegara (`drawGpsIconInHeader(bool classic)`,
   rysowana tylko gdy `gpsEnabled`) - oba style nagłówka (klasyczny i nowoczesny).
   Ikona jest po **lewej** stronie nagłówka, za godziną HH:MM. Stałe:
@@ -33,11 +33,18 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 - UI WWW (`data/index.html`, `data/indexEN.html`): nowe sekcje HRDLog/HamQTH/
   HAMLOG, opcje w `log_upload_service`, przycisk **Test połączenia**
   (`logbookTest()` -> `POST /api/log_test`), pola w load/save configu.
-- **Paczka ZIP**: `tools/make_zip.py` pakuje TYLKO `merged-flash.bin`
-  (scalony obraz 16 MB, offset `0x0`). Scalanie: `python -m esptool --chip
-  esp32s3 merge_bin -o dist/merged-flash.bin --flash_mode dio --flash_freq 80m
-  --flash_size 16MB 0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin
-  0x10000 firmware.bin 0x810000 littlefs.bin`.
+- **Paczka ZIP**: `tools/make_zip.py` pakuje TYLKO scalone obrazy
+  `merged-flash.bin` i `merged-flash-notouch.bin` (16 MB, offset `0x0`).
+  Scalanie: `python -m esptool --chip esp32s3 merge-bin -o dist/merged-flash.bin
+  --flash-mode dio --flash-freq 80m --flash-size 16MB 0x0 bootloader.bin
+  0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin
+  0x810000 littlefs.bin` (analogicznie `merged-flash-notouch.bin` z
+  `firmware-notouch.bin`).
+- **Dystrybucja tylko scalona**: w wydaniach GitHub i w dokumentacji
+  udostepniamy WYLACZNIE `merged-flash.bin` i `merged-flash-notouch.bin`.
+  Wgrywanie przez przegladarke: https://jason2866.github.io/WebSerial_ESPTool/
+  (plik + offset `0x0`). Osobne `firmware.bin`, `littlefs.bin`, `bootloader.bin`,
+  `boot_app0.bin`, `partitions.bin` usuniete ze wszystkich wydan i z dokumentow.
 - **Opisy na GitHub**: repo + wszystkie release'y - fraza wyświetlacza zmieniona
   na `ILI9488 na 3.5" i 4" 480×320`. UWAGA: token integracji nie ma uprawnień
   `administration=write`, więc **opis repo** trzeba zmienić ręcznie (release'y
@@ -66,7 +73,7 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 - Podglad 1:1: `tools/render_station_preview.py` (Pillow) -> pliki
   `stacja-1-start.png` ... `stacja-7-nieznaleziony.png` + `stacja-podglad.png`.
 
-## Ekran ESP32 HAM LOGGER (16. ekran) — dziennik ADIF (17.10.2026, v1.2c)
+## Ekran ESP32 HAM LOGGER (16. ekran) — dziennik ADIF (17.10.2026, v1.2b)
 - Nowy ekran `SCREEN_HAM_LOGGER = 16` (`logger`): formularz QSO + tabela
   ostatnich lacznosci + 4 przyciski dotykowe. Funkcje: `drawLoggerScreen()`,
   `drawLoggerForm()`, `drawLoggerKeyboard()`, `handleLoggerTouch()`,
@@ -445,13 +452,17 @@ Wniosek dla użytkownika: jeśli po tych poprawkach w logu nadal pojawia się
 `Powód restartu: BROWNOUT`, problem jest sprzętowy — zasilanie (kabel USB, ładowarka,
 kondensator przy 3V3). Firmware nie da się wtedy naprawić samym kodem.
 
-## Artefakty (v1.4.3)
+## Artefakty (v1.2b)
 - `pio run -e esp32-s3-n16r8` i `-e esp32-s3-n16r8-notouch` — OK.
 - `pio run -e esp32-s3-n16r8 -t buildfs` → `littlefs.bin`.
-- Scalanie: `esptool.py --chip esp32s3 merge_bin -o merged-flash.bin --flash_mode dio
-  --flash_freq 80m --flash_size 16MB 0x0 bootloader.bin 0x8000 partitions.bin
-  0xe000 boot_app0.bin 0x10000 firmware.bin 0x810000 littlefs.bin`.
-- ZIP: `python3 tools/make_zip.py` → `esp32-ham-clock-s3.zip` (576 wpisów, ~7.4 MB).
+- Scalanie (esptool 5.x używa `merge-bin`): `python -m esptool --chip esp32s3
+  merge-bin -o merged-flash.bin --flash-mode dio --flash-freq 80m --flash-size
+  16MB 0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000
+  firmware.bin 0x810000 littlefs.bin` (wariant `-notouch` z `firmware-notouch.bin`).
+- ZIP: `python3 tools/make_zip.py` → `esp32-ham-clock-s3.zip` (oba scalone obrazy).
+- Wydania GitHub udostępniają TYLKO `merged-flash.bin` i
+  `merged-flash-notouch.bin` + ZIP; wgrywanie przez WebSerial
+  (https://jason2866.github.io/WebSerial_ESPTool/, offset `0x0`).
 
 ## Analiza logu COM9 (2026-10-11 23:25) — ESP32 jest SPRAWNY
 Log użytkownika (v1.4.1) potwierdza, że sprzęt działa, brak restartów:

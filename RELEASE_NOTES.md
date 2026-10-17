@@ -1,74 +1,40 @@
 # ESP32-HAM-CLOCK — informacje o wydaniach
 
-Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b** i **v1.2c** dla
-platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM) z wyświetlaczem
+Dokument obejmuje wydania **v1.2**, **v1.2a** i **v1.2b** dla platformy
+**ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM) z wyświetlaczem
 **ILI9488 na 3.5" i 4" 480×320** po SPI i panelem dotykowym XPT2046.
 
----
-
-# ESP32-HAM-CLOCK v1.2c — ekran ESP32 HAM LOGGER (dziennik ADIF)
-
-Wydanie **v1.2c** (17.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 na 3.5" i 4" 480×320**
-+ XPT2046. Zakres: **nowy ekran ESP32 HAM LOGGER (16. ekran)** — dziennik
-łączności w formacie **ADIF**, integracja z UI WWW oraz narzędzie podglądu.
-Pozostałe ekrany i zależności bez zmian.
-
-## Zmiany od v1.2b
-
-### Nowy ekran ESP32 HAM LOGGER (16. ekran)
-- **Formularz QSO** — `drawLoggerForm()`: **CALLSIGN** (żółta ramka),
-  **RST (S) / RST (R)**, **BAND / FREQ / MODE**, **NAME / QTH**,
-  **DATE/TIME** (UTC z NTP).
-- **Klawiatura ekranowa** — `drawLoggerKeyboard()`, `loggerHandleKeyboardKey()`;
-  wspólna dla wszystkich pól; po zamknięciu CALLSIGN **autouzupełnia NAME/QTH**
-  (`loggerLookupCallsign()` — QRZ.com → HamDB → callook.info).
-- **BAND / MODE** — dotknięcie cyklicznie zmienia wartość; zmiana pasma podstawia
-  domyślną częstotliwość (`loggerBandFreq[]`).
-- **Tabela „Ostatnie łączności"** — 3 najnowsze wpisy (CALL/FREQ/MODE/UTC).
-- **4 przyciski dotykowe** — SAVE QSO / CLEAR / EXPORT ADIF / SETTINGS
-  (`handleLoggerTouch()`).
-- **Styl klasyczny i nowoczesny** — respektuje `uiStyleClassic()`.
-
-### Log w PSRAM + bezpieczny zapis
-- Rekordy w **PSRAM** (`LogQso`, `loggerEnsureBuffer()`), zapis dopiero na SAVE.
-- **Plik tymczasowy + rename** (`/qso.adi.tmp` → `/qso.adi`) — odporność na
-  utratę zasilania (`loggerSaveAll()`).
-- **ADIF bajtowo poprawny** (`loggerAdifField()` liczy długość w bajtach UTF-8).
-
-### UI WWW
-- Nowa pozycja **LOGGER** (`logger`) — lista stron z 15 do **16**
-  (`screen_slot_16`) w `data/index.html` i `data/indexEN.html`.
-- **`GET /qso.adi`** — pobranie pliku ADIF.
-- **`POST /api/qrz_upload`** — wysyłka do QRZ Logbook (gotowe na przyszłość,
-  wymaga klucza API) + pole **QRZ.com API Key (Logbook)** w ustawieniach.
-
-### Narzędzia (`tools/`)
-- `tools/render_logger_preview.py` — podgląd ekranu LOGGER 1:1 (Pillow).
-
-### Wersja
-- `FIRMWARE_VERSION`: `1.2b` → **`1.2c`**.
-
-### Kompatybilność
-- Bez zmian zależności i układu partycji. Zmienione pliki firmware i ZIP.
-
-## Pliki
-
-| Plik | Opis | Offset |
-|---|---|---|
-| `merged-flash.bin` | cały obraz 16 MB (bootloader + partycje + firmware + LittleFS) | `0x0` |
-| `merged-flash-notouch.bin` | to samo, wariant bez obsługi dotyku | `0x0` |
-| `firmware.bin` | firmware | `0x10000` |
-| `littlefs.bin` | dane / UI WWW | `0x810000` |
+> **Wgrywanie przez przeglądarkę (WebSerial):**
+> https://jason2866.github.io/WebSerial_ESPTool/ — wybierz **`merged-flash.bin`**
+> (płytka z dotykiem) albo **`merged-flash-notouch.bin`** (bez dotyku), offset `0x0`.
+> W wydaniach dostępne są **tylko te dwa pliki** — osobne obrazy `firmware.bin`,
+> `littlefs.bin`, `bootloader.bin`, `boot_app0.bin` i `partitions.bin` zostały
+> usunięte ze wszystkich wydań.
 
 ---
 
-# ESP32-HAM-CLOCK v1.2b — nowy ekran STACJA
+# ESP32-HAM-CLOCK v1.2b — ekrany STACJA i ESP32 HAM LOGGER
 
-Wydanie **v1.2b** (16.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 na 3.5" i 4" 480×320**
-+ XPT2046. Zakres: **nowy ekran STACJA (15. ekran)**, integracja z UI WWW oraz
-narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
+Wydanie **v1.2b** (17.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 na 3.5" i 4" 480×320**
++ XPT2046. Zakres: **nowy ekran STACJA (15. ekran)**, **nowy ekran ESP32 HAM LOGGER
+(16. ekran)**, poprawki nagłówka (ikona GPS po lewej, ikona baterii na wszystkich
+ekranach), integracja z UI WWW oraz narzędzia podglądu. Pozostałe ekrany
+i zależności bez zmian.
 
 ## Zmiany od v1.2a
+
+### Nagłówek — ikona GPS i ikona baterii
+- **Ikona GPS po lewej stronie nagłówka** — `GPS_ICON_X` przeniesione z `372` na
+  **`88`** (obszar dotyku `gpsIconHitX` z `364` na `82`). Ikona leży zaraz za
+  godziną HH:MM, przed logo; dotknięcie nadal otwiera ekran satelitów.
+- **Wspólny `drawHeaderTime(fg, bg)`** dla obu stylów nagłówka zegara
+  (klasyczny i nowoczesny) — mniej duplikacji kodu.
+- **Ikona baterii na wszystkich ekranach** — wspólny nagłówek `uiHeader()`
+  (używany przez wszystkie ekrany poza zegarem) rysuje teraz ikonę baterii.
+  `drawBatteryQuickUpdate()` przepisany: rysuje ikonę w tej samej geometrii co
+  `drawBatteryIcon` i z właściwym tłem nagłówka (klasyczny / nowoczesny / splash),
+  więc obudowa i poziom naładowania są spójne na każdym ekranie. `loop()` woła
+  `drawBatteryQuickUpdate(true)`, więc poziom odświeża się także poza ekranem zegara.
 
 ### Nowy ekran STACJA (15. ekran)
 - **Wyszukiwanie znaku** — dane pobierane kolejno ze źródeł
@@ -91,14 +57,40 @@ narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
 - **Styl klasyczny i nowoczesny** — ekran respektuje `uiStyleClassic()`; układ
   i dane wspólne dla obu stylów.
 
+### Nowy ekran ESP32 HAM LOGGER (16. ekran)
+- **Formularz QSO** — `drawLoggerForm()`: **CALLSIGN** (żółta ramka),
+  **RST (S) / RST (R)**, **BAND / FREQ / MODE**, **NAME / QTH**,
+  **DATE/TIME** (UTC z NTP).
+- **Klawiatura ekranowa** — `drawLoggerKeyboard()`, `loggerHandleKeyboardKey()`;
+  wspólna dla wszystkich pól; po zamknięciu CALLSIGN **autouzupełnia NAME/QTH**
+  (`loggerLookupCallsign()` — QRZ.com → HamDB → callook.info).
+- **BAND / MODE** — dotknięcie cyklicznie zmienia wartość; zmiana pasma podstawia
+  domyślną częstotliwość (`loggerBandFreq[]`).
+- **Tabela „Ostatnie łączności"** — 3 najnowsze wpisy (CALL/FREQ/MODE/UTC).
+- **4 przyciski dotykowe** — SAVE QSO / CLEAR / EXPORT ADIF / SETTINGS
+  (`handleLoggerTouch()`).
+- **Styl klasyczny i nowoczesny** — respektuje `uiStyleClassic()`.
+- **Log w PSRAM + bezpieczny zapis** — rekordy w **PSRAM** (`LogQso`,
+  `loggerEnsureBuffer()`), zapis dopiero na SAVE; **plik tymczasowy + rename**
+  (`/qso.adi.tmp` → `/qso.adi`) dla odporności na utratę zasilania
+  (`loggerSaveAll()`); **ADIF bajtowo poprawny** (`loggerAdifField()` liczy
+  długość w bajtach UTF-8).
+
 ### UI WWW
-- Nowa pozycja **STACJA** (`station`) na liście ekranów w `data/index.html`
-  i `data/indexEN.html`; liczba stron zwiększona z 14 do **15**.
+- Nowa pozycja **STACJA** (`station`) oraz **LOGGER** (`logger`) na liście
+  ekranów w `data/index.html` i `data/indexEN.html`; liczba stron zwiększona
+  z 14 do **16**.
+- **`GET /qso.adi`** — pobranie pliku ADIF.
+- **`POST /api/qrz_upload`** — wysyłka do QRZ Logbook (gotowe na przyszłość,
+  wymaga klucza API) + pole **QRZ.com API Key (Logbook)** w ustawieniach.
 
 ### Narzędzia (`tools/`)
 - `tools/render_station_preview.py` — podgląd ekranu STACJA 1:1 (Pillow):
   start, klawiatura, pobieranie, wynik, wariant klasyczny, brak wyniku.
+- `tools/render_logger_preview.py` — podgląd ekranu LOGGER 1:1 (Pillow).
 - `tools/render_pskmap_preview.py` — podgląd ekranu PSK MAP.
+- `tools/render_header_preview.py` — podgląd nagłówków (klasyczny, nowoczesny,
+  wspólny) 1:1.
 
 ### Wersja
 - `FIRMWARE_VERSION`: `1.2a` → **`1.2b`**.
@@ -112,9 +104,20 @@ narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
 |---|---|---|
 | `merged-flash.bin` | cały obraz 16 MB (bootloader + partycje + firmware + LittleFS) | `0x0` |
 | `merged-flash-notouch.bin` | to samo, wariant bez obsługi dotyku | `0x0` |
-| `firmware.bin` | firmware | `0x10000` |
-| `littlefs.bin` | dane / UI WWW | `0x810000` |
 | `esp32-ham-clock-s3.zip` | paczka projektu (źródła + `data/` + pliki `.bin`) | — |
+
+## Wgrywanie
+
+Przez przeglądarkę: **https://jason2866.github.io/WebSerial_ESPTool/** — wybierz
+`merged-flash.bin` (albo `merged-flash-notouch.bin`) i offset `0x0`.
+
+```bash
+esptool.py -p COM9 write_flash 0x0 merged-flash.bin
+```
+
+Tag **v1.2b** jest podpisany kluczem GPG wydania.
+
+Autor: **Tomasz SP9TNV**. Projekt bazowy: **Konrad SP3KON**. Licencja: **MIT**.
 
 ---
 
@@ -216,19 +219,15 @@ oraz narzędzia projektu. Pozostałe ekrany i zależności bez zmian.
 |---|---|---|
 | `merged-flash.bin` | cały obraz 16 MB (bootloader + partycje + firmware + LittleFS) | `0x0` |
 | `merged-flash-notouch.bin` | to samo, wariant bez obsługi dotyku | `0x0` |
-| `firmware.bin` | firmware | `0x10000` |
-| `littlefs.bin` | dane / UI WWW | `0x810000` |
 | `esp32-ham-clock-s3.zip` | paczka projektu (źródła + `data/` + pliki `.bin`) | — |
 
 ## Wgrywanie
 
-```bash
-# całość naraz
-esptool.py -p COM9 write_flash 0x0 merged-flash.bin
+Przez przeglądarkę: **https://jason2866.github.io/WebSerial_ESPTool/** — wybierz
+`merged-flash.bin` (albo `merged-flash-notouch.bin`) i offset `0x0`.
 
-# albo osobno
-esptool.py -p COM9 write_flash 0x10000 firmware.bin
-esptool.py -p COM9 write_flash 0x810000 littlefs.bin
+```bash
+esptool.py -p COM9 write_flash 0x0 merged-flash.bin
 ```
 
 Autor: **Tomasz SP9TNV**. Projekt bazowy: **Konrad SP3KON**. Licencja: **MIT**.

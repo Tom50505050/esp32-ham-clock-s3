@@ -1,7 +1,7 @@
-# ESP32-HAM-CLOCK na ESP32-S3 N16R8 + ILI9488 3.5" IPS
+# ESP32-HAM-CLOCK na ESP32-S3 N16R8 + ILI9488 na 3.5" i 4" 480×320
 
 Instrukcja uruchomienia firmware na **ESP32-S3-WROOM-1 N16R8** (16 MB flash, 8 MB PSRAM)
-z zewnętrznym wyświetlaczem **ILI9488 3.5" 480x320 IPS** po SPI i dotykiem **XPT2046**.
+z zewnętrznym wyświetlaczem **ILI9488 na 3.5" i 4" 480×320** po SPI i dotykiem **XPT2046**.
 
 ## 1. Tabela połączeń
 
@@ -9,7 +9,7 @@ z zewnętrznym wyświetlaczem **ILI9488 3.5" 480x320 IPS** po SPI i dotykiem **X
 |---|---|---|
 | SPI SCK | 12 | SCK / SCL |
 | SPI MOSI (SDI) | 11 | SDI / MOSI |
-| SPI MISO (SDO) | 13 | SDO / MISO (opcjonalnie) |
+| SPI MISO (SDO) | **14** | SDO / MISO — wspólne z T_DO (tylko dotyk) |
 | TFT CS | 10 | CS |
 | TFT DC (RS) | 9 | DC / RS |
 | TFT RST | -1 (niepodłączony) | RESET → do 3.3V przez 10k, albo zostaw |
@@ -17,7 +17,7 @@ z zewnętrznym wyświetlaczem **ILI9488 3.5" 480x320 IPS** po SPI i dotykiem **X
 | Dotyk CS | 15 | T_CS |
 | Dotyk IRQ | 16 | T_IRQ (opcjonalnie) |
 | Dotyk DIN | 11 | T_DIN (wspólne z MOSI) |
-| Dotyk DO | 13 | T_DO (wspólne z MISO) |
+| Dotyk DO | **14** | T_DO (wspólne z MISO) |
 | Dotyk CLK | 12 | T_CLK (wspólne ze SCK) |
 | RGB LED R/G/B | 4 / 5 / 6 | statusowy LED (opcjonalnie) |
 | Bateria ADC | 1 | dzielnik 100k/100k |
@@ -235,46 +235,38 @@ przy ręcznym wgrywaniu `.bin` używaj tego offsetu, nie `0x290000` z instrukcji
 
 ## 7. Gotowe obrazy (katalog `dist/`)
 
-Po `pio run` obrazy są w `dist/` (kopie z `.pio/build/esp32-s3-n16r8/`):
+Po `pio run` obrazy są w `dist/`. Do wgrania służą **dwa scalone pliki**:
 
-| Plik | Offset |
-|---|---|
-| `bootloader.bin` | `0x0` |
-| `partitions.bin` | `0x8000` |
-| `boot_app0.bin` | `0xe000` |
-| `firmware.bin` | `0x10000` |
-| `littlefs.bin` | `0x810000` |
+| Plik | Kiedy | Offset |
+|---|---|---|
+| `merged-flash.bin` | płytka **z** panelem dotykowym XPT2046 | `0x0` |
+| `merged-flash-notouch.bin` | płytka **bez** dotyku (XPT2046 odłączony) | `0x0` |
 
-`boot_app0.bin` pochodzi z frameworka (`~/.platformio/packages/framework-arduinoespressif32/tools/partitions/`)
-i inicjalizuje obszar OTA. Skrypt `dist/flash.sh` wgrywa wszystko jedną komendą:
+### Wgrywanie przez przeglądarkę (WebSerial) — zalecane
 
-```bash
-cd dist
-PORT=/dev/ttyACM0 ./flash.sh      # Linux/Mac (na Windows: PORT=COM7)
-```
+**https://jason2866.github.io/WebSerial_ESPTool/** — otwórz w Chrome/Edge,
+podłącz płytkę, **Connect**, wybierz plik (`merged-flash.bin` albo
+`merged-flash-notouch.bin`), offset `0x0`, **Program**.
 
-Ręcznie tym samym esptool:
+> Obraz zawiera bootloader, partycje, boot_app0, firmware i LittleFS — nic więcej
+> nie trzeba wgrywać. W wydaniach dostępne są **tylko** te dwa pliki (osobne
+> `firmware.bin`, `littlefs.bin`, `bootloader.bin`, `boot_app0.bin`
+> i `partitions.bin` zostały usunięte).
 
-```bash
-esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 write_flash -z \
-  0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin \
-  0x10000 firmware.bin 0x810000 littlefs.bin
-```
-
-> Firmware zajmuje ~1.42 MB, więc mieści się w 4 MB partycji `app0`.
-
-### Jeden plik: `merged-flash.bin`
-
-`dist/merged-flash.bin` to wszystkie obrazy scalone w jeden (16 MB, flash QIO/80 MHz).
-Wgrywa się go **pod adres `0x0`** — najprościej, zwłaszcza przez przeglądarkę:
+### esptool (linia poleceń)
 
 ```bash
 esptool.py --chip esp32s3 --port COM9 --baud 921600 write_flash 0x0 merged-flash.bin
 ```
 
-WebSerial (https://jason2866.github.io/WebSerial_ESPTool/): wybierz plik
-`merged-flash.bin`, adres `0x0`, Offset `0x0`. Obraz zawiera bootloader, partycje,
-boot_app0, firmware i LittleFS (z `data/`).
+### Scalanie `merged-flash.bin` (po własnym buildzie)
+
+```bash
+python -m esptool --chip esp32s3 merge-bin -o merged-flash.bin \
+  --flash-mode dio --flash-freq 80m --flash-size 16MB \
+  0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin \
+  0x10000 firmware.bin 0x810000 littlefs.bin
+```
 
 > **Tryb flash = DIO.** Wszystkie obrazy są zbudowane w trybie `dio`
 > (`board_build.flash_mode = dio`). Nie zmieniaj na `qio` przy scalaniu ani

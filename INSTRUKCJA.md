@@ -155,32 +155,34 @@ Objawy i naprawa: patrz §9 (Rozwiązywanie problemów).
 
 ---
 
-## 6. Wgrywanie na COM9 (obrazy z `dist/`)
+## 6. Wgrywanie firmware (przez przeglądarkę — WebSerial)
 
-`dist/` zawiera gotowe obrazy (kopie z `.pio/build/esp32-s3-n16r8/`):
+Firmware wgrywasz **jednym plikiem** przez przeglądarkę:
 
-| Plik | Offset |
-|---|---|
-| `bootloader.bin` | `0x0` |
-| `partitions.bin` | `0x8000` |
-| `boot_app0.bin` | `0xe000` |
-| `firmware.bin` | `0x10000` |
-| `littlefs.bin` | `0x810000` |
-| `merged-flash.bin` | `0x0` (wszystko scalone, 0xFF0000 B) |
-| `merged-flash-notouch.bin` | `0x0` (wariant bez dotyku) |
+**https://jason2866.github.io/WebSerial_ESPTool/**
 
-**Najprościej — jeden plik:**
+1. Otwórz powyższy link w **Chrome / Edge** (WebSerial działa tylko w przeglądarkach
+   opartych na Chromium).
+2. Podłącz płytkę kablem USB (port COM, np. `COM9`).
+3. Kliknij **Connect** i wybierz port szeregowy płytki.
+4. Wybierz plik i **offset `0x0`**:
+
+| Plik | Kiedy | Offset |
+|---|---|---|
+| `merged-flash.bin` | płytka **z** panelem dotykowym XPT2046 | `0x0` |
+| `merged-flash-notouch.bin` | płytka **bez** dotyku (XPT2046 odłączony) | `0x0` |
+
+5. Kliknij **Program**. Obraz zawiera bootloader, partycje, boot_app0, firmware
+   i LittleFS — nic więcej nie trzeba wgrywać.
+
+> **Tylko `merged-flash.bin` lub `merged-flash-notouch.bin`.** W wydaniach na GitHubie
+> dostępne są wyłącznie te dwa pliki (wcześniejsze osobne obrazy `firmware.bin`,
+> `littlefs.bin`, `bootloader.bin`, `boot_app0.bin`, `partitions.bin` zostały usunięte
+> ze wszystkich wydań).
+
+### Alternatywa: esptool (linia poleceń)
 ```bash
 esptool.py --chip esp32s3 --port COM9 --baud 921600 write_flash 0x0 merged-flash.bin
-```
-WebSerial (https://jason2866.github.io/WebSerial_ESPTool/): wybierz `merged-flash.bin`,
-offset `0x0`. Obraz zawiera bootloader, partycje, boot_app0, firmware i LittleFS.
-
-Ręcznie (osobne obrazy, Flash Download Tool / esptool):
-```bash
-esptool.py --chip esp32s3 --port COM9 --baud 921600 write_flash -z \
-  0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin \
-  0x10000 firmware.bin 0x810000 littlefs.bin
 ```
 
 > **Tryb flash = DIO.** Wszystkie obrazy są scalane w trybie `dio`. Nie zmieniaj na QIO

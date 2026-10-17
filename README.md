@@ -82,15 +82,20 @@ Patrz sekcja 3 w **`README_S3.md`** (płytka „ESP32S3 Dev Module", PSRAM OPI, 
 
 ### Gotowe obrazy
 W `dist/` oraz `download/` znajdują się zbudowane artefakty:
-- `firmware.bin` / `firmware-notouch.bin` — firmware (offset `0x10000`),
-- `littlefs.bin` — dane (offset `0x810000`),
 - `merged-flash.bin` / `merged-flash-notouch.bin` — cały obraz 16 MB (offset `0x0`),
 - `esp32-ham-clock-s3.zip` — paczka projektu (źródła + `data/` + pliki `.bin`).
 
-Wgrywanie całości:
+Wgrywanie przez przeglądarkę (WebSerial):
+**https://jason2866.github.io/WebSerial_ESPTool/** — wybierz `merged-flash.bin`
+(płytka z dotykiem) albo `merged-flash-notouch.bin` (bez dotyku), offset `0x0`.
+
 ```bash
 esptool.py -p COM9 write_flash 0x0 merged-flash.bin
 ```
+
+> W wydaniach dostępne są **tylko** `merged-flash.bin` i `merged-flash-notouch.bin`
+> (osobne `firmware.bin`, `littlefs.bin`, `bootloader.bin`, `boot_app0.bin`
+> i `partitions.bin` zostały usunięte).
 
 ---
 
@@ -101,19 +106,45 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
-| **v1.2c** | 17.10.2026 | Nowy ekran **ESP32 HAM LOGGER** (16. ekran): dziennik łączności w formacie **ADIF** · formularz QSO (CALLSIGN w żółtej ramce, RST S/R, BAND/FREQ/MODE, NAME/QTH, DATE/TIME UTC z NTP) · **tabela ostatnich łączności** · **4 przyciski dotykowe** SAVE QSO / CLEAR / EXPORT ADIF / SETTINGS · log trzymany w **PSRAM** i zapisywany na SAVE **plik tymczasowy + rename** · autouzupełnianie NAME/QTH z **QRZ.com → HamDB → callook** · eksport przez WWW **`/qso.adi`** · gotowy endpoint **`/api/qrz_upload`** + pole **klucza API QRZ Logbook** · podgląd 1:1 `tools/render_logger_preview.py` |
-| **v1.2b** | 16.10.2026 | Nowy ekran **STACJA** (15. ekran): wyszukiwanie znaku w **QRZ.com → HamDB → callook.info** · dwa transceivery (lewy czerwony = Twój znak, prawy zielony = szukany), **czarny napis znaku na kolorowym wyświetlaczu radia** · karta wyniku (Imię/QTH/Grid/Kraj) · **dystans + kierunek geograficzny** (skróty N/NE/E/SE/S/SW/W/NW) · linie fal kolorowane wg odległości · źródło danych i godzina pobrania · klawiatura ekranowa · narzędzie podglądu 1:1 `tools/render_station_preview.py` |
+| **v1.2b** | 17.10.2026 | **Nagłówek**: ikona **GPS po lewej** stronie (za godziną) · ikona **baterii na wszystkich ekranach** · wspólny `drawHeaderTime()` · Nowe ekrany: **STACJA** (15.) i **ESP32 HAM LOGGER** (16., dziennik ADIF: formularz QSO, klawiatura, tabela ostatnich łączności, SAVE QSO/CLEAR/EXPORT ADIF/SETTINGS, log w **PSRAM** + zapis **plik tymczasowy + rename**, autouzupełnianie NAME/QTH z **QRZ.com → HamDB → callook**, eksport **`/qso.adi`**, endpoint **`/api/qrz_upload`**) · STACJA: wyszukiwanie znaku w **QRZ.com → HamDB → callook.info**, dwa transceivery, dystans + kierunek geograficzny · podglądy 1:1 `tools/render_station_preview.py`, `render_logger_preview.py` |
 | **v1.2a** | 16.10.2026 | Poprawki ekranu **PSK MAP**: **kumulacja spotów** (dedup znak+pasmo+tryb, limit 200) · **auto-RESET** po 200 spotach · **panel informacyjny po prawej** (licznik + lista najnowszych, zwężona ramka) · **odświeżanie tylko spotów** (bez przerysowywania nagłówka, paska, ikony baterii i napisów) · **MQTT domyślnie włączone** (start bez HTTP) · eksport rozmów do Markdown |
 | **v1.2** | 15.10.2026 | Nowy ekran **APRS RADAR** i **Informacje systemowe** (zamiast Unlis Hunter) · **ISS Pass Tracking** przebudowany (n2yo visualpasses, mapa+radar+metryki, flagi kraju) · **GPS** (NMEA UART2 + automatyczny lokator Maidenhead) · **kolory w TFT**: kolor znaku (menu HSV + picker WWW) i **kolor zegara** · **globalny przełącznik stylu** KLASYCZNY/nowoczesny · **wspólny styl „ISS TRACKER"** na wszystkich ekranach · nowy **ekran startowy** (karta QSL → emblemat ESP32-HAM-CLOCK + VERSION 1.2) i **ekran powitalny** (godło PZK, czcionka VLW) · **WWW**: upload grafiki JPG/PNG/BMP, 14 pozycji, ikony SVG, naprawa „Instrukcja" · **WiFi**: przypinanie do BSSID AP, drabinka mocy TX (AUTH_EXPIRE) |
 | **v1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
 
 ---
 
-## Zmiany między v1.2b a v1.2c
+## Zmiany między v1.2a a v1.2b
 
-Wydanie **v1.2c** (17.10.2026) dodaje **nowy ekran ESP32 HAM LOGGER** (16. ekran)
-— dziennik łączności zapisywany w formacie **ADIF**. Pozostałe ekrany i
-zależności bez zmian.
+Wydanie **v1.2b** (17.10.2026) łączy dwa zakresy: poprawki **nagłówka**
+(ikona GPS po lewej, ikona baterii na wszystkich ekranach) oraz **nowe ekrany
+STACJA (15.) i ESP32 HAM LOGGER (16.)**. Pozostałe ekrany i zależności bez zmian.
+
+### Nagłówek — ikona GPS i ikona baterii
+- **Ikona GPS po lewej stronie nagłówka** — `GPS_ICON_X` przeniesione z `372` na
+  **`88`** (obszar dotyku `gpsIconHitX` z `364` na `82`). Ikona leży zaraz za
+  godziną HH:MM, przed logo; dotknięcie nadal otwiera ekran satelitów.
+- **Wspólny `drawHeaderTime(fg, bg)`** dla obu stylów nagłówka zegara.
+- **Ikona baterii na wszystkich ekranach** — wspólny `uiHeader()` rysuje teraz
+  ikonę baterii; `drawBatteryQuickUpdate()` rysuje ją w tej samej geometrii co
+  `drawBatteryIcon` i z właściwym tłem nagłówka. `loop()` woła
+  `drawBatteryQuickUpdate(true)`, więc poziom odświeża się też poza zegarem.
+
+### Nowy ekran STACJA (15. ekran)
+- **Wyszukiwanie znaku** — dane pobierane kolejno ze źródeł
+  **QRZ.com → HamDB → callook.info** (pierwsze trafienie wygrywa; nazwa źródła
+  pokazywana jest na ekranie).
+- **Dwa transceivery** — lewy **czerwony** = Twój znak (operator), prawy
+  **zielony** = szukany znak. Napis znaku jest **czarny na tle w kolorze radia**,
+  a korpusy radia zachowują swoje kolory.
+- **Karta wyniku** — pola **Imię / QTH / Grid / Kraj** oraz linia
+  **dystans + kierunek geograficzny** (np. `42 km  NE`), a pod nimi **źródło
+  danych i godzina pobrania** (HH:MM, czas lokalny).
+- **Kierunek geograficzny skrótami** — `N, NE, E, SE, S, SW, W, NW` (8 azymutów,
+  po 45°), liczony z lokatora/QTH względem Twojej pozycji.
+- **Linie fal** między antenami, kolorowane wg odległości (`propPolarityColor()`).
+- **Stany ekranu**: start, klawiatura ekranowa, pobieranie, wynik oraz
+  „Nie znaleziono".
+- **Styl klasyczny i nowoczesny** — respektuje `uiStyleClassic()`.
 
 ### Nowy ekran ESP32 HAM LOGGER (16. ekran)
 - **Formularz bieżącego QSO** — pola: **CALLSIGN** (w wyróżnionej żółtej ramce),
@@ -127,32 +158,24 @@ zależności bez zmian.
 - **Tabela „Ostatnie łączności"** — 3 najnowsze wpisy (CALL / FREQ / MODE / UTC).
 - **Dolny panel przycisków dotykowych**: **SAVE QSO**, **CLEAR**,
   **EXPORT ADIF**, **SETTINGS** (SETTINGS otwiera wspólne menu jasności/tematu).
-
-### Log w PSRAM + bezpieczny zapis
-- Rekordy QSO trzymane są w **PSRAM** (8 MB), nie w NVS — brak zużycia flash
-  przy każdym dotknięciu.
-- Zapis następuje dopiero na **SAVE QSO**, przez **plik tymczasowy + rename**
-  (`/qso.adi.tmp` → `/qso.adi`), więc **utrata zasilania nie uszkadza bazy**.
-- **ADIF** budowany poprawnie bajtowo (długości pól liczone w **bajtach UTF-8**,
-  nie w znakach — np. `Knurów` = 8 bajtów), z nagłówkiem `ADIF_VER`, `PROGRAMID`
-  i `PROGRAMVERSION`.
+- **Log w PSRAM + bezpieczny zapis** — rekordy w **PSRAM** (8 MB), zapis dopiero
+  na SAVE QSO przez **plik tymczasowy + rename** (`/qso.adi.tmp` → `/qso.adi`),
+  więc **utrata zasilania nie uszkadza bazy**; **ADIF** budowany bajtowo poprawnie
+  (długości pól liczone w **bajtach UTF-8**, np. `Knurów` = 8 bajtów).
 
 ### Integracja z UI WWW
-- Nowa pozycja **LOGGER** na liście ekranów (`data/index.html`, `data/indexEN.html`)
-  — kod `logger`, lista stron rozszerzona z 15 do **16** (nowy slot `screen_slot_16`).
-- **Eksport ADIF**: endpoint **`GET /qso.adi`** (pobranie pliku) + link i przycisk
-  w sekcji „ESP32 HAM LOGGER".
+- Nowe pozycje **STACJA** (`station`) i **LOGGER** (`logger`) na liście ekranów
+  (`data/index.html`, `data/indexEN.html`) — lista stron z 14 do **16**.
+- **Eksport ADIF**: endpoint **`GET /qso.adi`** (pobranie pliku).
 - **Wysyłka do QRZ Logbook**: endpoint **`POST /api/qrz_upload`** oraz pole
-  **QRZ.com API Key (Logbook)** w ustawieniach WWW. Funkcja jest **gotowa na
-  przyszłość** — wymaga klucza API; bez niego zwraca czytelny komunikat błędu.
-  (Klucz API QRZ nie służy do wyszukiwania znaków — to robi login+hasło XML API.)
+  **QRZ.com API Key (Logbook)** w ustawieniach WWW (gotowe na przyszłość).
 
 ### Narzędzia (`tools/`)
-- `tools/render_logger_preview.py` — podgląd ekranu LOGGER 1:1 (Pillow): nowy,
-  wypełniony, klawiatura, wariant klasyczny.
+- `tools/render_station_preview.py`, `tools/render_logger_preview.py`,
+  `tools/render_pskmap_preview.py`, `tools/render_header_preview.py` — podglądy 1:1.
 
 ### Wersja
-- `FIRMWARE_VERSION`: `1.2b` → **`1.2c`**.
+- `FIRMWARE_VERSION`: `1.2a` → **`1.2b`**.
 
 ### Kompatybilność
 - Bez zmian zależności (TFT_eSPI, ArduinoJson, PubSubClient, …) i układu partycji.
@@ -310,13 +333,13 @@ Poniżej pełne zestawienie zmian wprowadzonych od wydania **v1** do **v1.2**
 
 ### Wgrywanie z wydania
 
+Przez przeglądarkę (WebSerial): **https://jason2866.github.io/WebSerial_ESPTool/** —
+wybierz `merged-flash.bin` (płytka z dotykiem) albo `merged-flash-notouch.bin`
+(bez dotyku), offset `0x0`.
+
 ```bash
 # cały obraz (firmware + LittleFS) - offset 0x0
 esptool.py -p COM9 write_flash 0x0 merged-flash.bin
-
-# albo osobno
-esptool.py -p COM9 write_flash 0x10000 firmware.bin   # firmware
-esptool.py -p COM9 write_flash 0x810000 littlefs.bin  # dane WWW
 ```
 
 W plikach `flash.bat` / `flash.sh` znajdują się gotowe skrypty wgrywania.

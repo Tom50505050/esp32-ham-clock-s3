@@ -12,3 +12,7 @@ download/esp32-ham-clock-repo.bundle
 # Zapis rozmow (eksport dziennika zdarzen) - trzymamy tylko wersje skrocona
 conversations/*.md
 !conversations/*-dialog.md
+
+# Python
+__pycache__/
+*.pyc
