@@ -18,8 +18,8 @@ Dokument obejmuje wydania **v1.2**, **v1.2a** i **v1.2b** dla platformy
 Wydanie **v1.2b** (17.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 na 3.5" i 4" 480×320**
 + XPT2046. Zakres: **nowy ekran STACJA (15. ekran)**, **nowy ekran ESP32 HAM LOGGER
 (16. ekran)**, poprawki nagłówka (ikona GPS po lewej, ikona baterii na wszystkich
-ekranach), integracja z UI WWW oraz narzędzia podglądu. Pozostałe ekrany
-i zależności bez zmian.
+ekranach), **naprawa PSK Reporter i POTA Cluster** (brak danych), integracja
+z UI WWW oraz narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
 
 ## Zmiany od v1.2a
 
@@ -94,6 +94,23 @@ i zależności bez zmian.
 
 ### Wersja
 - `FIRMWARE_VERSION`: `1.2a` → **`1.2b`**.
+
+### Naprawa: PSK Reporter i POTA Cluster (brak danych)
+- **PSK Reporter (pusta mapa).** Dwie nakładające się przyczyny po stronie usługi:
+  domyślny host HTTP `retrieve.pskreporter.info/query` zwracał Cloudflare
+  **522/523** i 0 bajtów (origin down), a broker `mqtt.pskreporter.info`
+  **przestał publikować feed PSK** (został tylko WSPR). Poprawki:
+  - domyślny URL HTTP → **`https://pskreporter.info/query?`** (działa, dane na żywo);
+  - domyślny tryb → **HTTP** (`pskMqttEnabled=false`) + jednorazowa **migracja NVS**
+    wyłączająca MQTT na istniejących urządzeniach (własny broker użytkownika
+    zostaje); gdyby MQTT wrócił, temat to `pskr/filter/v2raw_1pc/...`;
+  - bufor parsowania JSON 24 KB → **512 KB w PSRAM** (odpowiedź bywa ~500 KB,
+    gdy serwer zignoruje `rptlimit`).
+- **POTA Cluster (brak danych).** API zwraca teraz całą listę aktywnych spotów
+  (~239 spotów = ~150 KB JSON, ~73 KB po filtrze), a bufory 24 KB / 64 KB
+  w wewnętrznym RAM kończyły się błędem **`NoMemory`** i spoty ginęły. Poprawki:
+  bufory w **PSRAM** — **96 KB** (filtr) / **256 KB** (fallback), przez nowy
+  `struct PskPsramAllocator` + `BasicJsonDocument`.
 
 ### Kompatybilność
 - Bez zmian zależności i układu partycji. Zmienione pliki firmware i ZIP.
