@@ -1580,3 +1580,23 @@ i nie rysuje linii (mimo poprawnego HTTP 200). Trzecia, ukryta przyczyna:
   Gdy `chunked`, NIE parsuj `getStreamPtr()` bezposrednio - uzyj
   `writeToStream()`/`getString()` albo zdjac chunki samodzielnie.
 
+## Naprawa PSK cz.3: mapa zamarzala (kumulacja spotow) (17.10.2026)
+Objaw: po wyrysowaniu kresek mapa sie nie odswiezala ("kreski ciagle takie
+same"), a po RESET zostawala pusta ("brak odczytu").
+
+- **Przyczyna: spoty tylko sie KUMULOWALY.** `pskAddSpot()` deduplikuje po
+  `znak+pasmo+tryb`, a PSKReporter zwraca ZAWSZE te same ~50 najswiezszych
+  rekordow (sprawdzone: okno 300 s / 3600 s / 86400 s daje identyczna liste
+  top-50). Kolejne pobrania nie dodawaly wiec nic nowego - `pskSpotCount` stal
+  w miejscu, `drawPskMapSpotsOnly()` widzial `pskSpotCount == lastPskSpotCount`
+  i nic nie rysowal. Mapa zamarzala na pierwszym zestawie.
+- **Fix:** kazde UDANE pobranie to swieza migawka - `pskSpotCount = 0;
+  lastPskSpotCount = 0;` przed petla spotow (po bramce `receptionReport`).
+  Stare spoty znikaja, nowe sie rysuja. Przy `drawPskMapSpotsOnly()` nowy
+  (mniejszy) `pskSpotCount` wymusza pelne przerysowanie.
+- **RESET:** `resetPskMapSpots()` ustawia `lastPskFetchMs = 0`, wiec kolejne
+  `drawPskMap()` pobiera dane od razu - wczesniej po RESET mapa zostawala pusta
+  az do uplywu interwalu auto-refresh.
+- Uwaga: tryb MQTT dalej KUMULUJE (`copyPskMqttToDisplay` -> `pskAddSpot`) -
+  to zamierzone dla strumienia na zywo; dotyczy tylko sciezki HTTP.
+

@@ -113,7 +113,13 @@ z UI WWW oraz narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
   - odczyt ciała przez **`HTTPClient::writeToStream()`** (poprawnie składa chunki)
     do bufora w **PSRAM** (`PskHttpBodySink`), a nie z surowego socketu;
   - bufor parsowania JSON 24 KB → **512 KB w PSRAM** (odpowiedź bywa ~500 KB,
-    gdy serwer zignoruje `rptlimit`).
+    gdy serwer zignoruje `rptlimit`);
+  - **odświeżanie = świeża migawka.** Spoty tylko się kumulowały (dedup
+    znak+pasmo+tryb), a PSKReporter zwraca zawsze najświeższe ~50 rekordów —
+    więc kolejne pobrania nie dodawały nic nowego i mapa **zamarzała** („kreski
+    ciągle takie same"). Teraz każde udane pobranie podmienia całą listę spotów
+    (stare znikają), a **RESET** wymusza natychmiastowy odczyt (nie zostawia
+    pustej mapy).
 - **POTA Cluster (brak danych).** API zwraca teraz całą listę aktywnych spotów
   (~239 spotów = ~150 KB JSON, ~73 KB po filtrze), a bufory 24 KB / 64 KB
   w wewnętrznym RAM kończyły się błędem **`NoMemory`** i spoty ginęły. Poprawki:

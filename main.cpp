@@ -23184,6 +23184,16 @@ bool fetchPskReporterData() {
 
   JsonArray reports = doc["receptionReport"].as<JsonArray>();
 
+  // Odswiezanie: PSKReporter zwraca ZAWSZE najswiezsze spoty (te same ~50
+  // rekordow niezaleznie od okna czasowego), a stare spoty "wypadaja" z listy.
+  // Dotad spoty tylko sie KUMULOWALY (dedup znak+pasmo+tryb), wiec kolejne
+  // pobrania nie dodawaly nic nowego i mapa zamarzala ("kreski ciagle takie
+  // same"). Teraz kazde udane pobranie to swieza migawka: podmieniamy cala
+  // liste. Przy przyrostowym odswiezaniu (drawPskMapSpotsOnly) nowy zestaw
+  // wymusza pelne przerysowanie, wiec stare kreski znikaja.
+  pskSpotCount = 0;
+  lastPskSpotCount = 0;
+
   if (!reports.isNull()) {
     for (JsonObject report : reports) {
       const char* callsign = report["senderCallsign"];
@@ -25822,13 +25832,16 @@ void copyPskMqttToDisplay() {
 void resetPskMapSpots() {
   pskSpotCount = 0;
   lastPskSpotCount = 0;  // pelne przerysowanie po RESET (wyczysc stare spoty)
+  // Wymus swiezy odczyt przy nastepnym rysowaniu - inaczej po RESET mapa
+  // zostawala pusta az do uplywu auto-refresh ("po zresetowaniu brak odczytu").
+  lastPskFetchMs = 0;
   if (pskMqttBufferMutex != NULL &&
       xSemaphoreTake(pskMqttBufferMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
     pskMqttSpotCount = 0;
     xSemaphoreGive(pskMqttBufferMutex);
   }
   pskMqttDirty = false;
-  Serial.println("[PSK] RESET: wyczyszczono spoty z mapy");
+  Serial.println("[PSK] RESET: wyczyszczono spoty z mapy (wymuszam swiezy odczyt)");
 }
 
 // Setup MQTT - wywoĹ‚ywane przy starcie
