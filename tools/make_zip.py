@@ -12,10 +12,12 @@ ROOT_FILES = [
     "partitions.csv", ".gitignore", "main.cpp", "flash.bat", "tft_setup.h",
     "iss_worldmask.h", "flash.sh", "README_S3.md", "PINOUT.md", "INSTRUKCJA.md",
 ]
-# Tylko scalony obraz (merged-flash.bin) trafia do paczki - zawiera bootloader,
-# partycje, aplikacje i LittleFS w jednym pliku (flash pod adresem 0x0).
+# Do paczki trafiaja tylko scalone obrazy (merged-flash*.bin) - zawieraja
+# bootloader, partycje, aplikacje i LittleFS w jednym pliku (flash pod 0x0).
+# Wariant "notouch" dla plytek bez podlaczonego XPT2046.
 DIST_BINS = [
     "merged-flash.bin",
+    "merged-flash-notouch.bin",
 ]
 
 files = [f for f in ROOT_FILES if os.path.isfile(f)]
