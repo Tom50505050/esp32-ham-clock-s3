@@ -2242,46 +2242,6 @@ void drawBatteryStatus(int x, int y) {
   }
 }
 
-// Szybka aktualizacja tylko ikony baterii (bez odĹ›wieĹĽania caĹ‚ego nagĹ‚Ăłwka)
-// UĹĽywana w loop() aby uniknÄ…Ä‡ watchdog resetu
-void drawBatteryQuickUpdate(bool skipScreenCheck = false) {
-  if (!tftInitialized) return;
-  if (!skipScreenCheck && (currentScreen != SCREEN_HAM_CLOCK || inMenu)) return;
-  if (brightnessMenuActive || screenSaverMenuActive) return;  // Nie rysuj podczas menu
-  
-  // SprawdĹş czy dzielnik jest podĹ‚Ä…czony
-  if (batteryVoltage < 1.5f || batteryVoltage > 5.0f) return;
-  
-  int screenW = tft.width();
-  int x = screenW - 120, y = 10, w = 26, h = 12;  // Prawa strona ekranu (bardziej w lewo)
-  
-  // WyczyĹ›Ä‡ obszar ikony baterii przed narysowaniem (unika paskĂłw/Ĺ›mieci)
-  tft.fillRect(x - 2, y - 2, w + 6, h + 4, TFT_BLACK);
-  
-  // Rysuj ikonÄ™ baterii
-  uint16_t color = getBatteryColor();
-  int level = batteryPercentage;
-  
-  tft.drawRect(x, y, w, h, TFT_WHITE);
-  tft.fillRect(x + w, y + h/4, 3, h/2, TFT_WHITE);
-  
-  int fillW = (w - 4) * level / 100;
-  if (fillW < 0) fillW = 0;
-  if (fillW > w - 4) fillW = w - 4;
-  
-  tft.fillRect(x + 2, y + 2, fillW, h - 4, color);
-  tft.fillRect(x + 2 + fillW, y + 2, (w - 4) - fillW, h - 4, TFT_BLACK);
-  
-  // Tekst z procentem baterii - wyczyĹ›Ä‡ tĹ‚o przed napisaniem
-  tft.fillRect(x + 32, y + 3, 30, 8, TFT_BLACK);  // WyczyĹ›Ä‡ obszar tekstu
-  tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE);
-  char batBuf[16];
-  snprintf(batBuf, sizeof(batBuf), "%d%%", batteryPercentage);
-  tft.setCursor(x + 32, y + 3);
-  tft.print(batBuf);
-}
-
 // ========== Restart (np. po zapisaniu konfiguracji)
 bool restartRequested = false;
 unsigned long restartAtMs = 0;
@@ -3547,13 +3507,13 @@ void drawWifiSignalBars(int x, int y, int strength = -1) {
 }
 
 // ===== Ikona GPS w naglowku zegara (widoczna gdy GPS wlaczony w ustawieniach) =====
-// Pozycja wspolna dla obu stylow: miedzy wysrodkowanym logo a ikona baterii.
-static const int GPS_ICON_X = 372;
+// Pozycja wspolna dla obu stylow: po lewej stronie naglowka, za godzina HH:MM.
+static const int GPS_ICON_X = 88;
 static const int GPS_ICON_Y = 9;
 static const int GPS_ICON_W = 26;
 static const int GPS_ICON_H = 18;
 // Powietrzny obszar dotyku (wiekszy niz grafika - latwiej trafic palcem).
-static const int gpsIconHitX = 364;
+static const int gpsIconHitX = 82;
 static const int gpsIconHitY = 2;
 static const int gpsIconHitW = 42;
 static const int gpsIconHitH = 34;
@@ -3640,6 +3600,47 @@ void drawBatteryIcon(int x, int y, int percentage = -1) {
     tft.fillRect(x + 2, y + 4, fillWidth, batteryH - 4, batteryColor);
   }
 }
+// Szybka aktualizacja tylko ikony baterii (bez odswiezania calego naglowka).
+// Uzywana w loop() aby uniknac watchdog resetu. Dorysowuje wypelnienie w tej
+// samej obudowie, ktora narysowal naglowek (drawBatteryIcon), wiec obudowa i
+// terminal zostaja nietkniete, a zmienia sie tylko kolor/poziom naladowania.
+void drawBatteryQuickUpdate(bool skipScreenCheck = false) {
+  if (!tftInitialized) return;
+  if (inMenu) return;  // Naglowki menu nie maja ikony baterii
+  if (!skipScreenCheck && currentScreen != SCREEN_HAM_CLOCK) return;
+  if (brightnessMenuActive || screenSaverMenuActive) return;  // Nie rysuj podczas menu
+
+  // Brak akumulatora/dzielnika = brak pomiaru; naglowek nie rysuje ikony.
+  if (batteryVoltage <= 0.1f || batteryVoltage > 5.0f) return;
+  // Ta sama pozycja, w ktorej naglowek rysuje ikone baterii (20x10, obudowa
+  // o 2 px w dol od y). Zegar: drawBatteryIcon(screenW-70, 8); inne ekrany:
+  // uiHeader -> drawBatteryIcon(420, 1); splash -> prawy gorny rog, tlo czarne.
+  int screenW = tft.width();
+  bool clockScreen = (currentScreen == SCREEN_HAM_CLOCK);
+  int x = clockScreen ? (screenW - 70) : 420;
+  int y = clockScreen ? 8 : 1;
+  // Tlo wnetrza musi byc takie samo jak w naglowku, inaczej puste pole
+  // baterii zmieniloby kolor po pierwszej aktualizacji.
+  uint16_t bg;
+  if (clockScreen) {
+    bg = uiStyleClassic() ? TFT_RADIO_ORANGE : 0x0000;
+  } else if (currentScreen == SCREEN_OFF) {
+    bg = TFT_BLACK;  // ekran startowy (splash)
+  } else {
+    bg = uiStyleClassic() ? TFT_RADIO_ORANGE : UI_COL_CARD;
+  }
+  const int bw = 20, bh = 10;
+  // Odswiez cala ikone (idempotentnie z drawBatteryIcon) - dziala takze tam,
+  // gdzie naglowek nie zdazyl jej narysowac (splash).
+  tft.fillRect(x + 2, y + 4, bw - 4, bh - 4, bg);
+  tft.drawRect(x, y + 2, bw, bh, TFT_WHITE);
+  tft.fillRect(x + bw, y + 4, 3, bh - 4, TFT_WHITE);
+  uint16_t color = getBatteryColor();
+  int fillW = (bw - 4) * batteryPercentage / 100;
+  if (fillW < 0) fillW = 0;
+  if (fillW > bw - 4) fillW = bw - 4;
+  if (fillW > 0) tft.fillRect(x + 2, y + 4, fillW, bh - 4, color);
+}
 
 void updateScreen1HeaderClock() {
   // Nowy uklad HAM CLOCK: zegar jest analogowy na tarczy, brak zegara w naglowku.
@@ -3688,6 +3689,21 @@ void updateScreen1Header() {
   screen1HeaderNeedsRedraw = false;
 }
 
+// Godzina HH:MM po lewej stronie naglowka zegara (przed ikona GPS i bateria).
+static void drawHeaderTime(uint16_t fg, uint16_t bg) {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 1)) return;
+  char timeBuffer[6];
+  strftime(timeBuffer, 6, "%H:%M", &timeinfo);
+  String timeStr = String(timeBuffer);
+  tft.setTextSize(2);
+  tft.setTextColor(fg, bg);
+  int timeX = 10, timeY = 12;
+  tft.fillRect(timeX - 2, timeY - 2, tft.textWidth(timeStr) + 4, 20, bg);
+  tft.setCursor(timeX, timeY);
+  tft.print(timeStr);
+}
+
 // Naglowek w stylu starszej wersji (v1.4.3): pomaranczowa belka, logo
 // "ESP32" w czarnej obwodce + "-HAM-CLOCK", zegar HH:MM, paski WiFi i bateria.
 static void updateScreen1HeaderClassic() {
@@ -3722,18 +3738,7 @@ static void updateScreen1HeaderClassic() {
   drawBatteryIcon(screenW - 70, 8);
   drawGpsIconInHeader(true);
 
-  struct tm timeinfo;
-  if (getLocalTime(&timeinfo, 1)) {
-    char timeBuffer[6];
-    strftime(timeBuffer, 6, "%H:%M", &timeinfo);
-    String timeStr = String(timeBuffer);
-    tft.setTextSize(2);
-    int timeX = 10, timeY = 12;
-    tft.fillRect(timeX - 2, timeY - 2, tft.textWidth(timeStr) + 4, 20, TFT_RADIO_ORANGE);
-    tft.setTextColor(TFT_BLACK, TFT_RADIO_ORANGE);
-    tft.setCursor(timeX, timeY);
-    tft.print(timeStr);
-  }
+  drawHeaderTime(TFT_BLACK, TFT_RADIO_ORANGE);
 
   screen1HeaderNeedsRedraw = false;
 }
@@ -4050,16 +4055,7 @@ static void hamClockModernHeader() {
   drawBatteryIcon(screenW - 70, 8);
   drawGpsIconInHeader(false);
 
-  struct tm timeinfo;
-  if (getLocalTime(&timeinfo, 1)) {
-    char timeBuffer[6];
-    strftime(timeBuffer, 6, "%H:%M", &timeinfo);
-    String timeStr = String(timeBuffer);
-    tft.setTextSize(2);
-    tft.setTextColor(HC_CYAN, HC_BG);
-    tft.setCursor(10, 12);
-    tft.print(timeStr);
-  }
+  drawHeaderTime(HC_CYAN, HC_BG);
 }
 
 static void hamClockModernCallsign() {
@@ -26550,7 +26546,7 @@ void loop() {
 #ifdef BATTERY_MONITORING_ENABLED
   if (updateBatteryStatus()) {
     // Szybka aktualizacja ikony baterii (bez odĹ›wieĹĽania caĹ‚ego nagĹ‚Ăłwka)
-    drawBatteryQuickUpdate();
+    drawBatteryQuickUpdate(true);
     
     // Debug co 30 sekund - stan baterii
     static unsigned long lastBatteryLogMs = 0;

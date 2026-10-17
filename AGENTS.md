@@ -5,9 +5,16 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 ## GPS w nagłówku + ekran satelitów, nowe logi online (17.10.2026, v1.2c)
 - **Ikona GPS** w nagłówku ekranu zegara (`drawGpsIconInHeader(bool classic)`,
   rysowana tylko gdy `gpsEnabled`) - oba style nagłówka (klasyczny i nowoczesny).
-  Stałe: `GPS_ICON_X=372, GPS_ICON_Y=9, GPS_ICON_W=26, GPS_ICON_H=18`; obszar
-  dotyku `gpsIconHitX=364, gpsIconHitY=2, gpsIconHitW=42`. Dotknięcie otwiera
+  Ikona jest po **lewej** stronie nagłówka, za godziną HH:MM. Stałe:
+  `GPS_ICON_X=88, GPS_ICON_Y=9, GPS_ICON_W=26, GPS_ICON_H=18`; obszar dotyku
+  `gpsIconHitX=82, gpsIconHitY=2, gpsIconHitW=42`. Dotknięcie otwiera
   ekran satelitów (`openGpsScreen()`).
+- **Ikona baterii na wszystkich ekranach**: `uiHeader()` (wspólny nagłówek
+  pozostałych ekranów) rysuje `drawWifiSignalBars(445,1)` + `drawBatteryIcon(420,1)`.
+  `drawBatteryQuickUpdate(bool skip)` dorysowuje tylko wypelnienie w tej samej
+  obudowie (zegar: `x=screenW-70,y=8`; inne ekrany: `x=420,y=1`) - obudowa i
+  terminal zostaja z naglowka. W `loop()` wolane z `skipScreenCheck=true`, wiec
+  poziom odswieza sie takze poza ekranem zegara.
 - **Ekran satelitów** (`gpsScreenActive`, `updateGpsScreen()` w `loop()`): lista
   satelitów, wykres nieba (sky plot) i paski C/N0 (SNR). Geom. okna: sky plot
   `plotR=70`, paski SNR max 12 wierszy (krok 6 px) - mieści się w oknie.
