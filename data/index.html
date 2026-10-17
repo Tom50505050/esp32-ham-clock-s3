@@ -1730,7 +1730,7 @@
             const bottomBtn = document.querySelector('.links-bottom-btn');
             if (bottomBtn) bottomBtn.classList.toggle('active', page === 'links');
             document.getElementById(page + '-page').classList.add('active');
-            if (page === "config" || page === "tft" || page === "alert") {
+            if (page === "config" || page === "tft" || page === "alert" || page === "modules") {
                 loadConfig();
                 if (page === "tft") { initImageUpload(); initWelcomeDirectUpload(); }
             } else if (page === "aprs") {
@@ -2090,6 +2090,9 @@
         };
 
         const applyConfigToUI = (data) => {
+            // Zakladka "Moduly" jest budowana dynamicznie; zbuduj ja zanim
+            // odczytamy pola GPS/modulu, inaczej sa jeszcze nieobecne w DOM.
+            if (typeof ensureModulesTabPL === 'function') ensureModulesTabPL();
             // WiFi: nadpisuj pola tylko gdy klucz JEST w danych. Import czesciowego
             // backupu nie moze wyczyscic SSID/hasla juz wpisanych w formularzu
             // (puste SSID = brak polaczenia po zapisie).
@@ -2661,6 +2664,9 @@
         const moduleSelect = document.getElementById('connectedModule');
         if (moduleSelect && !moduleSelect.dataset.bridgeHooked) {
             moduleSelect.addEventListener('change', () => {
+                // Wybor GPS = wlacz odbior NMEA (checkbox "Wlacz modul GPS").
+                const gpsEl = document.getElementById('gps_enabled');
+                if (gpsEl) gpsEl.checked = (String(moduleSelect.value).toLowerCase() === 'gps');
                 refreshBridgeBtSectionVisibility();
             });
             moduleSelect.dataset.bridgeHooked = '1';
@@ -2706,6 +2712,12 @@
         };
         const moduleCode = map[moduleCodeRaw] || 'none';
         select.value = moduleCode;
+        // Wybor "GPS" wlacza odbior NMEA - zsynchronizuj checkbox, zeby zapis
+        // nie wylaczyl GPS zaraz po odczycie konfiguracji.
+        const gpsEnabledEl = document.getElementById('gps_enabled');
+        if (gpsEnabledEl) {
+            if (moduleCode === 'gps') gpsEnabledEl.checked = true;
+        }
         refreshBridgeBtSectionVisibility();
     }
 
@@ -2722,8 +2734,14 @@
         const spd = Number.isFinite(Number(d.speed_kmh)) ? Number(d.speed_kmh).toFixed(1) + ' km/h' : '—';
         const hdop = Number.isFinite(Number(d.hdop)) ? Number(d.hdop).toFixed(1) : '—';
         const override = d.override_active ? '<span style="color:#22c55e;">aktywna (GPS nadpisuje pozycję)</span>' : 'nieaktywna';
+        // Czas z NMEA: "hhmmss.sss" + data "ddmmyy" -> czytelny format.
+        const tRaw = (d.utc_time && String(d.utc_time).length >= 6) ? String(d.utc_time) : '';
+        const utcTxt = tRaw ? (tRaw.substring(0, 2) + ':' + tRaw.substring(2, 4) + ':' + tRaw.substring(4, 6)) : '—';
+        const dRaw = (d.date && String(d.date).length === 6) ? String(d.date) : '';
+        const dateTxt = dRaw ? (dRaw.substring(0, 2) + '.' + dRaw.substring(2, 4) + '.20' + dRaw.substring(4, 6)) : '—';
         el.innerHTML =
             'Moduł: <b>' + (d.module_detected ? 'wykryty' : 'nie wykryty') + '</b> · Status: <b>' + fixTxt + '</b><br>' +
+            'Czas UTC (NMEA): <b style="color:#22c55e;">' + utcTxt + '</b> · Data: <b>' + dateTxt + '</b><br>' +
             'Satelity: <b>' + (Number.isFinite(Number(d.sats)) ? Number(d.sats) : 0) + '</b> · HDOP: <b>' + hdop + '</b><br>' +
             'Lat: <b>' + lat + '</b> · Lon: <b>' + lon + '</b><br>' +
             'Lokator (Maidenhead): <b style="color:#f59e0b;">' + loc + '</b><br>' +

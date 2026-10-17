@@ -1472,6 +1472,33 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   `clublog_email/clublog_pass/clublog_call/clublog_api`.
 - Podglad UI bez urzadzenia: `logger-www-preview.html` (mock API) w `/workspace/share/`.
 
+## Naprawa: zapis modulu (GPS) + czas GPS na zegarze (17.10.2026)
+Objawy zgloszone przez uzytkownika: w WWW "Moduly" wybor modulu (GPS) nie
+zapisywal sie, a czas z GPS nie byl odczytywany/pokazywany na ekranie zegara.
+Trzy niezalezne przyczyny:
+1. **Zakladka "Moduly" budowana po `loadConfig()`.** `ensureModulesTabPL()`
+   jest wolane na `DOMContentLoaded`, a `loadConfig()` startuje od razu przy
+   parsowaniu skryptu - pola `connectedModule`/`gps_enabled` jeszcze nie istnialy,
+   wiec odczyt konfiguracji je pomijal, a zapis wysylal domyslne (brak/off).
+   Fix: `applyConfigToUI()` na poczatku wola `ensureModulesTabPL/EN()`, a
+   `showPage('modules')` doladowuje konfiguracje. Wybor "GPS" synchronizuje
+   checkbox `gps_enabled` (zdarzenie `change` selecta + przy odczycie configu).
+2. **Brak zmiennej/klucza NVS dla wyboru modulu.** `uart2_connected_module`
+   nie byl nigdzie przechowywany. Fix: `String uart2ConnectedModule` (NVS
+   `uart2_mod`), odczyt w `loadPreferences()`, zapis w `savePreferences()`,
+   obsluga w `POST /api/save` (moduł "gps" wlacza `gpsEnabled`), zwracane w
+   `GET /api/config` (`uart2_connected_module`, `uart2_mode`) i `/api/uart_status`.
+3. **Czas z NMEA nie trafial do zegara systemowego.** `gpsUtcTime`/`gpsDateStr`
+   byly tylko parsowane; ekran zegara uzywa `getLocalTime()`/`getTimeWithTimezone()`
+   (RTC), ktore bez NTP/internetu zostaje na 1970 -> "--:--"/"...". Fix:
+   `gpsApplyTime()` (wolane z `gpsUpdate()`) robi `settimeofday()` z GGA/RMC -
+   pelna data raz (gdy zegar nieustawiony), pozniej tylko korekta godziny co
+   najwyzej 30 s. Wymaga `#include <sys/time.h>`.
+- UI: panel statusu GPS (`updateGpsLiveStatusPL/EN`) pokazuje teraz "Czas UTC
+  (NMEA)" + date z `/api/gps` (`utc_time`, `date`).
+- Pliki: `main.cpp`, `data/index.html`, `data/indexEN.html`. Build 3 env
+  SUCCESS; zip 582 wpisy.
+
 
 
 

@@ -43,6 +43,7 @@ void normalizePolish(String &text);
 #include <WebServer.h>
 #include <Preferences.h>
 #include <time.h>
+#include <sys/time.h>
 #include <ArduinoJson.h>
 #include <new>
 #include <PubSubClient.h>
@@ -314,6 +315,7 @@ void locatorToLatLon(String locator, double &lat, double &lon);
 String latLonToLocator(double lat, double lon, int precision = 6);
 void gpsApplyConfig();
 void gpsUpdate();
+static void gpsApplyTime();
 void gpsApplyPosition();
 void gpsSnapshotManualPosition();
 bool gpsModuleDetected();
@@ -1752,6 +1754,9 @@ bool userLatLonValid = false;
 // Modul GPS podlacza sie do wolnych GPIO (domyslnie RX=18 <- TX modulu,
 // TX=17 -> RX modulu). Lokator Maidenhead liczymy automatycznie z pozycji.
 bool gpsEnabled = false;          // modul GPS wlaczony (NVS gps_en)
+// Wybrany modul na UART2 z WWW ("none"/"gps"/"aprs_tnc"/...). Zapisywany do NVS,
+// zeby wybor przetrwal restart i byl odtwarzany w zakladce "Moduly".
+String uart2ConnectedModule = "none";
 int  gpsRxPin = 18;               // ESP32 RX  <- TX modulu GPS
 int  gpsTxPin = 17;               // ESP32 TX  -> RX modulu GPS
 int  gpsBaud = 9600;              // predkosc NMEA
@@ -1763,6 +1768,9 @@ float gpsAltM = 0.0f, gpsSpeedKmh = 0.0f, gpsHdop = 99.9f;
 int gpsSats = 0;
 String gpsUtcTime = "";           // "hhmmss.sss"
 String gpsDateStr = "";           // "ddmmyy"
+// Czas z NMEA wpisywany do zegara systemowego (settimeofday), zeby ekran zegara
+// dzialal bez NTP/internetu.
+unsigned long gpsLastTimeSetMs = 0;
 String gpsLocator = "";
 unsigned long gpsLastFixMs = 0;       // ostatnia poprawna pozycja
 unsigned long gpsLastSentenceMs = 0;  // ostatnia dowolna ramka NMEA (detekcja modulu)
@@ -12677,6 +12685,59 @@ static void gpsParseNmea(const String &line) {
   }
 }
 
+// Ustawia zegar systemowy na podstawie czasu UTC z NMEA (GGA/RMC). Bez tego
+// ekran zegara bez NTP/internetu pokazuje "--:--" mimo dzialajacego GPS.
+// Pelna date stosujemy tylko raz (gdy zegar jeszcze nie jest ustawiony), a
+// pozniej co najwyzej korygujemy godzine - chroni to przed cofaniem czasu.
+static void gpsApplyTime() {
+  if (gpsUtcTime.length() < 6) return;
+  int hh = gpsUtcTime.substring(0, 2).toInt();
+  int mm = gpsUtcTime.substring(2, 4).toInt();
+  int ss = gpsUtcTime.substring(4, 6).toInt();
+  if (hh > 23 || mm > 59 || ss > 60) return;
+
+  unsigned long nowMs = millis();
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  bool clockValid = tv.tv_sec > 1600000000;  // ~2020: NTP/GPS juz ustawil czas
+
+  if (!clockValid && gpsDateStr.length() == 6) {
+    // Data ddmmvy -> dzien roku (bez czasu lokalnego; DST liczymy z UTC).
+    int day = gpsDateStr.substring(0, 2).toInt();
+    int mon = gpsDateStr.substring(2, 4).toInt();
+    int yr = 2000 + gpsDateStr.substring(4, 6).toInt();
+    if (day >= 1 && day <= 31 && mon >= 1 && mon <= 12) {
+      static const int cum[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+      int doy = cum[mon - 1] + (day - 1);
+      if (mon > 2 && ((yr % 4 == 0 && yr % 100 != 0) || yr % 400 == 0)) doy++;
+      tv.tv_sec = (time_t)(yr - 1970) * 31536000L + (time_t)doy * 86400L + (time_t)hh * 3600L + (time_t)mm * 60L + ss;
+      tv.tv_usec = 0;
+      settimeofday(&tv, nullptr);
+      gpsLastTimeSetMs = nowMs;
+      Serial.printf("[GPS] Zegar ustawiony z NMEA: %02d.%02d.%04d %02d:%02d:%02d UTC\n", day, mon, yr, hh, mm, ss);
+      return;
+    }
+  }
+
+  // Zegar juz ustawiony: dociagamy tylko godzine, gdy rozni sie wiecej niz 2 s.
+  // Korekta co najwyzej raz na 30 s (latencja NMEA daje stala drobna roznice).
+  if (clockValid && (gpsLastTimeSetMs == 0 || nowMs - gpsLastTimeSetMs > 30000UL)) {
+    struct tm utcTm;
+    gmtime_r(&tv.tv_sec, &utcTm);
+    int sysSec = utcTm.tm_hour * 3600 + utcTm.tm_min * 60 + utcTm.tm_sec;
+    int gpsSec = hh * 3600 + mm * 60 + ss;
+    int diff = gpsSec - sysSec;
+    if (diff < -43200) diff += 86400;
+    if (diff > 43200) diff -= 86400;
+    if (diff > 2 || diff < -2) {
+      tv.tv_sec += diff;
+      tv.tv_usec = 0;
+      settimeofday(&tv, nullptr);
+      gpsLastTimeSetMs = nowMs;
+    }
+  }
+}
+
 // (Re)inicjalizacja UART2 dla modulu GPS. Idempotentna - wywolywana po zmianie
 // ustawien w WWW bez restartu.
 void gpsApplyConfig() {
@@ -12725,6 +12786,8 @@ void gpsUpdate() {
   if (gpsFix && millis() - gpsLastFixMs > 5000) {
     gpsFix = false;
   }
+  // Zegar z NMEA (dziala bez NTP/internetu).
+  gpsApplyTime();
   gpsApplyPosition();
 }
 
@@ -19035,6 +19098,8 @@ void loadPreferences() {
   yield();
   gpsEnabled = preferences->getBool("gps_en", false);
   yield();
+  uart2ConnectedModule = preferences->getString("uart2_mod", gpsEnabled ? "gps" : "none");
+  yield();
   gpsUseForPosition = preferences->getBool("gps_use", false);
   yield();
   gpsBaud = preferences->getInt("gps_baud", 9600);
@@ -19270,6 +19335,7 @@ void savePreferences() {
   preferences->putString("user_locator", gpsPositionOverrideActive ? userLocatorManual : userLocator);
   preferences->putInt("timezone", timezoneHours);
   preferences->putBool("gps_en", gpsEnabled);
+  preferences->putString("uart2_mod", uart2ConnectedModule);
   preferences->putBool("gps_use", gpsUseForPosition);
   preferences->putInt("gps_baud", gpsBaud);
   preferences->putInt("gps_rx", gpsRxPin);
@@ -20625,6 +20691,21 @@ void setupWebServer() {
       userLocator = doc["user_locator"].as<String>();
       // GPS (NMEA po UART2). Klucze tylko nadpisuja, gdy obecne w payloadzie.
       if (doc.containsKey("gps_enabled")) gpsEnabled = doc["gps_enabled"].as<bool>();
+      // Wybor modulu z zakladki "Moduly". "gps" wlacza odbior NMEA; inne (TNC/BT)
+      // nie sa obslugiwane w tym buildzie, ale zapisujemy wybor, zeby przetrwal restart.
+      if (doc.containsKey("uart2_connected_module")) {
+        String mod = doc["uart2_connected_module"].as<String>();
+        mod.toLowerCase();
+        mod.trim();
+        if (mod.length() == 0) mod = "none";
+        uart2ConnectedModule = mod;
+        if (mod == "gps") gpsEnabled = true;
+      } else if (doc.containsKey("uart2_mode")) {
+        String mode = doc["uart2_mode"].as<String>();
+        mode.toLowerCase();
+        if (mode == "gps") { gpsEnabled = true; uart2ConnectedModule = "gps"; }
+        else if (mode == "off") { uart2ConnectedModule = "none"; }
+      }
       if (doc.containsKey("gps_use_for_position")) gpsUseForPosition = doc["gps_use_for_position"].as<bool>();
       // Zgodnosc ze starszym UI: "Twoja Stacja" uzywa klucza use_gps_if_active.
       if (doc.containsKey("use_gps_if_active")) gpsUseForPosition = doc["use_gps_if_active"].as<bool>();
@@ -21365,6 +21446,8 @@ void setupWebServer() {
     doc["user_lat_lon_valid"] = userLatLonValid;
     // GPS (NMEA po UART2) + automatyczny lokator Maidenhead
     doc["gps_enabled"] = gpsEnabled;
+    doc["uart2_connected_module"] = uart2ConnectedModule;
+    doc["uart2_mode"] = gpsEnabled ? "gps" : "off";
     doc["gps_use_for_position"] = gpsUseForPosition;
     doc["gps_baud"] = gpsBaud;
     doc["gps_rx_pin"] = gpsRxPin;
@@ -21558,10 +21641,9 @@ void setupWebServer() {
     // Ten build obsluguje tylko modul GPS na UART2 (BT/APRS-TNC/BRIDGE brak).
     bool detected = gpsModuleDetected();
     String mode = gpsEnabled ? "gps" : "off";
-    String module = gpsEnabled ? "gps" : "";
     DynamicJsonDocument doc(512);
     doc["uart2_mode"] = mode;
-    doc["uart2_connected_module"] = module;
+    doc["uart2_connected_module"] = uart2ConnectedModule;
     doc["gps_enabled"] = gpsEnabled;
     doc["gps_active"] = detected;
     doc["gps_fix"] = gpsFix;
