@@ -1,7 +1,7 @@
-# ESP32-HAM-CLOCK na ESP32-S3 N16R8 + ILI9488 3.5" IPS
+# ESP32-HAM-CLOCK na ESP32-S3 N16R8 + ILI9488 na 3.5" i 4" 480×320
 
 Instrukcja uruchomienia firmware na **ESP32-S3-WROOM-1 N16R8** (16 MB flash, 8 MB PSRAM)
-z zewnętrznym wyświetlaczem **ILI9488 3.5" 480x320 IPS** po SPI i dotykiem **XPT2046**.
+z zewnętrznym wyświetlaczem **ILI9488 na 3.5" i 4" 480×320** po SPI i dotykiem **XPT2046**.
 
 ## 1. Tabela połączeń
 

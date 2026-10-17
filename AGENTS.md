@@ -2,6 +2,41 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## GPS w nagłówku + ekran satelitów, nowe logi online (17.10.2026, v1.2c)
+- **Ikona GPS** w nagłówku ekranu zegara (`drawGpsIconInHeader(bool classic)`,
+  rysowana tylko gdy `gpsEnabled`) - oba style nagłówka (klasyczny i nowoczesny).
+  Stałe: `GPS_ICON_X=372, GPS_ICON_Y=9, GPS_ICON_W=26, GPS_ICON_H=18`; obszar
+  dotyku `gpsIconHitX=364, gpsIconHitY=2, gpsIconHitW=42`. Dotknięcie otwiera
+  ekran satelitów (`openGpsScreen()`).
+- **Ekran satelitów** (`gpsScreenActive`, `updateGpsScreen()` w `loop()`): lista
+  satelitów, wykres nieba (sky plot) i paski C/N0 (SNR). Geom. okna: sky plot
+  `plotR=70`, paski SNR max 12 wierszy (krok 6 px) - mieści się w oknie.
+  Guardy: pending redraw / `updateScreen1` / auto-switch pomijane gdy
+  `gpsScreenActive`.
+- Dane satelitów: `gpsSatList` (GSV), `gpsUsedInFix`/`gpsViewSats` (GSA/GGA).
+  Wystawione w WWW (`/api/status`, `/api/uart_status`) jako `gps_sats_used` /
+  `gps_sats_view`; UI pokazuje `SAT: used/view`.
+- **Nowe usługi wysyłki ADIF**: HRDLog.net, HamQTH.com, HAMLOG.online + fix
+  eQSL. Dystrybutor `loggerUploadAdif()` (`qrz|eqsl|clublog|hrdlog|hamqth|hamlog`).
+  Nowe dane w NVS: `hrdlog_callsign`, `hrdlog_code`, `hamqth_user`, `hamqth_pass`,
+  `hamqth_callsign`, `hamlog_api` (+ wcześniej `eqsl_qth`, `clublog_api`).
+  eQSL: `loggerUploadToEqsl()` używa **multipart/form-data** (pole `Filename`
+  + nagłówek ADIF `EQSL_USER`/`EQSL_PSWD`); urlencoded jest odrzucane.
+  `jsonEscape()` - forward-declared przed użyciem w loggerze.
+- UI WWW (`data/index.html`, `data/indexEN.html`): nowe sekcje HRDLog/HamQTH/
+  HAMLOG, opcje w `log_upload_service`, przycisk **Test połączenia**
+  (`logbookTest()` -> `POST /api/log_test`), pola w load/save configu.
+- **Paczka ZIP**: `tools/make_zip.py` pakuje TYLKO `merged-flash.bin`
+  (scalony obraz 16 MB, offset `0x0`). Scalanie: `python -m esptool --chip
+  esp32s3 merge_bin -o dist/merged-flash.bin --flash_mode dio --flash_freq 80m
+  --flash_size 16MB 0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin
+  0x10000 firmware.bin 0x810000 littlefs.bin`.
+- **Opisy na GitHub**: repo + wszystkie release'y - fraza wyświetlacza zmieniona
+  na `ILI9488 na 3.5" i 4" 480×320`. UWAGA: token integracji nie ma uprawnień
+  `administration=write`, więc **opis repo** trzeba zmienić ręcznie (release'y
+  aktualizują się przez API). Ta sama fraza zaktualizowana w dokumentach
+  (README.md, README_S3.md, INSTRUKCJA.md, PINOUT.md, RELEASE_NOTES.md).
+
 ## Ekran STACJA (15. ekran) — wyszukiwarka znaku (16.10.2026, v1.2b)
 - Nowy ekran `SCREEN_STATION = 15` (`station`): wpisujesz znak, firmware pobiera
   dane kolejno ze zrodel **QRZ.com -> HamDB -> callook.info** (pierwsze trafienie
@@ -282,7 +317,7 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
 ## Cel sprzętowy
 - **MCU:** ESP32-S3-WROOM-1 **N16R8** (16 MB flash QIO + 8 MB PSRAM OPI)
-- **Wyświetlacz:** zewnętrzny **ILI9488 3.5" 480x320 IPS** po SPI (TFT_eSPI)
+- **Wyświetlacz:** zewnętrzny **ILI9488 na 3.5" i 4" 480×320** po SPI (TFT_eSPI)
 - **Dotyk:** **XPT2046** po SPI (wspólna magistrala, osobny CS)
 
 ## Struktura
@@ -1418,6 +1453,24 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
   wersja pelna tylko w `/workspace/share/`.
 - UWAGA: `git commit` domyslnie wymaga podpisu GPG (`commit.gpgsign=true`); klucz
   prywatny jest w `.gpg-release-key` (poza VCS). Bez klucza uzyj `--no-gpg-sign`.
+
+## Wysylka ADIF do logow online (17.10.2026)
+- Dwa nowe serwisy obok QRZ Logbook: **eQSL.cc** i **Club Log**.
+- `loggerUploadAdif(service)` - dyspozytor: `qrz` (domyslnie) | `eqsl` | `clublog`.
+- QRZ: `POST https://logbook.qrz.com/api` `KEY=&ACTION=INSERT&ADIF=`; sukces = `RESULT=OK`.
+- eQSL: `POST https://www.eqsl.cc/qslcard/ImportADIF.cfm` pola `Filename` (ADIF) +
+  `EQSL_USER`/`EQSL_PSWD`; sukces = "x out of y records added". Dane logowania
+  mozna tez w naglowku ADIF (`EQSL_USER`/`EQSL_PSWD`) - uzywamy pól formularza.
+- Club Log: `POST https://clublog.org/realtime.php` pola `email` (NIE znak) +
+  `password` (Application Password) + `callsign` + `adif` + `api`; **jeden rekord
+  ADIF na request**. HTTP 200 = OK/Duplicate/Modified, 400 = odrzucone, **403 =
+  zle dane -> PRZERWIJ** (inaczej Club Log blokuje IP). NIE uzywac do batchy.
+- Endpoint WWW: `POST /api/qrz_upload` z JSON `{"service":"qrz|eqsl|clublog"}`
+  (albo query `?service=`). UI: sekcje eQSL.cc i Club Log + selektor logu +
+  podglad listy QSO (`/api/logbook`, `/api/logbook_add`, `/api/logbook_clear`).
+- Preferencje (NVS): `eqsl_user/eqsl_pass/eqsl_qth`,
+  `clublog_email/clublog_pass/clublog_call/clublog_api`.
+- Podglad UI bez urzadzenia: `logger-www-preview.html` (mock API) w `/workspace/share/`.
 
 
 

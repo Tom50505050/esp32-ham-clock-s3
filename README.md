@@ -1,4 +1,4 @@
-# ESP32-HAM-CLOCK v1 — ESP32-S3 N16R8 + ILI9488 3.5"
+# ESP32-HAM-CLOCK v1 — ESP32-S3 N16R8 + ILI9488 na 3.5" i 4" 480×320
 
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-esp32--s3--n16r8-orange?logo=platformio&logoColor=white)](platformio.ini)
 [![ESP32-S3](https://img.shields.io/badge/MCU-ESP32--S3%20N16R8-red?logo=espressif&logoColor=white)](platformio.ini)
@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Zaawansowany zegar i terminal krótkofalarski na **ESP32-S3-WROOM-1 N16R8**
-(16 MB flash, 8 MB PSRAM) z zewnętrznym wyświetlaczem **ILI9488 3.5" IPS 480×320**
+(16 MB flash, 8 MB PSRAM) z zewnętrznym wyświetlaczem **ILI9488 na 3.5" i 4" 480×320**
 po SPI i panelem dotykowym **XPT2046**.
 
 Projekt bazuje na **ESP32-HAM-CLOCK** Konrada Wiśniewskiego SP3KON i został

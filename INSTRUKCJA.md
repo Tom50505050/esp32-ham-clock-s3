@@ -5,7 +5,7 @@ rozbudowę i publikację artefaktów. Dokument uzupełnia (nie zastępuje) `READ
 (szczegóły TFT_eSPI/Arduino) i `PINOUT.md` (tabela pinów).
 
 **Sprzęt docelowy:** ESP32-S3-WROOM-1 **N16R8** (16 MB flash QIO + 8 MB PSRAM OPI)
-+ zewnętrzny **ILI9488 3.5" IPS 480x320** (SPI) + dotyk **XPT2046** (SPI, wspólna magistrala).
++ zewnętrzny **ILI9488 na 3.5" i 4" 480×320** (SPI) + dotyk **XPT2046** (SPI, wspólna magistrala).
 
 ---
 

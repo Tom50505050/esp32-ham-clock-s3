@@ -126,6 +126,12 @@ void drawHamburgerMenuButton3D(int x, int y);
 void handleTouchCalibrationTouch(int16_t rawX, int16_t rawY, uint16_t x, uint16_t y, bool isNewTap);
 static bool isAprsAlertCloseButtonHit(uint16_t x, uint16_t y);
 static void dismissAprsAlertScreen();
+// Ekran "GPS - satelity" (modalny, otwierany ikona GPS w naglowku zegara).
+void openGpsScreen();
+static void drawGpsScreen();
+static void updateGpsScreen();
+static bool isGpsScreenCloseButtonHit(uint16_t x, uint16_t y);
+static void dismissGpsScreen();
 void drawBrightnessMenu();
 void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap);
 void drawCallsignColorMenu();
@@ -1595,6 +1601,11 @@ volatile bool aprsAlertDrawPending = false;
 APRSStation aprsAlertPendingStation;
 portMUX_TYPE aprsAlertPendingMux = portMUX_INITIALIZER_UNLOCKED;
 
+// Ekran "GPS - satelity": modalny widok otwierany ikona GPS w naglowku zegara.
+// Aktywny takze jako pelnoprawny ekran (SCREEN_GPS) w karuzeli, gdy ktos go doda.
+bool gpsScreenActive = false;
+unsigned long gpsScreenLastDrawMs = 0;
+
 struct AprsAlertCooldownEntry {
   String callsign;
   unsigned long lastAlertMs = 0;
@@ -1756,6 +1767,31 @@ String gpsLocator = "";
 unsigned long gpsLastFixMs = 0;       // ostatnia poprawna pozycja
 unsigned long gpsLastSentenceMs = 0;  // ostatnia dowolna ramka NMEA (detekcja modulu)
 uint32_t gpsSentenceCount = 0;
+
+// --- Satelity (GSV): lista uzywana przez ekran "GPS - satelity" ---
+struct GpsSatInfo {
+  uint8_t constellation = 0;  // 0=GPS,1=GLONASS,2=Galileo,3=BeiDou,4=QZSS
+  uint8_t prn = 0;
+  uint8_t elev = 0;   // 0..90 stopni
+  uint16_t azim = 0;  // 0..359 stopni
+  uint8_t snr = 0;    // 0..99 dBHz
+  bool used = false;  // w Fixie (GSA)
+};
+const int GPS_SAT_MAX = 48;
+GpsSatInfo gpsSatList[GPS_SAT_MAX];
+int gpsSatCount = 0;
+// Bufor skladany z wielu ramek GSV jednego cyklu (msg 1..N) - publikowany do
+// gpsSatList dopiero po ostatniej ramce, zeby ekran nie pokazywal polowicznej listy.
+static GpsSatInfo gpsSatStage[GPS_SAT_MAX];
+static int gpsSatStageCount = 0;
+static int gpsSatStageMsgNr = 0;
+uint8_t gpsUsedInFix = 0;  // licznik z GSA (ile satelitow uzytych w fixie)
+uint8_t gpsViewSats = 0;   // z GGA - ile widocznych
+// GSA: mapa PRN uzytych w fixie (dopasowanie po numerze satelity).
+static uint8_t gpsGsaUsedPrn[32];
+static int gpsGsaUsedCount = 0;
+static int gpsGsaLastMsgNr = 0;
+
 HardwareSerial gpsSerial(2);
 bool gpsSerialBegun = false;
 int gpsLastBaudApplied = -1, gpsLastRxApplied = -1, gpsLastTxApplied = -1;
@@ -1773,6 +1809,23 @@ String qrzApiKey = "";   // klucz API QRZ Logbook (wysylka ADIF z WWW/urzadzenia
 String qrzLogbookLastStatus = "";
 String qrzPassword = "";
 String qrzStatus = "Callook.info: ready";
+// Dodatkowe logi online (wysylka ADIF z ekranu LOGGER i panelu WWW).
+String eqslUsername = "";   // eQSL.cc: login (znak)
+String eqslPassword = "";   // eQSL.cc: haslo
+String eqslQthNickname = "";// eQSL.cc: opcjonalny APP_EQSL_QTH_NICKNAME
+String clublogEmail = "";   // Club Log: email konta (NIE znak)
+String clublogPassword = "";// Club Log: haslo aplikacji (Application Password)
+String clublogCallsign = "";// Club Log: znak docelowy
+String clublogApiKey = "";  // Club Log: klucz API (od helpdesk)
+// HRDLog.net: znak + "Upload Code" (klucz z profilu uzytkownika).
+String hrdlogCallsign = "";
+String hrdlogCode = "";
+// HamQTH.com: login (znak) + haslo; opcjonalny znak stacji.
+String hamqthUser = "";
+String hamqthPassword = "";
+String hamqthCallsign = "";
+// HAMLOG.online: klucz API wygenerowany w profilu (account/agent.php).
+String hamlogApiKey = "";
 String weatherApiKey = "";
 // Klucz API n2yo.com (opcjonalny) - jeĹ›li ustawiony, "nastÄ™pny przelot ISS"
 // jest pobierany z ich gotowego API do przewidywania przelotĂłw zamiast
@@ -3485,6 +3538,52 @@ void drawWifiSignalBars(int x, int y, int strength = -1) {
   }
 }
 
+// ===== Ikona GPS w naglowku zegara (widoczna gdy GPS wlaczony w ustawieniach) =====
+// Pozycja wspolna dla obu stylow: miedzy wysrodkowanym logo a ikona baterii.
+static const int GPS_ICON_X = 372;
+static const int GPS_ICON_Y = 9;
+static const int GPS_ICON_W = 26;
+static const int GPS_ICON_H = 18;
+// Powietrzny obszar dotyku (wiekszy niz grafika - latwiej trafic palcem).
+static const int gpsIconHitX = 364;
+static const int gpsIconHitY = 2;
+static const int gpsIconHitW = 42;
+static const int gpsIconHitH = 34;
+
+// Geometria modalnego ekranu "GPS - satelity" (uzywana tez przez hit-test dotyku).
+static const int GPS_SCREEN_X = 20, GPS_SCREEN_Y = 20;
+static const int GPS_SCREEN_W = 440, GPS_SCREEN_H = 280;
+static const int GPS_CLOSE_X = GPS_SCREEN_X + GPS_SCREEN_W - 34;
+static const int GPS_CLOSE_Y = GPS_SCREEN_Y + 6;
+static const int GPS_CLOSE_W = 28, GPS_CLOSE_H = 28;
+
+// Satelita: dwa panele sloneczne + rombowy korpus + antena. Rysowany w kolorze
+// "ink" na tle "bg" (bg uzywane do rozdzielenia paneli od korpusu).
+static void drawGpsSatGlyph(int x, int y, uint16_t ink, uint16_t bg) {
+  tft.fillRect(x, y + 6, 9, 8, ink);
+  tft.drawFastVLine(x + 4, y + 6, 8, bg);
+  tft.fillRect(x + 17, y + 6, 9, 8, ink);
+  tft.drawFastVLine(x + 21, y + 6, 8, bg);
+  tft.fillTriangle(x + 9, y + 10, x + 13, y + 6, x + 17, y + 10, ink);
+  tft.fillTriangle(x + 9, y + 10, x + 17, y + 10, x + 13, y + 14, ink);
+  tft.drawFastVLine(x + 13, y + 2, 4, ink);
+  tft.fillCircle(x + 13, y + 2, 1, ink);
+}
+
+// Kolorystyka statusu: zielony = fix, bursztynowy = szuka, szary = brak danych.
+static uint16_t gpsIconStatusColor() {
+  if (gpsSentenceCount == 0 || (millis() - gpsLastSentenceMs) > 5000UL) return 0x6BF2;  // brak modulu
+  if (!gpsFix) return 0xFE4A;  // widzi satelity, brak fixu
+  return 0x07E0;               // fix OK
+}
+
+static void drawGpsIconInHeader(bool classic) {
+  if (!gpsEnabled) return;
+  uint16_t plate = classic ? 0x18E3 : 0x0000;  // ciemna podkladka dla kontrastu
+  tft.fillRoundRect(GPS_ICON_X - 3, GPS_ICON_Y - 2, GPS_ICON_W + 6, GPS_ICON_H + 4, 3, plate);
+  drawGpsSatGlyph(GPS_ICON_X, GPS_ICON_Y, gpsIconStatusColor(), plate);
+}
+
 // Funkcja rysujÄ…ca ikonÄ™ baterii
 // x, y - pozycja lewego gĂłrnego rogu
 // percentage - procent naĹ‚adowania 0-100
@@ -3613,6 +3712,7 @@ static void updateScreen1HeaderClassic() {
 
   drawWifiSignalBars(screenW - 45, 8);
   drawBatteryIcon(screenW - 70, 8);
+  drawGpsIconInHeader(true);
 
   struct tm timeinfo;
   if (getLocalTime(&timeinfo, 1)) {
@@ -3940,6 +4040,7 @@ static void hamClockModernHeader() {
 
   drawWifiSignalBars(screenW - 45, 8);
   drawBatteryIcon(screenW - 70, 8);
+  drawGpsIconInHeader(false);
 
   struct tm timeinfo;
   if (getLocalTime(&timeinfo, 1)) {
@@ -5670,6 +5771,16 @@ void handleTouchNavigation() {
       return;
     }
 
+    // Ekran GPS (satelity): zamkniecie przyciskiem X albo dotknieciem poza nim.
+    if (gpsScreenActive) {
+      if (isNewTap) {
+        if (isGpsScreenCloseButtonHit(x, y) || !isPointInRect(x, y, GPS_SCREEN_X, GPS_SCREEN_Y, GPS_SCREEN_W, GPS_SCREEN_H)) {
+          dismissGpsScreen();
+        }
+      }
+      return;
+    }
+
     // ObsĹ‚uga wygaszacza ekranu - dotkniÄ™cie wchodzi w menu ustawieĹ„
     if (screenSaverActive) {
       if (isNewTap) {
@@ -5886,6 +5997,11 @@ void handleTouchNavigation() {
       }
     }
     if (currentScreen == SCREEN_HAM_CLOCK) {
+      // Ikona GPS w naglowku (tylko gdy GPS wlaczony) - otwiera ekran satelitow.
+      if (gpsEnabled && isPointInRect(x, y, gpsIconHitX, gpsIconHitY, gpsIconHitW, gpsIconHitH)) {
+        openGpsScreen();
+        return;
+      }
       if (screen1ClockStyle == 1) {
         // Styl klasyczny: menu czasu otwiera sie kliknieciem w prawy gorny rog.
         if (x > 285 && y < 35) {
@@ -12087,7 +12203,234 @@ void updateAlertScreenTimeout() {
   dismissAprsAlertScreen();
 }
 
-// WyciÄ‚â€žĂ˘â‚¬Â¦gnij czÄ‚â€žĂ˘â€žËstotliwoĂ„Ä…Ă˘â‚¬ĹźÄ‚â€žĂ˘â‚¬Ë‡ z komentarza APRS (MHz)
+// ======================= EKRAN "GPS - SATELITY" =======================
+// Modalny ekran (jak APRS ALERT) z polozeniem satelitow na niebie i licznikiem.
+// Styl grafiki zalezy od screen1ClockStyle (modern = ciemny/teal, classic = pomaranczowy).
+
+// Paleta wspolna dla ekranu satelitow.
+static const uint16_t GPS_BG_DARK   = 0x0000;  // czarne tlo
+static const uint16_t GPS_CARD      = 0x0884;  // #0b1220 karta (modern)
+static const uint16_t GPS_ACCENT    = 0x3697;  // teal (modern)
+static const uint16_t GPS_ACCENT2   = 0x4D5F;  // niebieski
+static const uint16_t GPS_ORANGE    = 0xFB60;  // #f89500 (classic)
+static const uint16_t GPS_ORANGE_BG = 0x6200;  // ciemny pomarancz (classic karta)
+static const uint16_t GPS_TEXT      = 0xEF7E;
+static const uint16_t GPS_FAINT     = 0x6BF2;
+static const uint16_t GPS_OK        = 0x07E0;
+static const uint16_t GPS_WARN      = 0xFE4A;
+
+static uint16_t gpsConstellationColor(uint8_t cons, bool used) {
+  if (!used) return 0x52AA;  // szary - widoczny, nieuzywany w fixie
+  switch (cons) {
+    case 0: return GPS_OK;      // GPS - zielony
+    case 1: return 0xFD20;      // GLONASS - pomaranczowy
+    case 2: return 0x4D5F;      // Galileo - niebieski
+    case 3: return 0xF81F;      // BeiDou - magenta
+    case 4: return 0xFFE0;      // QZSS - zolty
+    default: return GPS_TEXT;
+  }
+}
+
+static const char *gpsConstellationLabel(uint8_t cons) {
+  switch (cons) {
+    case 0: return "GPS";
+    case 1: return "GLO";
+    case 2: return "GAL";
+    case 3: return "BDS";
+    case 4: return "QZS";
+    default: return "?";
+  }
+}
+
+// Rysuje satelite na wykresie nieba: kat = azymut (0=N, zgodnie z zegarem),
+// promien = (90-elewacja). SNR decyduje o rozmiarze, "used" o kolorze.
+static void drawGpsSkyPlot(int cx, int cy, int radius, bool classic) {
+  uint16_t ring = classic ? GPS_ORANGE_BG : 0x2124;
+  uint16_t cross = classic ? 0x8410 : 0x39E7;
+  uint16_t label = classic ? GPS_ORANGE : GPS_ACCENT;
+
+  tft.drawCircle(cx, cy, radius, ring);
+  tft.drawCircle(cx, cy, (radius * 2) / 3, ring);
+  tft.drawCircle(cx, cy, radius / 3, ring);
+  tft.drawFastHLine(cx - radius, cy, radius * 2, cross);
+  tft.drawFastVLine(cx, cy - radius, radius * 2, cross);
+
+  tft.setTextSize(1);
+  tft.setTextColor(label);
+  tft.setCursor(cx - 3, cy - radius - 10); tft.print("N");
+  tft.setCursor(cx - 3, cy + radius + 3);  tft.print("S");
+  tft.setCursor(cx + radius + 3, cy - 3);  tft.print("E");
+  tft.setCursor(cx - radius - 9, cy - 3);  tft.print("W");
+
+  for (int i = 0; i < gpsSatCount; i++) {
+    const GpsSatInfo &s = gpsSatList[i];
+    if (s.snr == 0 && s.elev == 0) continue;  // brak danych o polozeniu
+    float ang = (float)s.azim * DEG_TO_RAD;
+    float rr = (float)(90 - s.elev) / 90.0f * (float)radius;
+    int px = cx + (int)(sinf(ang) * rr);
+    int py = cy - (int)(cosf(ang) * rr);
+    uint16_t col = gpsConstellationColor(s.constellation, s.used);
+    int dotR = 2 + (s.snr >= 40 ? 2 : (s.snr >= 25 ? 1 : 0));
+    tft.fillCircle(px, py, dotR, col);
+    if (s.used) tft.drawCircle(px, py, dotR + 2, col);
+  }
+}
+
+static void drawGpsScreen() {
+  if (!tftInitialized) return;
+  bool classic = (screen1ClockStyle == 1);
+
+  uint16_t card   = classic ? GPS_ORANGE_BG : GPS_CARD;
+  uint16_t accent = classic ? GPS_ORANGE : GPS_ACCENT;
+  uint16_t border = classic ? GPS_ORANGE : 0x298A;
+  uint16_t text   = classic ? 0xFFFF : GPS_TEXT;
+
+  tft.fillScreen(GPS_BG_DARK);
+
+  // Ramka okna + pasek naglowka
+  tft.fillRoundRect(GPS_SCREEN_X, GPS_SCREEN_Y, GPS_SCREEN_W, GPS_SCREEN_H, 8, card);
+  tft.drawRoundRect(GPS_SCREEN_X, GPS_SCREEN_Y, GPS_SCREEN_W, GPS_SCREEN_H, 8, border);
+  tft.fillRect(GPS_SCREEN_X + 1, GPS_SCREEN_Y + 1, GPS_SCREEN_W - 2, 34, accent);
+
+  tft.setTextColor(classic ? TFT_BLACK : GPS_BG_DARK, accent);
+  tft.setTextSize(2);
+  String title = "GPS - SATELITY";
+  tft.setCursor(GPS_SCREEN_X + 12, GPS_SCREEN_Y + 10);
+  tft.print(title);
+
+  // Przycisk zamkniecia (X)
+  tft.drawRect(GPS_CLOSE_X, GPS_CLOSE_Y, GPS_CLOSE_W, GPS_CLOSE_H, classic ? TFT_BLACK : GPS_BG_DARK);
+  tft.drawLine(GPS_CLOSE_X + 8, GPS_CLOSE_Y + 8, GPS_CLOSE_X + GPS_CLOSE_W - 8, GPS_CLOSE_Y + GPS_CLOSE_H - 8, classic ? TFT_BLACK : GPS_BG_DARK);
+  tft.drawLine(GPS_CLOSE_X + GPS_CLOSE_W - 8, GPS_CLOSE_Y + 8, GPS_CLOSE_X + 8, GPS_CLOSE_Y + GPS_CLOSE_H - 8, classic ? TFT_BLACK : GPS_BG_DARK);
+
+  // --- Duza liczba satelitow (uzywane w fixie / widoczne) ---
+  int satUsed = (gpsUsedInFix > 0) ? gpsUsedInFix : (int)gpsViewSats;
+  int satView = (int)gpsViewSats;
+  if (satView < gpsSatCount) satView = gpsSatCount;
+
+  int boxX = GPS_SCREEN_X + 12, boxY = GPS_SCREEN_Y + 46, boxW = 150, boxH = 74;
+  tft.fillRoundRect(boxX, boxY, boxW, boxH, 6, GPS_BG_DARK);
+  tft.drawRoundRect(boxX, boxY, boxW, boxH, 6, border);
+
+  tft.setTextSize(1);
+  tft.setTextColor(GPS_FAINT);
+  tft.setCursor(boxX + 8, boxY + 6);
+  tft.print("SATELITY W FIXIE");
+
+  tft.setTextColor(gpsFix ? GPS_OK : GPS_WARN);
+  tft.setTextSize(4);
+  String big = String(satUsed);
+  tft.setCursor(boxX + 10, boxY + 20);
+  tft.print(big);
+
+  tft.setTextSize(2);
+  tft.setTextColor(text);
+  tft.setCursor(boxX + 10 + tft.textWidth(big) + 6, boxY + 34);
+  tft.print("/ ");
+  tft.print(satView);
+
+  // Status fixu
+  tft.setTextSize(1);
+  tft.setTextColor(gpsFix ? GPS_OK : GPS_WARN);
+  tft.setCursor(boxX + 8, boxY + 56);
+  if (gpsFix) {
+    char hd[24]; snprintf(hd, sizeof(hd), "FIX  HDOP %.1f", (double)gpsHdop);
+    tft.print(hd);
+  } else {
+    tft.print("SZUKA FIXU...");
+  }
+
+  // --- Panel informacyjny (pozycja / czas / modul) ---
+  int infoX = boxX, infoY = boxY + boxH + 8, infoW = boxW, infoH = GPS_SCREEN_H - (infoY - GPS_SCREEN_Y) - 12;
+  tft.fillRoundRect(infoX, infoY, infoW, infoH, 6, GPS_BG_DARK);
+  tft.drawRoundRect(infoX, infoY, infoW, infoH, 6, border);
+  tft.setTextSize(1);
+  int ty = infoY + 6;
+  tft.setTextColor(GPS_FAINT); tft.setCursor(infoX + 8, ty); tft.print("POZYCJA"); ty += 12;
+  tft.setTextColor(text);
+  char posBuf[40];
+  if (gpsHasPosition) snprintf(posBuf, sizeof(posBuf), "%.4f, %.4f", gpsLat, gpsLon);
+  else snprintf(posBuf, sizeof(posBuf), "--");
+  tft.setCursor(infoX + 8, ty); tft.print(posBuf); ty += 12;
+  tft.setTextColor(GPS_FAINT); tft.setCursor(infoX + 8, ty); tft.print("LOKATOR"); ty += 12;
+  tft.setTextColor(text); tft.setCursor(infoX + 8, ty);
+  tft.print(gpsLocator.length() ? gpsLocator : "--"); ty += 14;
+  tft.setTextColor(GPS_FAINT); tft.setCursor(infoX + 8, ty);
+  tft.print(gpsSerialBegun ? "MODUL: OK" : "MODUL: BRAK");
+
+  // --- Wykres nieba (sky plot) ---
+  int plotR = 70;
+  int cx = GPS_SCREEN_X + 190 + plotR + 10;
+  int cy = GPS_SCREEN_Y + 46 + plotR + 6;
+  drawGpsSkyPlot(cx, cy, plotR, classic);
+
+  // --- Legenda konstelacji ---
+  int lx = cx + plotR + 12;
+  int ly = GPS_SCREEN_Y + 52;
+  tft.setTextSize(1);
+  for (int c = 0; c < 5; c++) {
+    tft.fillCircle(lx + 5, ly + 4, 4, gpsConstellationColor(c, true));
+    tft.setTextColor(text);
+    tft.setCursor(lx + 14, ly);
+    tft.print(gpsConstellationLabel(c));
+    ly += 14;
+  }
+
+  // --- Pasek sygnalu SNR dla kazdego satelity (max 12, miesci sie w oknie) ---
+  int barX = GPS_SCREEN_X + 190, barY = cy + plotR + 14;
+  int barW = GPS_SCREEN_W - 190 - 20;
+  tft.setTextColor(GPS_FAINT);
+  tft.setCursor(barX, barY - 11); tft.print("C/N0 [dBHz]");
+  int shown = 0;
+  for (int i = 0; i < gpsSatCount && shown < 12; i++) {
+    const GpsSatInfo &s = gpsSatList[i];
+    int bw = (int)((long)s.snr * (barW - 26) / 50);
+    if (bw < 0) bw = 0;
+    if (bw > barW - 26) bw = barW - 26;
+    int by = barY + shown * 6;
+    uint16_t col = gpsConstellationColor(s.constellation, s.used);
+    tft.setTextColor(col);
+    tft.setCursor(barX, by); tft.printf("%02d", s.prn);
+    tft.fillRect(barX + 20, by, bw, 4, col);
+    shown++;
+  }
+  if (gpsSatCount == 0) {
+    tft.setTextColor(GPS_FAINT);
+    tft.setCursor(barX, barY + 6);
+    tft.print("Brak danych GSV (modul nie wysyla?)");
+  }
+}
+
+void openGpsScreen() {
+  if (!tftInitialized || !gpsEnabled) return;
+  gpsScreenActive = true;
+  gpsScreenLastDrawMs = 0;
+  drawGpsScreen();
+}
+
+// Odswieza ekran satelitow, gdy zmienia sie dane (licznik satelitow/fix).
+static void updateGpsScreen() {
+  if (!gpsScreenActive || !tftInitialized) return;
+  unsigned long now = millis();
+  if (now - gpsScreenLastDrawMs < 1500) return;
+  gpsScreenLastDrawMs = now;
+  drawGpsScreen();
+}
+
+static bool isGpsScreenCloseButtonHit(uint16_t x, uint16_t y) {
+  return isPointInRect(x, y, GPS_CLOSE_X - 6, GPS_CLOSE_Y - 6, GPS_CLOSE_W + 12, GPS_CLOSE_H + 12);
+}
+
+static void dismissGpsScreen() {
+  if (!gpsScreenActive) return;
+  gpsScreenActive = false;
+  drawScreen(currentScreen);
+  if (currentScreen == SCREEN_HAM_CLOCK) {
+    screen1HeaderNeedsRedraw = true;
+    updateScreen1();
+  }
+}
+
 bool extractAPRSFrequencyMHz(const String &text, float &outMHz) {
   const int len = text.length();
   for (int i = 0; i < len; i++) {
@@ -12239,21 +12582,31 @@ static int nmeaSplit(const String &s, String *out, int maxFields) {
   return n;
 }
 
+// Talker NMEA -> numer konstelacji (do kolorowania/etykiet na ekranie satelitow).
+static uint8_t gpsConstellationFromTalker(const String &tk) {
+  if (tk == "GP") return 0;  // GPS
+  if (tk == "GL") return 1;  // GLONASS
+  if (tk == "GA") return 2;  // Galileo
+  if (tk == "GB" || tk == "BD") return 3;  // BeiDou
+  if (tk == "GQ") return 4;  // QZSS
+  return 0;
+}
+
 static void gpsParseNmea(const String &line) {
-  // Akceptujemy GGA i RMC dla wszystkich konstelacji ($GPGGA, $GNGGA, $GLGGA...).
+  // Akceptujemy GGA, RMC, GSV i GSA dla wszystkich konstelacji ($GPGGA, $GNGGA...).
   int star = line.indexOf('*');
   String body = (star >= 0) ? line.substring(0, star) : line;
   if (body.length() < 7 || body.charAt(0) != '$') return;
-  String type = body.substring(3, 6);  // "GGA" / "RMC"
-  if (type != "GGA" && type != "RMC") return;
+  String type = body.substring(3, 6);  // "GGA" / "RMC" / "GSV" / "GSA"
 
-  String f[20];
-  int n = nmeaSplit(body, f, 20);
+  String f[24];
+  int n = nmeaSplit(body, f, 24);
 
   if (type == "GGA") {
     if (n < 10) return;
     gpsUtcTime = f[1];
     gpsSats = f[7].toInt();
+    gpsViewSats = (uint8_t)gpsSats;
     gpsHdop = f[8].length() ? f[8].toFloat() : 99.9f;
     gpsAltM = f[9].length() ? f[9].toFloat() : 0.0f;
     int quality = f[6].toInt();
@@ -12281,6 +12634,46 @@ static void gpsParseNmea(const String &line) {
       gpsLocator = latLonToLocator(gpsLat, gpsLon, 6);
     }
     if (f[7].length()) gpsSpeedKmh = f[7].toFloat() * 1.852f;  // wezly -> km/h
+  } else if (type == "GSV") {
+    // $--GSV,total,msgnr,sats_in_view[,prn,elev,azim,snr]x4
+    // Ramki jednej konstelacji skladamy w bufor; publikujemy po ostatniej (msgnr==total).
+    if (n < 4) return;
+    int total = f[1].toInt();
+    int msgnr = f[2].toInt();
+    uint8_t cons = gpsConstellationFromTalker(body.substring(1, 3));
+    if (msgnr <= 1) { gpsSatStageCount = 0; }
+    gpsSatStageMsgNr = msgnr;
+    for (int i = 4; i + 3 < n && i + 3 <= 23; i += 4) {
+      if (f[i].length() == 0) continue;
+      if (gpsSatStageCount >= GPS_SAT_MAX) break;
+      GpsSatInfo &s = gpsSatStage[gpsSatStageCount++];
+      s.constellation = cons;
+      s.prn = (uint8_t)f[i].toInt();
+      s.elev = (uint8_t)constrain(f[i + 1].toInt(), 0, 90);
+      s.azim = (uint16_t)constrain(f[i + 2].toInt(), 0, 359);
+      s.snr = (uint8_t)constrain(f[i + 3].toInt(), 0, 99);
+      s.used = false;
+    }
+    if (msgnr >= total) {
+      for (int i = 0; i < gpsSatStageCount; i++) gpsSatStage[i].used = false;
+      for (int i = 0; i < gpsSatStageCount; i++) {
+        for (int j = 0; j < gpsGsaUsedCount; j++) {
+          if (gpsSatStage[i].prn == gpsGsaUsedPrn[j]) { gpsSatStage[i].used = true; break; }
+        }
+      }
+      for (int i = 0; i < gpsSatStageCount; i++) gpsSatList[i] = gpsSatStage[i];
+      gpsSatCount = gpsSatStageCount;
+    }
+  } else if (type == "GSA") {
+    // $--GSA,mode,fix,prn x12,pdop,hdop,vdop  (prn=0 => puste)
+    if (n < 3) return;
+    int msgnr = (n > 17 && f[17].length()) ? f[17].toInt() : 0;  // niektore moduly dodaja msgnr
+    if (msgnr <= 1) gpsGsaUsedCount = 0;
+    for (int i = 3; i <= 14 && i < n; i++) {
+      int prn = f[i].toInt();
+      if (prn > 0 && gpsGsaUsedCount < 32) gpsGsaUsedPrn[gpsGsaUsedCount++] = (uint8_t)prn;
+    }
+    gpsUsedInFix = (uint8_t)gpsGsaUsedCount;
   }
 }
 
@@ -12307,6 +12700,9 @@ void gpsApplyConfig() {
     gpsSerialBegun = false;
     gpsFix = false;
     gpsHasPosition = false;
+    gpsSatCount = 0;
+    gpsUsedInFix = 0;
+    gpsViewSats = 0;
     Serial.println("[GPS] UART2 zatrzymany (modul wylaczony)");
   }
 }
@@ -17742,6 +18138,32 @@ static String loggerBuildAdifHeader() {
   return h;
 }
 
+// Naglowek ADIF z danymi logowania eQSL w HEADERZE (metoda a. specyfikacji).
+// Uzywany tylko przy wysylce do eQSL - nie zapisujemy go do /qso.adi.
+static String loggerBuildAdifHeaderEqsl() {
+  String h = "ESP32 HAM LOGGER ADIF export\n";
+  h += "<ADIF_VER:5>3.1.4 <PROGRAMID:14>ESP32-HAM-CLOCK <PROGRAMVERSION:4>";
+  h += FIRMWARE_VERSION;
+  h += " ";
+  loggerAdifField(h, "EQSL_USER", eqslUsername);
+  loggerAdifField(h, "EQSL_PSWD", eqslPassword);
+  h += "<EOH>\n";
+  return h;
+}
+
+// Buduje pelny ADIF do wysylki. eqsl=true dodaje dane logowania eQSL w naglowku.
+static String loggerBuildAdifForUpload(bool eqsl) {
+  loggerEnsureBuffer();
+  String adif = eqsl ? loggerBuildAdifHeaderEqsl() : loggerBuildAdifHeader();
+  if (logbookCount > 0 && logbook != nullptr) {
+    for (int i = 0; i < logbookCount; i++) adif += loggerBuildAdifRecord(logbook[i]);
+  } else if (littleFsReady && LittleFS.exists(LOGGER_QSO_PATH)) {
+    File f = LittleFS.open(LOGGER_QSO_PATH, "r");
+    if (f) { adif = f.readString(); f.close(); }
+  }
+  return adif;
+}
+
 // Zapis calego logu: plik tymczasowy + rename (odporny na utrate zasilania).
 static bool loggerSaveAll() {
   if (!littleFsReady) return false;
@@ -17816,17 +18238,46 @@ static void loggerLoadFromFs() {
   logbookDirty = false;
 }
 
-// Dodaje biezace QSO do logu (w PSRAM) i zapisuje calosc na SAVE.
-static void loggerSaveCurrentQso() {
-  String call = loggerCall; call.trim(); call.toUpperCase();
-  if (call.length() == 0) { loggerStatus = "Podaj znak (CALL)"; return; }
+// Wczytuje log raz (po starcie LittleFS). Wspolne dla ekranu TFT i panelu WWW.
+static void loggerEnsureLoaded() {
+  if (!logbookDirtyInit) {
+    logbookDirtyInit = true;
+    loggerLoadFromFs();
+  }
+}
+
+// Dodaje gotowy rekord do logu (ring) i zapisuje calosc. Wspolne dla TFT i WWW.
+static bool loggerAppendQso(const LogQso &q) {
   loggerEnsureBuffer();
-  if (logbook == nullptr) { loggerStatus = "Brak pamieci logu"; return; }
+  if (logbook == nullptr) return false;
   if (logbookCount >= LOGGER_LOG_MAX) {
     // Przesun o jeden (najstarszy wypada) - prosty ring.
     for (int i = 1; i < LOGGER_LOG_MAX; i++) logbook[i - 1] = logbook[i];
     logbookCount = LOGGER_LOG_MAX - 1;
   }
+  logbook[logbookCount++] = q;
+  return loggerSaveAll();
+}
+
+// Znacznik czasu UTC do rekordu (YYYYMMDD / HHMM).
+static void loggerUtcParts(String &date, String &time) {
+  struct tm t;
+  if (getLocalTime(&t, 1)) {
+    char db[9], tb[5];
+    strftime(db, sizeof(db), "%Y%m%d", &t);
+    strftime(tb, sizeof(tb), "%H%M", &t);
+    date = db;
+    time = tb;
+  } else {
+    date = "00000000";
+    time = "0000";
+  }
+}
+
+// Dodaje biezace QSO z formularza TFT do logu (w PSRAM) i zapisuje calosc.
+static void loggerSaveCurrentQso() {
+  String call = loggerCall; call.trim(); call.toUpperCase();
+  if (call.length() == 0) { loggerStatus = "Podaj znak (CALL)"; return; }
   LogQso q;
   q.call = call;
   q.rstSent = loggerRstS;
@@ -17836,20 +18287,8 @@ static void loggerSaveCurrentQso() {
   q.mode = loggerModes[loggerModeIdx];
   q.name = loggerName;
   q.qth = loggerQth;
-
-  struct tm t;
-  if (getLocalTime(&t, 1)) {
-    char db[9], tb[5];
-    strftime(db, sizeof(db), "%Y%m%d", &t);
-    strftime(tb, sizeof(tb), "%H%M", &t);
-    q.date = db;
-    q.time = tb;
-  } else {
-    q.date = "00000000";
-    q.time = "0000";
-  }
-  logbook[logbookCount++] = q;
-  if (loggerSaveAll()) {
+  loggerUtcParts(q.date, q.time);
+  if (loggerAppendQso(q)) {
     loggerStatus = "Zapisano: " + call + "  (" + String(logbookCount) + " QSO)";
   } else {
     loggerStatus = "Blad zapisu do pliku";
@@ -18174,10 +18613,7 @@ static void loggerOpenSettings() {
 void drawLoggerScreen() {
   tft.setTextDatum(TL_DATUM);
   loggerEnsureBuffer();
-  if (!logbookDirtyInit) {
-    logbookDirtyInit = true;
-    loggerLoadFromFs();   // wczytaj /qso.adi raz, po starcie LittleFS
-  }
+  loggerEnsureLoaded();
   if (loggerKeyboardActive) {
     drawLoggerKeyboard();
     return;
@@ -18635,6 +19071,19 @@ void loadPreferences() {
   yield();
   qrzPassword = preferences->getString("qrz_pass", "");
   qrzApiKey = preferences->getString("qrz_api_key", "");
+  eqslUsername    = preferences->getString("eqsl_user", "");
+  eqslPassword    = preferences->getString("eqsl_pass", "");
+  eqslQthNickname = preferences->getString("eqsl_qth", "");
+  clublogEmail    = preferences->getString("clublog_email", "");
+  clublogPassword = preferences->getString("clublog_pass", "");
+  clublogCallsign = preferences->getString("clublog_call", "");
+  clublogApiKey   = preferences->getString("clublog_api", "");
+  hrdlogCallsign  = preferences->getString("hrdlog_call", "");
+  hrdlogCode      = preferences->getString("hrdlog_code", "");
+  hamqthUser      = preferences->getString("hamqth_user", "");
+  hamqthPassword  = preferences->getString("hamqth_pass", "");
+  hamqthCallsign  = preferences->getString("hamqth_call", "");
+  hamlogApiKey    = preferences->getString("hamlog_api", "");
   yield();
   weatherApiKey = preferences->getString("weather_key", "");
   yield();
@@ -18831,6 +19280,19 @@ void savePreferences() {
   preferences->putString("qrz_user", qrzUsername);
   preferences->putString("qrz_pass", qrzPassword);
   preferences->putString("qrz_api_key", qrzApiKey);
+  preferences->putString("eqsl_user", eqslUsername);
+  preferences->putString("eqsl_pass", eqslPassword);
+  preferences->putString("eqsl_qth", eqslQthNickname);
+  preferences->putString("clublog_email", clublogEmail);
+  preferences->putString("clublog_pass", clublogPassword);
+  preferences->putString("clublog_call", clublogCallsign);
+  preferences->putString("clublog_api", clublogApiKey);
+  preferences->putString("hrdlog_call", hrdlogCallsign);
+  preferences->putString("hrdlog_code", hrdlogCode);
+  preferences->putString("hamqth_user", hamqthUser);
+  preferences->putString("hamqth_pass", hamqthPassword);
+  preferences->putString("hamqth_call", hamqthCallsign);
+  preferences->putString("hamlog_api", hamlogApiKey);
   preferences->putString("weather_key", weatherApiKey);
   preferences->putString("n2yo_key", n2yoApiKey);
   preferences->putString("openwebrx_url", openWebRxUrl);
@@ -19152,18 +19614,11 @@ static void handleUpload(const String &targetForced) {
 
 
 // Wysyla log ADIF do QRZ Logbook (API). Wymaga klucza API QRZ.
-// Bez klucza zwraca blad - gotowe na przyszlosc, gdy QRZ udostepni wysylke.
 static String loggerUploadToQrzLogbook() {
   if (!wifiConnected || WiFi.status() != WL_CONNECTED) return "ERR: brak WiFi";
   if (qrzApiKey.length() == 0) return "ERR: brak klucza API QRZ (Ustawienia -> QRZ.com)";
   if (!littleFsReady) return "ERR: LittleFS niedostepny";
-  String adif = loggerBuildAdifHeader();
-  if (logbookCount > 0) {
-    for (int i = 0; i < logbookCount; i++) adif += loggerBuildAdifRecord(logbook[i]);
-  } else if (LittleFS.exists(LOGGER_QSO_PATH)) {
-    File f = LittleFS.open(LOGGER_QSO_PATH, "r");
-    if (f) { adif = f.readString(); f.close(); }
-  }
+  String adif = loggerBuildAdifForUpload(false);
   if (adif.length() == 0) return "ERR: brak danych do wyslania";
 
   static WiFiClientSecure client;
@@ -19179,6 +19634,350 @@ static String loggerUploadToQrzLogbook() {
   qrzLogbookLastStatus = "HTTP " + String(code) + " " + resp.substring(0, 80);
   if (code == 200 && resp.indexOf("RESULT=OK") >= 0) return "OK: wyslano do QRZ Logbook";
   return "ERR: " + qrzLogbookLastStatus;
+}
+
+// Forward declarations dla wysylki (Club Log zdefiniowany nizej).
+static String loggerUploadToClubLog();
+static String loggerUploadToEqsl();
+static String loggerUploadToHrdLog();
+static String loggerUploadToHamQth();
+static String loggerUploadToHamLog();
+static String jsonEscape(const String &in);
+
+// eQSL.cc: POST na ImportADIF.cfm. UWAGA: endpoint wymaga multipart/form-data
+// z plikiem "Filename"; zwykle application/x-www-form-urlencoded jest odrzucane
+// ("Invalid content type"). Dane logowania eQSL sa w naglowku ADIF (EQSL_USER/PSWD).
+static String loggerUploadToEqsl() {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) return "ERR: brak WiFi";
+  if (eqslUsername.length() == 0 || eqslPassword.length() == 0)
+    return "ERR: brak loginu/hasla eQSL (Ustawienia -> eQSL.cc)";
+  String adif = loggerBuildAdifForUpload(true);
+  if (adif.length() == 0) return "ERR: brak danych do wyslania";
+
+  static WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  if (!http.begin(client, "https://www.eqsl.cc/qslcard/ImportADIF.cfm")) return "ERR: HTTP begin";
+  http.setTimeout(20000);
+  String boundary = "----ESP32HCLOCKBOUND";
+  http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+  String head = "--" + boundary + "\r\n";
+  head += "Content-Disposition: form-data; name=\"Filename\"; filename=\"qso.adi\"\r\n";
+  head += "Content-Type: application/octet-stream\r\n\r\n";
+  String tail = "\r\n--" + boundary + "--\r\n";
+  String body = head + adif + tail;
+  int code = http.POST((uint8_t *)body.c_str(), body.length());
+  String resp = (code > 0) ? http.getString() : String("");
+  http.end();
+  if (code == 200) {
+    if (resp.indexOf("out of") >= 0 && resp.indexOf("records added") >= 0)
+      return "OK: wyslano do eQSL.cc";
+    if (resp.indexOf("No match on eQSL_User") >= 0)
+      return "ERR: eQSL - zle haslo lub poza zakresem dat konta";
+    return "ERR: eQSL HTTP 200 - " + resp.substring(0, 100);
+  }
+  return "ERR: eQSL HTTP " + String(code);
+}
+
+// HRDLog.net: POST na robot.hrdlog.net/newentry.aspx, form-urlencoded.
+// Pola: Code (Upload Code), Callsign (znak), ADIFData (jeden QSO, konczy sie <EOR>).
+// Odpowiedz XML: <insert>1</insert> = OK, <insert>0</insert> = duplikat,
+// "Unknown user"/"Invalid token" = blad autoryzacji.
+static String loggerUploadToHrdLog() {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) return "ERR: brak WiFi";
+  if (hrdlogCallsign.length() == 0 || hrdlogCode.length() == 0)
+    return "ERR: brak danych HRDLog (Ustawienia -> HRDLog.net)";
+  loggerEnsureBuffer();
+  if (logbook == nullptr || logbookCount == 0)
+    return "ERR: brak QSO w logu (HRDLog wysyla po jednym rekordzie)";
+
+  static WiFiClientSecure client;
+  client.setInsecure();
+  int ok = 0, fail = 0;
+  for (int i = 0; i < logbookCount; i++) {
+    String rec = loggerBuildAdifRecord(logbook[i]);
+    HTTPClient http;
+    if (!http.begin(client, "https://robot.hrdlog.net/newentry.aspx")) { fail++; break; }
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    String body = "Code=" + urlEncode(hrdlogCode) +
+                  "&Callsign=" + urlEncode(hrdlogCallsign) +
+                  "&ADIFData=" + urlEncode(rec);
+    int code = http.POST(body);
+    String resp = (code > 0) ? http.getString() : String("");
+    http.end();
+    if (code == 200 && (resp.indexOf("<insert>1") >= 0 || resp.indexOf("<insert>0") >= 0)) {
+      ok++;
+    } else {
+      fail++;
+      if (resp.indexOf("Unknown user") >= 0 || resp.indexOf("Invalid token") >= 0) {
+        return "ERR: HRDLog - zly znak lub Upload Code";
+      }
+      if (code <= 0) break;
+    }
+  }
+  if (fail == 0 && ok > 0) return "OK: wyslano " + String(ok) + " QSO do HRDLog.net";
+  return "ERR: HRDLog - OK " + String(ok) + ", bledy " + String(fail);
+}
+
+// HamQTH.com: POST na qso_realtime.php (form-urlencoded).
+// Pola: u (login), p (haslo), c (znak), adif (QSO), prg (nazwa programu), cmd=insert.
+static String loggerUploadToHamQth() {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) return "ERR: brak WiFi";
+  if (hamqthUser.length() == 0 || hamqthPassword.length() == 0)
+    return "ERR: brak loginu/hasla HamQTH (Ustawienia -> HamQTH)";
+  loggerEnsureBuffer();
+  if (logbook == nullptr || logbookCount == 0)
+    return "ERR: brak QSO w logu (HamQTH wysyla po jednym rekordzie)";
+
+  static WiFiClientSecure client;
+  client.setInsecure();
+  int ok = 0, fail = 0;
+  for (int i = 0; i < logbookCount; i++) {
+    String rec = loggerBuildAdifRecord(logbook[i]);
+    HTTPClient http;
+    if (!http.begin(client, "https://www.hamqth.com/qso_realtime.php")) { fail++; break; }
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    String body = "u=" + urlEncode(hamqthUser) +
+                  "&p=" + urlEncode(hamqthPassword) +
+                  "&c=" + urlEncode(hamqthCallsign.length() ? hamqthCallsign : hamqthUser) +
+                  "&prg=ESP32-HAM-CLOCK&cmd=insert&adif=" + urlEncode(rec);
+    int code = http.POST(body);
+    String resp = (code > 0) ? http.getString() : String("");
+    http.end();
+    String low = resp; low.toLowerCase();
+    if (code == 200 && low.indexOf("wrong") < 0 && low.indexOf("error") < 0) {
+      ok++;
+    } else {
+      fail++;
+      if (low.indexOf("wrong username or password") >= 0) {
+        return "ERR: HamQTH - zly login lub haslo";
+      }
+      if (code <= 0) break;
+    }
+  }
+  if (fail == 0 && ok > 0) return "OK: wyslano " + String(ok) + " QSO do HamQTH";
+  return "ERR: HamQTH - OK " + String(ok) + ", bledy " + String(fail);
+}
+
+// HAMLOG.online: POST JSON na /api/agent/. Kolejne ramki ADIF wysylamy w
+// osobnych zadaniach ADIFADD. Odpowiedz: {"STATUS":"OK"} lub {"ERROR":"..."}.
+static String loggerUploadToHamLog() {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) return "ERR: brak WiFi";
+  if (hamlogApiKey.length() == 0)
+    return "ERR: brak klucza API HAMLOG (Ustawienia -> HAMLOG.online)";
+  loggerEnsureBuffer();
+  if (logbook == nullptr || logbookCount == 0)
+    return "ERR: brak QSO w logu (HAMLOG wysyla po jednym rekordzie)";
+
+  static WiFiClientSecure client;
+  client.setInsecure();
+  int ok = 0, fail = 0;
+  for (int i = 0; i < logbookCount; i++) {
+    String rec = loggerBuildAdifRecord(logbook[i]);
+    HTTPClient http;
+    if (!http.begin(client, "https://hamlog.online/api/agent/")) { fail++; break; }
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/json");
+    String body = "{\"ADIFADD\":{\"APIKEY\":\"" + hamlogApiKey + "\",\"ADIFDATA\":\"" + jsonEscape(rec) + "\"}}";
+    int code = http.POST(body);
+    String resp = (code > 0) ? http.getString() : String("");
+    http.end();
+    if (code == 200 && resp.indexOf("\"OK\"") >= 0) {
+      ok++;
+    } else {
+      fail++;
+      if (resp.indexOf("Authorization") >= 0 || resp.indexOf("API key") >= 0 || resp.indexOf("Not found") >= 0) {
+        return "ERR: HAMLOG - zly klucz API";
+      }
+      if (code <= 0) break;
+    }
+  }
+  if (fail == 0 && ok > 0) return "OK: wyslano " + String(ok) + " QSO do HAMLOG.online";
+  return "ERR: HAMLOG - OK " + String(ok) + ", bledy " + String(fail);
+}
+
+// Minimalne escapowanie JSON dla wartosci tekstowych (ADIF -> pole JSON).
+static String jsonEscape(const String &in) {
+  String out;
+  out.reserve(in.length() + 16);
+  for (size_t i = 0; i < in.length(); i++) {
+    char c = in.charAt(i);
+    switch (c) {
+      case '\"': out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      default: out += c;
+    }
+  }
+  return out;
+}
+
+// Wspolny dyspozytor wysylki do wybranego logu.
+// service: qrz|eqsl|clublog|hrdlog|hamqth|hamlog
+static String loggerUploadAdif(const String &service) {
+  String s = service; s.trim(); s.toLowerCase();
+  if (s == "eqsl")    return loggerUploadToEqsl();
+  if (s == "clublog" || s == "club") return loggerUploadToClubLog();
+  if (s == "hrdlog")  return loggerUploadToHrdLog();
+  if (s == "hamqth")  return loggerUploadToHamQth();
+  if (s == "hamlog")  return loggerUploadToHamLog();
+  return loggerUploadToQrzLogbook();
+}
+
+// Test logowania BEZ wysylania QSO. Wykonuje lekkie zapytanie autoryzacyjne
+// (QRZ STATUS, HAMLOG KEYSTATUS) albo probe z pustym ADIF (Club Log/HRDLog/HamQTH).
+static String loggerTestConnection(const String &service) {
+  String s = service; s.trim(); s.toLowerCase();
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) return "ERR: brak WiFi";
+  static WiFiClientSecure client;
+  client.setInsecure();
+
+  if (s == "qrz") {
+    if (qrzApiKey.length() == 0) return "ERR: brak klucza API QRZ";
+    HTTPClient http;
+    if (!http.begin(client, "https://logbook.qrz.com/api")) return "ERR: HTTP begin";
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    int code = http.POST("KEY=" + urlEncode(qrzApiKey) + "&ACTION=STATUS");
+    String resp = (code > 0) ? http.getString() : String("");
+    http.end();
+    if (code == 200 && resp.indexOf("RESULT=AUTH") >= 0) return "OK: QRZ - klucz poprawny";
+    if (resp.indexOf("invalid api key") >= 0) return "ERR: QRZ - niepoprawny klucz API";
+    return "ERR: QRZ HTTP " + String(code);
+  }
+
+  if (s == "eqsl") {
+    if (eqslUsername.length() == 0 || eqslPassword.length() == 0)
+      return "ERR: brak loginu/hasla eQSL";
+    String adif = loggerBuildAdifHeaderEqsl();  // sam naglowek - bez QSO
+    HTTPClient http;
+    if (!http.begin(client, "https://www.eqsl.cc/qslcard/ImportADIF.cfm")) return "ERR: HTTP begin";
+    http.setTimeout(20000);
+    String boundary = "----ESP32HCLOCKBOUND";
+    http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+    String head = "--" + boundary + "\r\n";
+    head += "Content-Disposition: form-data; name=\"Filename\"; filename=\"test.adi\"\r\n";
+    head += "Content-Type: application/octet-stream\r\n\r\n";
+    String tail = "\r\n--" + boundary + "--\r\n";
+    String body = head + adif + tail;
+    int code = http.POST((uint8_t *)body.c_str(), body.length());
+    String resp = (code > 0) ? http.getString() : String("");
+    http.end();
+    if (resp.indexOf("No match on eQSL_User") >= 0) return "ERR: eQSL - zly login lub haslo";
+    if (code == 200) return "OK: eQSL - dane logowania poprawne";
+    return "ERR: eQSL HTTP " + String(code);
+  }
+
+  if (s == "clublog" || s == "club") {
+    if (clublogEmail.length() == 0 || clublogPassword.length() == 0 ||
+        clublogCallsign.length() == 0 || clublogApiKey.length() == 0)
+      return "ERR: brak danych Club Log";
+    HTTPClient http;
+    if (!http.begin(client, "https://clublog.org/realtime.php")) return "ERR: HTTP begin";
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    String body = "email=" + urlEncode(clublogEmail) +
+                  "&password=" + urlEncode(clublogPassword) +
+                  "&callsign=" + urlEncode(clublogCallsign) +
+                  "&adif=&api=" + urlEncode(clublogApiKey);
+    int code = http.POST(body);
+    String resp = (code > 0) ? http.getString() : String("");
+    http.end();
+    if (code == 200) return "OK: Club Log - dane poprawne";
+    if (code == 403) return "ERR: Club Log - zle dane logowania lub klucz API";
+    return "ERR: Club Log HTTP " + String(code);
+  }
+
+  if (s == "hrdlog") {
+    if (hrdlogCallsign.length() == 0 || hrdlogCode.length() == 0)
+      return "ERR: brak danych HRDLog";
+    HTTPClient http;
+    if (!http.begin(client, "https://robot.hrdlog.net/newentry.aspx")) return "ERR: HTTP begin";
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    int code = http.POST("Code=" + urlEncode(hrdlogCode) + "&Callsign=" + urlEncode(hrdlogCallsign) + "&ADIFData=");
+    String resp = (code > 0) ? http.getString() : String("");
+    http.end();
+    if (resp.indexOf("Unknown user") >= 0 || resp.indexOf("Invalid token") >= 0)
+      return "ERR: HRDLog - zly znak lub Upload Code";
+    if (code == 200) return "OK: HRDLog - dane poprawne";
+    return "ERR: HRDLog HTTP " + String(code);
+  }
+
+  if (s == "hamqth") {
+    if (hamqthUser.length() == 0 || hamqthPassword.length() == 0)
+      return "ERR: brak loginu/hasla HamQTH";
+    HTTPClient http;
+    if (!http.begin(client, "https://www.hamqth.com/qso_realtime.php")) return "ERR: HTTP begin";
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    int code = http.POST("u=" + urlEncode(hamqthUser) + "&p=" + urlEncode(hamqthPassword) +
+                         "&c=" + urlEncode(hamqthCallsign.length() ? hamqthCallsign : hamqthUser) +
+                         "&prg=ESP32-HAM-CLOCK&cmd=insert&adif=");
+    String resp = (code > 0) ? http.getString() : String("");
+    http.end();
+    String low = resp; low.toLowerCase();
+    if (low.indexOf("wrong username or password") >= 0) return "ERR: HamQTH - zly login lub haslo";
+    if (code == 200) return "OK: HamQTH - dane poprawne";
+    return "ERR: HamQTH HTTP " + String(code);
+  }
+
+  if (s == "hamlog") {
+    if (hamlogApiKey.length() == 0) return "ERR: brak klucza API HAMLOG";
+    HTTPClient http;
+    if (!http.begin(client, "https://hamlog.online/api/agent/")) return "ERR: HTTP begin";
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST("{\"KEYSTATUS\":{\"APIKEY\":\"" + hamlogApiKey + "\"}}");
+    String resp = (code > 0) ? http.getString() : String("");
+    http.end();
+    if (code == 200 && resp.indexOf("\"OK\"") >= 0) return "OK: HAMLOG - klucz poprawny";
+    if (resp.indexOf("Not found") >= 0 || resp.indexOf("Authorization") >= 0) return "ERR: HAMLOG - niepoprawny klucz API";
+    return "ERR: HAMLOG HTTP " + String(code);
+  }
+
+  return "ERR: nieznany serwis";
+}
+
+
+// Club Log: POST na realtime.php (po jednym rekordzie ADIF na QSO).
+// Sukces: HTTP 200 (OK/Duplicate/Modified); 403 = zle dane (STOP!), 400 = odrzucone.
+static String loggerUploadToClubLog() {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) return "ERR: brak WiFi";
+  if (clublogEmail.length() == 0 || clublogPassword.length() == 0 ||
+      clublogCallsign.length() == 0 || clublogApiKey.length() == 0)
+    return "ERR: brak danych Club Log (Ustawienia -> Club Log)";
+  loggerEnsureBuffer();
+  if (logbook == nullptr || logbookCount == 0)
+    return "ERR: brak QSO w logu (Club Log wysyla po jednym rekordzie)";
+
+  static WiFiClientSecure client;
+  client.setInsecure();
+  int ok = 0, fail = 0, lastCode = 0;
+  for (int i = 0; i < logbookCount; i++) {
+    String rec = loggerBuildAdifRecord(logbook[i]);
+    HTTPClient http;
+    if (!http.begin(client, "https://clublog.org/realtime.php")) { fail++; break; }
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    String body = "email=" + urlEncode(clublogEmail) +
+                  "&password=" + urlEncode(clublogPassword) +
+                  "&callsign=" + urlEncode(clublogCallsign) +
+                  "&adif=" + urlEncode(rec) +
+                  "&api=" + urlEncode(clublogApiKey);
+    lastCode = http.POST(body);
+    http.end();
+    if (lastCode == 200) ok++;
+    else { fail++; if (lastCode == 403) break; }  // 403 -> przerwij (grozi banem IP)
+  }
+  if (lastCode == 403) return "ERR: Club Log 403 - zle dane, przerwano";
+  if (fail == 0 && ok > 0) return "OK: wyslano " + String(ok) + " QSO do Club Log";
+  return "ERR: Club Log - OK " + String(ok) + ", bledy " + String(fail) +
+         " (ostatni HTTP " + String(lastCode) + ")";
 }
 
 void setupWebServer() {
@@ -19249,10 +20048,96 @@ void setupWebServer() {
     f.close();
   });
 
-  // Wysyla log do QRZ Logbook (wymaga klucza API). Gotowe na przyszlosc.
+  // Wysyla log do wybranego logu online. Pole "service": qrz|eqsl|clublog|hrdlog|hamqth|hamlog.
   server->on("/api/qrz_upload", HTTP_POST, []() {
-    String res = loggerUploadToQrzLogbook();
+    String service = server->hasArg("service") ? server->arg("service") : "qrz";
+    if (server->hasArg("plain") && server->arg("plain").length()) {
+      DynamicJsonDocument d(256);
+      if (!deserializeJson(d, server->arg("plain")) && d["service"].is<const char *>())
+        service = d["service"].as<String>();
+    }
+    String res = loggerUploadAdif(service);
     server->send(res.startsWith("OK") ? 200 : 400, "text/plain; charset=utf-8", res);
+  });
+
+  // Test logowania do wybranego logu BEZ wysylania QSO ("Test polaczenia").
+  server->on("/api/log_test", HTTP_POST, []() {
+    String service = server->hasArg("service") ? server->arg("service") : "qrz";
+    if (server->hasArg("plain") && server->arg("plain").length()) {
+      DynamicJsonDocument d(256);
+      if (!deserializeJson(d, server->arg("plain")) && d["service"].is<const char *>())
+        service = d["service"].as<String>();
+    }
+    String res = loggerTestConnection(service);
+    server->send(res.startsWith("OK") ? 200 : 400, "text/plain; charset=utf-8", res);
+  });
+
+  // Lista QSO z logu (JSON) - podglad w panelu WWW.
+  server->on("/api/logbook", HTTP_GET, []() {
+    loggerEnsureBuffer();
+    loggerEnsureLoaded();
+    if (logbook == nullptr) {
+      server->send(500, "application/json", "{\"status\":\"error\",\"message\":\"no_buffer\"}");
+      return;
+    }
+    DynamicJsonDocument doc(2048 + logbookCount * 260);
+    doc["status"] = "ok";
+    doc["count"] = logbookCount;
+    doc["max"] = LOGGER_LOG_MAX;
+    JsonArray arr = doc.createNestedArray("qso");
+    for (int i = 0; i < logbookCount; i++) {
+      const LogQso &q = logbook[i];
+      JsonObject o = arr.createNestedObject();
+      o["call"] = q.call;  o["date"] = q.date;  o["time"] = q.time;
+      o["band"] = q.band;  o["freq"] = q.freq;  o["mode"] = q.mode;
+      o["rstSent"] = q.rstSent; o["rstRcvd"] = q.rstRcvd;
+      o["name"] = q.name;  o["qth"] = q.qth;
+    }
+    String out; serializeJson(doc, out);
+    server->send(200, "application/json; charset=utf-8", out);
+  });
+
+  // Dodaje QSO z panelu WWW (JSON) i zapisuje log (tmp+rename).
+  server->on("/api/logbook_add", HTTP_POST, []() {
+    if (!server->hasArg("plain")) {
+      server->send(400, "application/json", "{\"status\":\"error\",\"message\":\"no_body\"}");
+      return;
+    }
+    DynamicJsonDocument doc(1024);
+    if (deserializeJson(doc, server->arg("plain"))) {
+      server->send(400, "application/json", "{\"status\":\"error\",\"message\":\"bad_json\"}");
+      return;
+    }
+    String call = doc["call"] | "";
+    call.trim(); call.toUpperCase();
+    if (call.length() == 0) {
+      server->send(400, "application/json", "{\"status\":\"error\",\"message\":\"brak_call\"}");
+      return;
+    }
+    LogQso q;
+    q.call = call;
+    q.rstSent = String((const char *)(doc["rstSent"] | "59"));
+    q.rstRcvd = String((const char *)(doc["rstRcvd"] | "59"));
+    q.band = String((const char *)(doc["band"] | ""));
+    q.freq = String((const char *)(doc["freq"] | ""));
+    q.mode = String((const char *)(doc["mode"] | ""));
+    q.name = String((const char *)(doc["name"] | ""));
+    q.qth  = String((const char *)(doc["qth"]  | ""));
+    loggerUtcParts(q.date, q.time);
+    if (!loggerAppendQso(q)) {
+      server->send(500, "application/json", "{\"status\":\"error\",\"message\":\"save_failed\"}");
+      return;
+    }
+    String out = "{\"status\":\"ok\",\"count\":" + String(logbookCount) + "}";
+    server->send(200, "application/json; charset=utf-8", out);
+  });
+
+  // Czysci log (usuwa /qso.adi) - trwale.
+  server->on("/api/logbook_clear", HTTP_POST, []() {
+    loggerEnsureBuffer();
+    if (logbook != nullptr) logbookCount = 0;
+    if (littleFsReady && LittleFS.exists(LOGGER_QSO_PATH)) LittleFS.remove(LOGGER_QSO_PATH);
+    server->send(200, "application/json", "{\"status\":\"ok\",\"count\":0}");
   });
 
   // Arkusze stylow CSS pelnego UI (LittleFS). Bez nich index.html nie ma wygladu.
@@ -19788,6 +20673,45 @@ void setupWebServer() {
       }
       if (doc["qrz_api_key"].is<String>()) {
         qrzApiKey = doc["qrz_api_key"].as<String>();
+      }
+      if (doc["eqsl_user"].is<String>()) {
+        eqslUsername = doc["eqsl_user"].as<String>();
+      }
+      if (doc["eqsl_pass"].is<String>()) {
+        eqslPassword = doc["eqsl_pass"].as<String>();
+      }
+      if (doc["eqsl_qth"].is<String>()) {
+        eqslQthNickname = doc["eqsl_qth"].as<String>();
+      }
+      if (doc["clublog_email"].is<String>()) {
+        clublogEmail = doc["clublog_email"].as<String>();
+      }
+      if (doc["clublog_pass"].is<String>()) {
+        clublogPassword = doc["clublog_pass"].as<String>();
+      }
+      if (doc["clublog_callsign"].is<String>()) {
+        clublogCallsign = doc["clublog_callsign"].as<String>();
+      }
+      if (doc["clublog_api"].is<String>()) {
+        clublogApiKey = doc["clublog_api"].as<String>();
+      }
+      if (doc["hrdlog_callsign"].is<String>()) {
+        hrdlogCallsign = doc["hrdlog_callsign"].as<String>();
+      }
+      if (doc["hrdlog_code"].is<String>()) {
+        hrdlogCode = doc["hrdlog_code"].as<String>();
+      }
+      if (doc["hamqth_user"].is<String>()) {
+        hamqthUser = doc["hamqth_user"].as<String>();
+      }
+      if (doc["hamqth_pass"].is<String>()) {
+        hamqthPassword = doc["hamqth_pass"].as<String>();
+      }
+      if (doc["hamqth_callsign"].is<String>()) {
+        hamqthCallsign = doc["hamqth_callsign"].as<String>();
+      }
+      if (doc["hamlog_api"].is<String>()) {
+        hamlogApiKey = doc["hamlog_api"].as<String>();
       }
       if (doc["weather_key"].is<String>()) {
         weatherApiKey = doc["weather_key"].as<String>();
@@ -20449,6 +21373,8 @@ void setupWebServer() {
     doc["gps_fix"] = gpsFix;
     doc["gps_module_detected"] = gpsModuleDetected();
     doc["gps_sats"] = gpsSats;
+    doc["gps_sats_used"] = gpsUsedInFix;
+    doc["gps_sats_view"] = gpsViewSats;
     doc["gps_hdop"] = gpsHdop;
     doc["gps_alt_m"] = gpsAltM;
     doc["gps_speed_kmh"] = gpsSpeedKmh;
@@ -20459,6 +21385,19 @@ void setupWebServer() {
     doc["qrz_user"] = qrzUsername;
     doc["qrz_pass"] = qrzPassword;
     doc["qrz_api_key"] = qrzApiKey;
+    doc["eqsl_user"] = eqslUsername;
+    doc["eqsl_pass"] = eqslPassword;
+    doc["eqsl_qth"] = eqslQthNickname;
+    doc["clublog_email"] = clublogEmail;
+    doc["clublog_pass"] = clublogPassword;
+    doc["clublog_callsign"] = clublogCallsign;
+    doc["clublog_api"] = clublogApiKey;
+    doc["hrdlog_callsign"] = hrdlogCallsign;
+    doc["hrdlog_code"] = hrdlogCode;
+    doc["hamqth_user"] = hamqthUser;
+    doc["hamqth_pass"] = hamqthPassword;
+    doc["hamqth_callsign"] = hamqthCallsign;
+    doc["hamlog_api"] = hamlogApiKey;
     doc["weather_key"] = weatherApiKey;
     doc["n2yo_key"] = n2yoApiKey;
     doc["openwebrx_url"] = openWebRxUrl;
@@ -20628,6 +21567,8 @@ void setupWebServer() {
     doc["gps_fix"] = gpsFix;
     doc["gps_has_position"] = gpsHasPosition;
     doc["gps_sats"] = gpsSats;
+    doc["gps_sats_used"] = gpsUsedInFix;
+    doc["gps_sats_view"] = gpsViewSats;
     doc["gps_hdop"] = gpsHdop;
     doc["gps_alt_m"] = gpsAltM;
     doc["gps_speed_kmh"] = gpsSpeedKmh;
@@ -21661,7 +22602,7 @@ void uiTaskLoop(void *parameter) {
       uiPendingAnyScreenRedraw = false;
       portEXIT_CRITICAL(&uiPendingRedrawMux);
 
-      if (pendingAnyScreen && currentScreen == (ScreenType)pendingAnyScreenId && !inMenu && !aprsAlertScreenActive && !qrzPopupActive) {
+      if (pendingAnyScreen && currentScreen == (ScreenType)pendingAnyScreenId && !inMenu && !aprsAlertScreenActive && !qrzPopupActive && !gpsScreenActive) {
         drawScreen((ScreenType)pendingAnyScreenId);
       }
 
@@ -21690,6 +22631,7 @@ void uiTaskLoop(void *parameter) {
         ALERT_Screen(pendingStation);
       }
       updateAlertScreenTimeout();
+      updateGpsScreen();
       handleTouchNavigation();
       
       // Rysuj wygaszacz gdy jest aktywny
@@ -21713,7 +22655,7 @@ void uiTaskLoop(void *parameter) {
       lastScreenSaverCheckMs = now;
     }
 
-    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !touchCalActive && !brightnessMenuActive && !callsignColorMenuActive && !clockColorMenuActive && !qrzPopupActive) {
+    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !gpsScreenActive && !touchCalActive && !brightnessMenuActive && !callsignColorMenuActive && !clockColorMenuActive && !qrzPopupActive) {
       unsigned long nowSwitch = millis();
       if (tftAutoSwitchLastMs == 0 || tftAutoSwitchLastScreen != currentScreen) {
         tftAutoSwitchLastMs = nowSwitch;
@@ -21733,7 +22675,7 @@ void uiTaskLoop(void *parameter) {
     }
 
     if (!restartRequested) {
-      if (tftInitialized && currentScreen == SCREEN_HAM_CLOCK && !inMenu && !aprsAlertScreenActive) {
+      if (tftInitialized && currentScreen == SCREEN_HAM_CLOCK && !inMenu && !aprsAlertScreenActive && !gpsScreenActive) {
         if (screen1ClockStyle == 1) {
           updateScreen1ClockClassic();
           updateScreen1HeaderClassic();

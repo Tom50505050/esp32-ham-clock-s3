@@ -1,7 +1,7 @@
 # ESP32-HAM-CLOCK — tabela pinów i zmiana pinów
 
 Sprzęt: **ESP32-S3-WROOM-1 N16R8** (16 MB flash QIO + 8 MB PSRAM OPI)
-+ **ILI9488 3.5" 480x320 IPS** (SPI) + dotyk **XPT2046** (SPI, wspólna magistrala).
++ **ILI9488 na 3.5" i 4" 480×320** (SPI) + dotyk **XPT2046** (SPI, wspólna magistrala).
 
 Wszystkie piny zmienia się w **jednym pliku**: `tft_setup.h` (albo z `platformio.ini` /
 Arduino IDE przez `-D...`, bez edycji pliku).

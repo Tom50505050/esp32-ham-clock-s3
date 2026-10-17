@@ -1091,7 +1091,97 @@
                         <small>QRZ.com connection status (auto-updated)</small>
                     </div>
                 </div>
+
+                <!-- Section: eQSL.cc -->
+                <div class="config-section">
+                    <h3>📮 eQSL.cc</h3>
+                    <div class="form-group">
+                        <label>eQSL.cc Login (callsign):</label>
+                        <input type="text" id="eqsl_user" name="eqsl_user" placeholder="e.g. SP9TNV" spellcheck="false">
+                        <small>eQSL.cc login (usually your callsign). Required to upload ADIF to eQSL.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>eQSL.cc Password:</label>
+                        <input type="password" id="eqsl_pass" name="eqsl_pass" placeholder="eQSL password" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>eQSL.cc password.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>eQSL.cc QTH Nickname (optional):</label>
+                        <input type="text" id="eqsl_qth" name="eqsl_qth" placeholder="e.g. HOME" spellcheck="false">
+                        <small>Only if you have several eQSL accounts with the same callsign (APP_EQSL_QTH_NICKNAME).</small>
+                    </div>
+                </div>
+
+                <!-- Section: Club Log -->
+                <div class="config-section">
+                    <h3>🏆 Club Log</h3>
+                    <div class="form-group">
+                        <label>Club Log account e-mail:</label>
+                        <input type="text" id="clublog_email" name="clublog_email" placeholder="e-mail address" spellcheck="false">
+                        <small>Club Log account e-mail (NOT a callsign). Required to upload.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Club Log Application Password:</label>
+                        <input type="password" id="clublog_pass" name="clublog_pass" placeholder="Application Password" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>Application Password from your Club Log profile (not the main account password).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Club Log target callsign:</label>
+                        <input type="text" id="clublog_callsign" name="clublog_callsign" placeholder="e.g. SP9TNV" spellcheck="false">
+                        <small>The callsign whose log the QSOs go into (must belong to the account).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Club Log API Key:</label>
+                        <input type="text" id="clublog_api" name="clublog_api" placeholder="Club Log API key" spellcheck="false">
+                        <small>Club Log API key (from clublog.org helpdesk). Required to upload.</small>
+                    </div>
+                </div>
                 
+                <!-- Section: HRDLog.net -->
+                <div class="config-section">
+                    <h3>🗂️ HRDLog.net</h3>
+                    <div class="form-group">
+                        <label>HRDLog.net Callsign:</label>
+                        <input type="text" id="hrdlog_callsign" name="hrdlog_callsign" placeholder="e.g. SP9TNV" spellcheck="false">
+                        <small>The callsign whose HRDLog log the QSOs go into.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>HRDLog.net Upload Code:</label>
+                        <input type="password" id="hrdlog_code" name="hrdlog_code" placeholder="Upload Code from profile" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>Code from your HRDLog.net profile (Settings -> Upload Code). Required to upload.</small>
+                    </div>
+                </div>
+
+                <!-- Section: HamQTH -->
+                <div class="config-section">
+                    <h3>🗂️ HamQTH.com</h3>
+                    <div class="form-group">
+                        <label>HamQTH Login (callsign):</label>
+                        <input type="text" id="hamqth_user" name="hamqth_user" placeholder="e.g. SP9TNV" spellcheck="false">
+                        <small>HamQTH.com login (usually your callsign). Required to upload.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>HamQTH Password:</label>
+                        <input type="password" id="hamqth_pass" name="hamqth_pass" placeholder="HamQTH password" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>Your HamQTH.com password.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>HamQTH Callsign (optional):</label>
+                        <input type="text" id="hamqth_callsign" name="hamqth_callsign" placeholder="e.g. SP9TNV" spellcheck="false">
+                        <small>Station callsign used for upload. Empty = the login is used.</small>
+                    </div>
+                </div>
+
+                <!-- Section: HAMLOG.online -->
+                <div class="config-section">
+                    <h3>🗂️ HAMLOG.online</h3>
+                    <div class="form-group">
+                        <label>HAMLOG.online API Key:</label>
+                        <input type="password" id="hamlog_api" name="hamlog_api" placeholder="API key" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>API key from your HAMLOG.online profile (account/agent.php). Required to upload.</small>
+                    </div>
+                </div>
+
                 <div class="config-section">
                     <h3>📝 ESP32 HAM LOGGER</h3>
                     <div class="form-group">
@@ -1100,9 +1190,24 @@
                         <small>Downloads the QSO log stored on the device (ADIF format).</small>
                     </div>
                     <div class="form-group">
-                        <label>Upload to QRZ Logbook:</label>
-                        <button type="button" onclick="qrzLogbookUpload()">Upload ADIF to QRZ Logbook</button>
-                        <small>Requires the QRZ API key (above). Function ready for the future.</small>
+                        <label>Upload ADIF to an online log:</label>
+                        <select id="log_upload_service" name="log_upload_service">
+                            <option value="qrz">QRZ Logbook</option>
+                            <option value="eqsl">eQSL.cc</option>
+                            <option value="clublog">Club Log</option>
+                            <option value="hrdlog">HRDLog.net</option>
+                            <option value="hamqth">HamQTH.com</option>
+                            <option value="hamlog">HAMLOG.online</option>
+                        </select>
+                        <button type="button" onclick="logbookUpload()">Upload ADIF to the selected log</button>
+                        <button type="button" onclick="logbookTest()">Test connection</button>
+                        <small>QRZ/eQSL: the whole log at once. Club Log/HRDLog/HamQTH/HAMLOG: one QSO at a time. "Test connection" checks credentials without sending any QSO.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Log preview:</label>
+                        <button type="button" onclick="logbookRefresh()">Refresh list</button>
+                        <button type="button" onclick="logbookClear()">Clear log</button>
+                        <div id="logbook_list" style="max-height: 220px; overflow: auto; margin-top: 8px;"></div>
                     </div>
                 </div>
 
@@ -1995,10 +2100,52 @@
             return arr;
         };
 
-        const qrzLogbookUpload = () => {
-            fetch('/api/qrz_upload', { method: 'POST' })
+        const logbookUpload = () => {
+            const sel = document.getElementById('log_upload_service');
+            const service = sel ? sel.value : 'qrz';
+            fetch('/api/qrz_upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service })
+            })
                 .then(r => r.text().then(t => alert(t)))
                 .catch(() => alert('Blad polaczenia z urzadzeniem'));
+        };
+        const logbookTest = () => {
+            const sel = document.getElementById('log_upload_service');
+            const service = sel ? sel.value : 'qrz';
+            fetch('/api/log_test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service })
+            })
+                .then(r => r.text().then(t => alert(t)))
+                .catch(() => alert('Blad polaczenia z urzadzeniem'));
+        };
+        const logbookRefresh = () => {
+            fetch('/api/logbook')
+                .then(r => r.json())
+                .then(d => {
+                    const box = document.getElementById('logbook_list');
+                    if (!box) return;
+                    if (!d.qso || !d.qso.length) { box.innerHTML = '<small>(no entries)</small>'; return; }
+                    let html = '<table style="width:100%; font-size:12px; border-collapse:collapse;">'
+                        + '<tr><th>CALL</th><th>DATE</th><th>UTC</th><th>BAND</th><th>FREQ</th><th>MODE</th><th>NAME</th><th>QTH</th></tr>';
+                    for (const q of d.qso) {
+                        html += '<tr><td>' + (q.call||'') + '</td><td>' + (q.date||'') + '</td><td>' + (q.time||'')
+                             + '</td><td>' + (q.band||'') + '</td><td>' + (q.freq||'') + '</td><td>' + (q.mode||'')
+                             + '</td><td>' + (q.name||'') + '</td><td>' + (q.qth||'') + '</td></tr>';
+                    }
+                    html += '</table>';
+                    box.innerHTML = html;
+                })
+                .catch(() => {});
+        };
+        const logbookClear = () => {
+            if (!confirm('Delete the whole QSO log?')) return;
+            fetch('/api/logbook_clear', { method: 'POST' })
+                .then(r => r.json()).then(() => logbookRefresh())
+                .catch(() => alert('Blad polaczenia'));
         };
 
         const normalizeAprsAlertInput = (value) => {
@@ -2112,6 +2259,19 @@
             document.getElementById('qrz_user').value = data.qrz_user || "";
             document.getElementById('qrz_pass').value = data.qrz_pass || "";
             document.getElementById('qrz_api_key').value = data.qrz_api_key || "";
+            document.getElementById('eqsl_user').value = data.eqsl_user || "";
+            document.getElementById('eqsl_pass').value = data.eqsl_pass || "";
+            document.getElementById('eqsl_qth').value = data.eqsl_qth || "";
+            document.getElementById('clublog_email').value = data.clublog_email || "";
+            document.getElementById('clublog_pass').value = data.clublog_pass || "";
+            document.getElementById('clublog_callsign').value = data.clublog_callsign || "";
+            document.getElementById('clublog_api').value = data.clublog_api || "";
+            document.getElementById('hrdlog_callsign').value = data.hrdlog_callsign || "";
+            document.getElementById('hrdlog_code').value = data.hrdlog_code || "";
+            document.getElementById('hamqth_user').value = data.hamqth_user || "";
+            document.getElementById('hamqth_pass').value = data.hamqth_pass || "";
+            document.getElementById('hamqth_callsign').value = data.hamqth_callsign || "";
+            document.getElementById('hamlog_api').value = data.hamlog_api || "";
             document.getElementById('weather_key').value = data.weather_key || "";
             document.getElementById('openwebrx_url').value = data.openwebrx_url || "";
             openWebRxBase = normalizeOpenWebRx(data.openwebrx_url);
@@ -2190,8 +2350,10 @@
             const gpsActiveText = (data && data.gps_active === true) ? 'Active' : 'Inactive';
             const gpsFixText = (data && data.gps_fix === true) ? 'Yes' : 'No';
             const btActiveText = (data && data.bt_active === true) ? 'Active' : 'Inactive';
+            const satUsed = (data && data.gps_sats_used) ? data.gps_sats_used : ((data && data.gps_sats) ? data.gps_sats : 0);
+            const satView = (data && data.gps_sats_view) ? data.gps_sats_view : satUsed;
 
-            gpsStatusEl.textContent = `GPS: ${gpsActiveText} FIX: ${gpsFixText}`;
+            gpsStatusEl.textContent = `GPS: ${gpsActiveText} FIX: ${gpsFixText} SAT: ${satUsed}/${satView}`;
             btStatusEl.textContent = `BT Module: ${btActiveText}`;
         };
 
@@ -2778,6 +2940,19 @@
             qrz_user: document.getElementById('qrz_user').value,
             qrz_pass: document.getElementById('qrz_pass').value,
             qrz_api_key: document.getElementById('qrz_api_key').value,
+            eqsl_user: document.getElementById('eqsl_user').value,
+            eqsl_pass: document.getElementById('eqsl_pass').value,
+            eqsl_qth: document.getElementById('eqsl_qth').value,
+            clublog_email: document.getElementById('clublog_email').value,
+            clublog_pass: document.getElementById('clublog_pass').value,
+            clublog_callsign: document.getElementById('clublog_callsign').value,
+            clublog_api: document.getElementById('clublog_api').value,
+            hrdlog_callsign: document.getElementById('hrdlog_callsign').value,
+            hrdlog_code: document.getElementById('hrdlog_code').value,
+            hamqth_user: document.getElementById('hamqth_user').value,
+            hamqth_pass: document.getElementById('hamqth_pass').value,
+            hamqth_callsign: document.getElementById('hamqth_callsign').value,
+            hamlog_api: document.getElementById('hamlog_api').value,
             weather_key: document.getElementById('weather_key').value,
             openwebrx_url: document.getElementById('openwebrx_url').value,
             cluster_noann: document.getElementById('cluster_noann').checked,

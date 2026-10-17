@@ -12,10 +12,10 @@ ROOT_FILES = [
     "partitions.csv", ".gitignore", "main.cpp", "flash.bat", "tft_setup.h",
     "iss_worldmask.h", "flash.sh", "README_S3.md", "PINOUT.md", "INSTRUKCJA.md",
 ]
+# Tylko scalony obraz (merged-flash.bin) trafia do paczki - zawiera bootloader,
+# partycje, aplikacje i LittleFS w jednym pliku (flash pod adresem 0x0).
 DIST_BINS = [
-    "boot_app0.bin", "bootloader.bin", "firmware-notouch.bin", "firmware.bin",
-    "littlefs.bin", "merged-flash-notouch.bin", "merged-flash.bin",
-    "partitions.bin", "touch_test.bin", "touch_test_merged.bin",
+    "merged-flash.bin",
 ]
 
 files = [f for f in ROOT_FILES if os.path.isfile(f)]

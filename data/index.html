@@ -1100,7 +1100,97 @@
                         <small>Status połączenia z QRZ.com (aktualizowany automatycznie)</small>
                     </div>
                 </div>
+
+                <!-- Sekcja: eQSL.cc -->
+                <div class="config-section">
+                    <h3>📮 eQSL.cc</h3>
+                    <div class="form-group">
+                        <label>eQSL.cc Login (znak):</label>
+                        <input type="text" id="eqsl_user" name="eqsl_user" placeholder="np. SP9TNV" spellcheck="false">
+                        <small>Login do eQSL.cc (zwykle Twój znak). Wymagany do wysyłki ADIF na eQSL.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>eQSL.cc Hasło:</label>
+                        <input type="password" id="eqsl_pass" name="eqsl_pass" placeholder="hasło eQSL" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>Hasło do eQSL.cc.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>eQSL.cc QTH Nickname (opcjonalnie):</label>
+                        <input type="text" id="eqsl_qth" name="eqsl_qth" placeholder="np. DOM" spellcheck="false">
+                        <small>Tylko gdy masz kilka kont eQSL z tym samym znakiem (pole APP_EQSL_QTH_NICKNAME).</small>
+                    </div>
+                </div>
+
+                <!-- Sekcja: Club Log -->
+                <div class="config-section">
+                    <h3>🏆 Club Log</h3>
+                    <div class="form-group">
+                        <label>Club Log E-mail konta:</label>
+                        <input type="text" id="clublog_email" name="clublog_email" placeholder="adres e-mail" spellcheck="false">
+                        <small>Adres e-mail konta Club Log (NIE znak). Wymagany do wysyłki.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Club Log Hasło aplikacji:</label>
+                        <input type="password" id="clublog_pass" name="clublog_pass" placeholder="Application Password" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>Application Password z profilu Club Log (nie główne hasło konta).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Club Log Znak docelowy:</label>
+                        <input type="text" id="clublog_callsign" name="clublog_callsign" placeholder="np. SP9TNV" spellcheck="false">
+                        <small>Znak, do którego logu mają trafić QSO (musi należeć do konta).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Club Log API Key:</label>
+                        <input type="text" id="clublog_api" name="clublog_api" placeholder="klucz API Club Log" spellcheck="false">
+                        <small>Klucz API Club Log (od helpdesk clublog.org). Wymagany do wysyłki.</small>
+                    </div>
+                </div>
                 
+                <!-- Sekcja: HRDLog.net -->
+                <div class="config-section">
+                    <h3>🗂️ HRDLog.net</h3>
+                    <div class="form-group">
+                        <label>HRDLog.net Znak:</label>
+                        <input type="text" id="hrdlog_callsign" name="hrdlog_callsign" placeholder="np. SP9TNV" spellcheck="false">
+                        <small>Znak, do którego logu HRDLog mają trafić QSO.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>HRDLog.net Upload Code:</label>
+                        <input type="password" id="hrdlog_code" name="hrdlog_code" placeholder="Upload Code z profilu" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>Kod z profilu HRDLog.net (Settings -> Upload Code). Wymagany do wysyłki.</small>
+                    </div>
+                </div>
+
+                <!-- Sekcja: HamQTH -->
+                <div class="config-section">
+                    <h3>🗂️ HamQTH.com</h3>
+                    <div class="form-group">
+                        <label>HamQTH Login (znak):</label>
+                        <input type="text" id="hamqth_user" name="hamqth_user" placeholder="np. SP9TNV" spellcheck="false">
+                        <small>Login do HamQTH.com (zwykle Twój znak). Wymagany do wysyłki.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>HamQTH Hasło:</label>
+                        <input type="password" id="hamqth_pass" name="hamqth_pass" placeholder="hasło HamQTH" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>Hasło do HamQTH.com.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>HamQTH Znak (opcjonalnie):</label>
+                        <input type="text" id="hamqth_callsign" name="hamqth_callsign" placeholder="np. SP9TNV" spellcheck="false">
+                        <small>Znak stacji wysyłającej. Puste = użyty zostanie login.</small>
+                    </div>
+                </div>
+
+                <!-- Sekcja: HAMLOG.online -->
+                <div class="config-section">
+                    <h3>🗂️ HAMLOG.online</h3>
+                    <div class="form-group">
+                        <label>HAMLOG.online API Key:</label>
+                        <input type="password" id="hamlog_api" name="hamlog_api" placeholder="klucz API" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false">
+                        <small>Klucz API z profilu HAMLOG.online (account/agent.php). Wymagany do wysyłki.</small>
+                    </div>
+                </div>
+
                 <div class="config-section">
                     <h3>📝 ESP32 HAM LOGGER</h3>
                     <div class="form-group">
@@ -1109,9 +1199,24 @@
                         <small>Pobiera dziennik łączności zapisany na urządzeniu (format ADIF).</small>
                     </div>
                     <div class="form-group">
-                        <label>Wysyłka do QRZ Logbook:</label>
-                        <button type="button" onclick="qrzLogbookUpload()">Wyślij ADIF do QRZ Logbook</button>
-                        <small>Wymaga klucza API QRZ (powyżej). Funkcja gotowa na przyszłość.</small>
+                        <label>Wysyłka ADIF do logu online:</label>
+                        <select id="log_upload_service" name="log_upload_service">
+                            <option value="qrz">QRZ Logbook</option>
+                            <option value="eqsl">eQSL.cc</option>
+                            <option value="clublog">Club Log</option>
+                            <option value="hrdlog">HRDLog.net</option>
+                            <option value="hamqth">HamQTH.com</option>
+                            <option value="hamlog">HAMLOG.online</option>
+                        </select>
+                        <button type="button" onclick="logbookUpload()">Wyślij ADIF do wybranego logu</button>
+                        <button type="button" onclick="logbookTest()">Test połączenia</button>
+                        <small>QRZ/eQSL: cały dziennik naraz. Club Log/HRDLog/HamQTH/HAMLOG: po jednym QSO. „Test połączenia” sprawdza dane logowania bez wysyłania QSO.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Podgląd dziennika:</label>
+                        <button type="button" onclick="logbookRefresh()">Odśwież listę</button>
+                        <button type="button" onclick="logbookClear()">Wyczyść log</button>
+                        <div id="logbook_list" style="max-height: 220px; overflow: auto; margin-top: 8px;"></div>
                     </div>
                 </div>
 
@@ -1914,10 +2019,52 @@
             return arr;
         };
 
-        const qrzLogbookUpload = () => {
-            fetch('/api/qrz_upload', { method: 'POST' })
+        const logbookUpload = () => {
+            const sel = document.getElementById('log_upload_service');
+            const service = sel ? sel.value : 'qrz';
+            fetch('/api/qrz_upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service })
+            })
                 .then(r => r.text().then(t => alert(t)))
                 .catch(() => alert('Blad polaczenia z urzadzeniem'));
+        };
+        const logbookTest = () => {
+            const sel = document.getElementById('log_upload_service');
+            const service = sel ? sel.value : 'qrz';
+            fetch('/api/log_test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service })
+            })
+                .then(r => r.text().then(t => alert(t)))
+                .catch(() => alert('Blad polaczenia z urzadzeniem'));
+        };
+        const logbookRefresh = () => {
+            fetch('/api/logbook')
+                .then(r => r.json())
+                .then(d => {
+                    const box = document.getElementById('logbook_list');
+                    if (!box) return;
+                    if (!d.qso || !d.qso.length) { box.innerHTML = '<small>(brak wpisow)</small>'; return; }
+                    let html = '<table style="width:100%; font-size:12px; border-collapse:collapse;">'
+                        + '<tr><th>CALL</th><th>DATE</th><th>UTC</th><th>BAND</th><th>FREQ</th><th>MODE</th><th>NAME</th><th>QTH</th></tr>';
+                    for (const q of d.qso) {
+                        html += '<tr><td>' + (q.call||'') + '</td><td>' + (q.date||'') + '</td><td>' + (q.time||'')
+                             + '</td><td>' + (q.band||'') + '</td><td>' + (q.freq||'') + '</td><td>' + (q.mode||'')
+                             + '</td><td>' + (q.name||'') + '</td><td>' + (q.qth||'') + '</td></tr>';
+                    }
+                    html += '</table>';
+                    box.innerHTML = html;
+                })
+                .catch(() => {});
+        };
+        const logbookClear = () => {
+            if (!confirm('Usunac caly dziennik QSO?')) return;
+            fetch('/api/logbook_clear', { method: 'POST' })
+                .then(r => r.json()).then(() => logbookRefresh())
+                .catch(() => alert('Blad polaczenia'));
         };
 
         const normalizeAprsAlertInput = (value) => {
@@ -2040,6 +2187,19 @@
             document.getElementById('qrz_user').value = data.qrz_user || "";
             document.getElementById('qrz_pass').value = data.qrz_pass || "";
             document.getElementById('qrz_api_key').value = data.qrz_api_key || "";
+            document.getElementById('eqsl_user').value = data.eqsl_user || "";
+            document.getElementById('eqsl_pass').value = data.eqsl_pass || "";
+            document.getElementById('eqsl_qth').value = data.eqsl_qth || "";
+            document.getElementById('clublog_email').value = data.clublog_email || "";
+            document.getElementById('clublog_pass').value = data.clublog_pass || "";
+            document.getElementById('clublog_callsign').value = data.clublog_callsign || "";
+            document.getElementById('clublog_api').value = data.clublog_api || "";
+            document.getElementById('hrdlog_callsign').value = data.hrdlog_callsign || "";
+            document.getElementById('hrdlog_code').value = data.hrdlog_code || "";
+            document.getElementById('hamqth_user').value = data.hamqth_user || "";
+            document.getElementById('hamqth_pass').value = data.hamqth_pass || "";
+            document.getElementById('hamqth_callsign').value = data.hamqth_callsign || "";
+            document.getElementById('hamlog_api').value = data.hamlog_api || "";
             document.getElementById('weather_key').value = data.weather_key || "";
             document.getElementById('openwebrx_url').value = data.openwebrx_url || "";
             openWebRxBase = normalizeOpenWebRx(data.openwebrx_url);
@@ -2118,8 +2278,10 @@
             const gpsActiveText = (data && data.gps_active === true) ? 'Aktywny' : 'Nieaktywny';
             const gpsFixText = (data && data.gps_fix === true) ? 'Tak' : 'Nie';
             const btActiveText = (data && data.bt_active === true) ? 'Aktywny' : 'Nieaktywny';
+            const satUsed = (data && data.gps_sats_used) ? data.gps_sats_used : ((data && data.gps_sats) ? data.gps_sats : 0);
+            const satView = (data && data.gps_sats_view) ? data.gps_sats_view : satUsed;
 
-            gpsStatusEl.textContent = `GPS: ${gpsActiveText} FIX: ${gpsFixText}`;
+            gpsStatusEl.textContent = `GPS: ${gpsActiveText} FIX: ${gpsFixText} SAT: ${satUsed}/${satView}`;
             btStatusEl.textContent = `BT Module: ${btActiveText}`;
         };
 
@@ -3218,6 +3380,19 @@
             qrz_user: document.getElementById('qrz_user').value,
             qrz_pass: document.getElementById('qrz_pass').value,
             qrz_api_key: document.getElementById('qrz_api_key').value,
+            eqsl_user: document.getElementById('eqsl_user').value,
+            eqsl_pass: document.getElementById('eqsl_pass').value,
+            eqsl_qth: document.getElementById('eqsl_qth').value,
+            clublog_email: document.getElementById('clublog_email').value,
+            clublog_pass: document.getElementById('clublog_pass').value,
+            clublog_callsign: document.getElementById('clublog_callsign').value,
+            clublog_api: document.getElementById('clublog_api').value,
+            hrdlog_callsign: document.getElementById('hrdlog_callsign').value,
+            hrdlog_code: document.getElementById('hrdlog_code').value,
+            hamqth_user: document.getElementById('hamqth_user').value,
+            hamqth_pass: document.getElementById('hamqth_pass').value,
+            hamqth_callsign: document.getElementById('hamqth_callsign').value,
+            hamlog_api: document.getElementById('hamlog_api').value,
             weather_key: document.getElementById('weather_key').value,
             openwebrx_url: document.getElementById('openwebrx_url').value,
             cluster_noann: document.getElementById('cluster_noann').checked,

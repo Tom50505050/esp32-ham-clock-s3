@@ -2,13 +2,13 @@
 
 Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b** i **v1.2c** dla
 platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM) z wyświetlaczem
-**ILI9488 3.5" IPS 480×320** po SPI i panelem dotykowym XPT2046.
+**ILI9488 na 3.5" i 4" 480×320** po SPI i panelem dotykowym XPT2046.
 
 ---
 
 # ESP32-HAM-CLOCK v1.2c — ekran ESP32 HAM LOGGER (dziennik ADIF)
 
-Wydanie **v1.2c** (17.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 3.5"**
+Wydanie **v1.2c** (17.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 na 3.5" i 4" 480×320**
 + XPT2046. Zakres: **nowy ekran ESP32 HAM LOGGER (16. ekran)** — dziennik
 łączności w formacie **ADIF**, integracja z UI WWW oraz narzędzie podglądu.
 Pozostałe ekrany i zależności bez zmian.
@@ -64,7 +64,7 @@ Pozostałe ekrany i zależności bez zmian.
 
 # ESP32-HAM-CLOCK v1.2b — nowy ekran STACJA
 
-Wydanie **v1.2b** (16.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 3.5"**
+Wydanie **v1.2b** (16.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 na 3.5" i 4" 480×320**
 + XPT2046. Zakres: **nowy ekran STACJA (15. ekran)**, integracja z UI WWW oraz
 narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
 
@@ -118,10 +118,10 @@ narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
 
 ---
 
-# ESP32-HAM-CLOCK v1.2 — ESP32-S3 N16R8 + ILI9488 3.5"
+# ESP32-HAM-CLOCK v1.2 — ESP32-S3 N16R8 + ILI9488 na 3.5" i 4" 480×320
 
 Wydanie **v1.2** dla platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM)
-z wyświetlaczem **ILI9488 3.5" IPS 480×320** po SPI i panelem dotykowym XPT2046.
+z wyświetlaczem **ILI9488 na 3.5" i 4" 480×320** po SPI i panelem dotykowym XPT2046.
 
 ## Zmiany w tym wydaniu
 
@@ -181,7 +181,7 @@ z wyświetlaczem **ILI9488 3.5" IPS 480×320** po SPI i panelem dotykowym XPT204
 # ESP32-HAM-CLOCK v1.2a — wydanie poprawkowe (PSK MAP)
 
 Wydanie **v1.2a** (16.10.2026) dla tej samej platformy
-(**ESP32-S3 N16R8** + **ILI9488 3.5"** + XPT2046). Zakres: ekran **PSK MAP**
+(**ESP32-S3 N16R8** + **ILI9488 na 3.5" i 4" 480×320** + XPT2046). Zakres: ekran **PSK MAP**
 oraz narzędzia projektu. Pozostałe ekrany i zależności bez zmian.
 
 ## Zmiany od v1.2
