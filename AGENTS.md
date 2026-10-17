@@ -1521,3 +1521,38 @@ Trzy niezalezne przyczyny:
 
 
 
+
+## Naprawa: PSK Reporter + POTA "brak danych" (17.10.2026)
+Objawy zgloszone przez uzytkownika: ekran PSK MAP pusty ("nie dziala psk
+reporter"), ekran POTA Cluster tez bez danych. Dwie NIEZALEZNE przyczyny:
+
+1. **PSK: domyslny host HTTP martwy + tryb MQTT bez feedu.**
+   - `retrieve.pskreporter.info/query` (dawny domyslny URL) zwraca Cloudflare
+     **522/523** (origin down) i **0 bajtow** -> mapa zostawala pusta.
+     Dziala `pskreporter.info/query` (ten sam JSON, ten sam Cloudflare IP);
+     zweryfikowane: HTTP 200, dane na zywo (`currentSeconds` = teraz).
+     Fix: domyslny URL -> `https://pskreporter.info/query?`.
+   - Broker `mqtt.pskreporter.info` **nie publikuje juz** feedu PSK:
+     `pskr/filter/v2` i `pskr/filter/v2_field` zniknely (zostal tylko WSPR).
+     Jedyny feed `pskr/filter/v2raw_1pc` tez byl chwilowo martwy (bridge
+     zrestartowany 16.10.2026 23:20, `last_spot_received_at` zamrozone,
+     `pskr_last_disconnected` = teraz). Fix: domyslny tryb -> **HTTP**
+     (`pskMqttEnabled=false`), plus migracja NVS (`psk_mqtt_off_migr`)
+     wylaczajaca MQTT RAZ dla niezmienionego serwera (wlasny broker zostaje).
+     Gdyby MQTT wrocil: temat `pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nad>/<odb>`
+     (segment odbiorcy = idx 5, brak segmentow lokatora - filtrujemy po znaku).
+   - Bufor parsowania PSK: 24 KB -> **512 KB w PSRAM** (`BasicJsonDocument<
+     PskPsramAllocator>`), bo `rptlimit` bywa ignorowany i filtrowany dokument
+     rosnie do ~340 KB (wewnetrzny RAM dawal "NoMemory").
+
+2. **POTA: za male bufory JSON (regresja rozmiaru danych, nie kodu).**
+   API POTA zwraca teraz CALA liste (~239 spotow = ~150 KB surowego JSON-a,
+   ~73 KB po filtrze), a firmware mial 24 KB (filtr) / 64 KB (bez filtra) w
+   wewnetrznym RAM -> `deserializeJson` konczyl sie **"NoMemory"** i spoty
+   ginely (przy 24 KB dekodowalo sie tylko ~80/239). Fix: bufory w PSRAM
+   (`PskPsramAllocator`): **96 KB** (filtr) / **256 KB** (fallback bez filtra).
+   - Nowy `struct PskPsramAllocator` (heap_caps_malloc MALLOC_CAP_SPIRAM) na
+     poczatku sekcji POTA; wymaga `#include <esp_heap_caps.h>` (juz jest).
+   - Weryfikacja hostowa (ArduinoJson 6.21.5, `g++`): 96 KB -> `Ok`, 239 spotow.
+- Pliki: `main.cpp`. Build 2 env SUCCESS.
+

@@ -243,7 +243,10 @@ int pskReportDays = 0;
 int pskAutoRefreshMinutes = 5;
 
 // MQTT PSK Reporter - alternatywny tryb
-bool pskMqttEnabled = true;               // Domyslnie MQTT (start od razu, bez HTTP)
+// Domyslnie HTTP. Broker mqtt.pskreporter.info NIE publikuje juz feedu PSK
+// (pskr/filter/v2*, zostal tylko WSPR), wiec tryb MQTT nie dawal spotow.
+// Tryb HTTP (pskreporter.info/query) dziala i to on jest teraz domyslny.
+bool pskMqttEnabled = false;
 String pskMqttServer = "mqtt.pskreporter.info";  // Serwer MQTT
 int pskMqttPort = 1883;                   // Port MQTT (1883 dla plain, 8883 dla TLS)
 String pskMqttSubscribedTopic = "";       // aktualnie zasubskrybowany temat (do resubskrypcji)
@@ -271,7 +274,7 @@ String pskTempBand = "";
 String pskTempMode = "";
 int pskTempMaxSpots = 50;
 int pskTempReportDays = 3;
-bool pskTempMqttEnabled = true;
+bool pskTempMqttEnabled = false;
 String pskTempMqttServer = "";
 String pskTempMqttCallsign = "";
 String pskTempLocator = "";
@@ -14557,6 +14560,14 @@ void enqueueQrzLookup(const String &callsign) {
   item.attempts = 0;
   qrzQueue[qrzQueueLen++] = item;
 }
+// Allocator ArduinoJson korzystajacy z PSRAM (8 MB). Bez tego duze dokumenty
+// (POTA ~150 KB JSON) nie mieszcza sie w wewnetrznym RAM i deserializacja
+// konczy sie "NoMemory" (czesc spotow gubiona / 0 spotow po wiekszych listach).
+struct PskPsramAllocator {
+  void* allocate(size_t size) { return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+  void deallocate(void* ptr) { heap_caps_free(ptr); }
+  void* reallocate(void* ptr, size_t new_size) { return heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+};
 
 // Pobierz spoty POTA z publicznego API i uzupeĹ‚nij bufor + kolejkÄ™ QRZ
 bool fetchPotaApi() {
@@ -14651,15 +14662,12 @@ bool fetchPotaApi() {
   filterRootArray["spotter"] = true;
   filterRootArray["comments"] = true;
 
-  // Bufory byĹ‚y wczeĹ›niej ustawione na 200 000 i 400 000 bajtĂłw - a
-  // rzeczywiste odpowiedzi POTA w logach majÄ… 8-11 KB surowego JSON-a.
-  // UrzÄ…dzenie ma w sumie ~320 KB RAM, wiÄ™c 400 KB to gwarantowane
-  // niepowodzenie alokacji za kaĹĽdym razem, a nawet 200 KB to ogromny,
-  // niepotrzebny narzut, ktĂłry mocno przyczyniaĹ‚ siÄ™ do fragmentacji sterty
-  // (i przez to do problemĂłw gdzie indziej, np. z pobieraniem pogody "po
-  // jakimĹ› czasie"). 24 KB dla wersji filtrowanej to nadal ponad 2x
-  // margines wzglÄ™dem obserwowanych rozmiarĂłw.
-  DynamicJsonDocument doc(24576);
+  // Bufory w PSRAM. API POTA zwraca teraz cala liste aktywnych spotow
+  // (obserwowane ~240 spotow = ~150 KB surowego JSON-a, ~73 KB po filtrze),
+  // a wczesniejsze 24 KB (filtr) / 64 KB (bez filtra) w wewnetrznym RAM
+  // konczyly sie bledem "NoMemory" - spoty ginely. 96 KB / 256 KB w PSRAM
+  // (8 MB) daje zapas na wzrost listy i nie obciaza wewnetrznego sterty.
+  BasicJsonDocument<PskPsramAllocator> doc(98304);
   DeserializationError err = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
   http.end();
   bool parsedOk = (!err && decodeToSpots(doc));
@@ -14689,7 +14697,7 @@ bool fetchPotaApi() {
       return false;
     }
     WiFiClient *retryStream = retry.getStreamPtr();
-    DynamicJsonDocument fullDoc(65536);
+    BasicJsonDocument<PskPsramAllocator> fullDoc(262144);
     DeserializationError retryErr = deserializeJson(fullDoc, *retryStream);
     retry.end();
     if (retryErr) {
@@ -19224,11 +19232,21 @@ void loadPreferences() {
   if (pskAutoRefreshMinutes > 60) pskAutoRefreshMinutes = 60;
 
   // MQTT PSK Reporter settings
-  pskMqttEnabled = preferences->getBool("psk_mqtt_en", true);
+  // Domyslnie HTTP (patrz komentarz przy pskMqttEnabled). Zapisane w NVS ma priorytet.
+  pskMqttEnabled = preferences->getBool("psk_mqtt_en", false);
   pskMqttServer = preferences->getString("psk_mqtt_srv", "mqtt.pskreporter.info");
   pskMqttPort = preferences->getInt("psk_mqtt_port", 1883);
   if (pskMqttPort <= 0 || pskMqttPort > 65535) pskMqttPort = 1883;
   pskMqttCallsign = preferences->getString("psk_mqtt_call", "");
+  // Migracja: broker mqtt.pskreporter.info przestal publikowac feed PSK (zostal
+  // tylko WSPR), wiec zapisany "true" (dawny domyslny) dawal pusta mape. Wylacz
+  // MQTT RAZ, jesli uzytkownik nie zmienil serwera (wlasny broker zostawiamy).
+  if (pskMqttEnabled && pskMqttServer == "mqtt.pskreporter.info" &&
+      !preferences->getBool("psk_mqtt_off_migr", false)) {
+    pskMqttEnabled = false;
+    preferences->putBool("psk_mqtt_off_migr", true);
+    preferences->putBool("psk_mqtt_en", false);
+  }
 
   screen1TimeMode = (uint8_t)preferences->getInt("screen1_time", SCREEN1_TIME_UTC);
   if (screen1TimeMode > SCREEN1_TIME_LOCAL) screen1TimeMode = SCREEN1_TIME_UTC;
@@ -22972,7 +22990,11 @@ bool fetchPskReporterData() {
   static WiFiClient pskPlainClient;
   HTTPClient http;
   // UĹĽyj wĹ‚asnego URL jeĹ›li ustawiony, w przeciwnym razie domyĹ›lny
-  String baseUrl = pskCustomUrl.length() > 0 ? pskCustomUrl : "https://retrieve.pskreporter.info/query?";
+  // Domyslny host to pskreporter.info/query. Historyczny alias
+  // retrieve.pskreporter.info/query jest martwy (Cloudflare 522/523 = brak
+  // originu) i zwracal 0 bajtow, przez co mapa zostawala pusta. pskreporter.info
+  // zwraca te sama (JSON) odpowiedz i dziala.
+  String baseUrl = pskCustomUrl.length() > 0 ? pskCustomUrl : "https://pskreporter.info/query?";
   // Auto-upgrade HTTP do HTTPS dla bezpieczeĹ„stwa
   if (baseUrl.startsWith("http://")) {
     baseUrl = "https://" + baseUrl.substring(7);
@@ -23062,7 +23084,10 @@ bool fetchPskReporterData() {
   filter["receptionReport"][0]["sNR"] = true;
   filter["receptionReport"][0]["frequency"] = true;
 
-  DynamicJsonDocument doc(24576);
+  // Bufor w PSRAM: gdy rptlimit nie zadziala (serwer ignoruje limit, gdy nie
+  // uznaje nas za aktywnego klienta), odpowiedz bywa ~500 KB i filtrowany
+  // dokument rosnie do ~340 KB - 24 KB w wewnetrznym RAM dawalo "NoMemory".
+  BasicJsonDocument<PskPsramAllocator> doc(524288);
   DeserializationError error = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
   http.end();
 
@@ -25471,31 +25496,25 @@ bool pskMqttConnected = false;
 unsigned long lastPskMqttReconnectAttempt = 0;
 const unsigned long PSK_MQTT_RECONNECT_INTERVAL_MS = 5000; // Co 5 sekund prĂłba reconnect
 
-// Generuje precyzyjny topic na podstawie lokatora uĹĽytkownika (tylko pierwsze 4 znaki = duĹĽy kwadrat ~100x200km)
-// Temat MQTT PSKReportera to pskr/filter/v2/<pasmo>/<tryb>/<nadawca>/<odbiorca>/
-// <lokator nadawcy>/<lokator odbiorcy>/<az>/<az>. Broker NIE tworzy tematow z
-// prefiksem lokatora (dawny "pskr/filter/v2/+/+/+/LOC4/#" nie pasowal do niczego
-// i ekran zostawal pusty), wiec subskrybujemy cala galeź i filtrujemy w
-// callbacku po lokatorze.
+// Generuje topic MQTT PSKReportera do subskrypcji. Jedyny dzialajacy feed PSK
+// na mqtt.pskreporter.info to "pskr/filter/v2raw_1pc" (1% probka). Uklad:
+// pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nadawca>/<odbiorca>. Pasmo/tryb
+// zawezamy w subskrypcji; reszte filtrujemy w callbacku (v2raw nie ma segmentow
+// lokatora/DXCC, wiec nie da sie zawezic po polu odbiorcy).
 static String getPskMqttTopicForLocator(const String& locator) {
-  // Temat "v2_field" jest dedykowany filtrowaniu po POLU lokatora (2 znaki):
-  //   pskr/filter/v2_field/<pasmo>/<tryb>/<pole nadawcy>/<pole odbiorcy>
-  // Daje ~20-70 msg/s dla naszego pola (JO) zamiast ~500+ msg/s z "v2/#"
-  // (CALY swiat), ktorego ESP32 nie zdazy parsowac JSON-em. Zostawiamy spoty
-  // odebrane w NASZYM polu (odbiorca blisko nas), rysujemy nadawce (DX).
-  String field;
-  if (locator.length() >= 2) {
-    field = locator.substring(0, 2);
-    field.toUpperCase();
-  }
-  if (field.length() < 2) {
-    // Brak lokatora - nie da sie zawezic po polu. Fallback: caly swiat
-    // (bardzo ciezki; uzytkownik powinien ustawic lokator w Ustawieniach).
-    return "pskr/filter/v2/#";
-  }
+  (void)locator;  // feed v2raw nie ma segmentow lokatora - filtrujemy w callbacku
   String band = (pskFilterBand.length() > 0) ? pskFilterBand : String("+");
   String mode = (pskFilterMode.length() > 0) ? pskFilterMode : String("+");
-  return "pskr/filter/v2_field/" + band + "/" + mode + "/+/" + field;
+  // Broker mqtt.pskreporter.info nie publikuje juz feedu PSK "pskr/filter/v2"
+  // ani "pskr/filter/v2_field" (usuniete - zostal tylko WSPR). Dziala jeszcze
+  // "pskr/filter/v2raw_1pc": 1% losowa probka v2raw (bez segmentow lokatorow/
+  // DXCC), ktora strona mqtt.pskreporter.info sama uzywa do dashboardu.
+  // Uklad v2raw: pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nadawca>/<odbiorca>.
+  // Pasmo/tryb zawezamy w subskrypcji, a odbiorce filtrujemy w callbacku.
+  if (band != "+" || mode != "+") {
+    return "pskr/filter/v2raw_1pc/" + band + "/" + mode + "/+/+";
+  }
+  return "pskr/filter/v2raw_1pc/#";
 }
 
 // Zwraca idx-ty segment tematu MQTT (rozdzielony '/'), np. idx=8 to lokator
@@ -25520,21 +25539,20 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
-  // Tematy maja rozny uklad segmentow, wiec lokator odbiorcy czytamy z INNEGO
-  // indeksu zaleznie od subskrypcji:
-  //   pskr/filter/v2_field/<pasmo>/<tryb>/<nad>/<odb>          -> idx 6 (odb, 2 znaki)
-  //   pskr/filter/v2/<pasmo>/<tryb>/<nad>/<odb>/<lN>/<lO>/...  -> idx 8 (kwadrat)
-  // Zanim sparsujemy JSON (drogie), odrzucamy spoty po tym lokatorze.
-  // Porownujemy tyle znakow, ile ma segment tematu (2 dla v2_field, 4+ dla v2).
-  int rlIdx = (String(topic).indexOf("v2_field/") >= 0) ? 6 : 8;
-  if (userLocator.length() >= 2) {
-    String topicLoc = pskMqttTopicSegment(topic, rlIdx);
-    topicLoc.toUpperCase();
-    String userLoc = userLocator;
-    userLoc.toUpperCase();
-    int cmp = topicLoc.length();
-    if (cmp > userLoc.length()) cmp = userLoc.length();
-    if (cmp >= 2 && topicLoc.substring(0, cmp) != userLoc.substring(0, cmp)) return;
+  // Uklad segmentow subskrybowanego tematu:
+  //   pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nadawca>/<odbiorca>
+  // Segment odbiorcy to idx 5 (nadawca idx 4). v2raw nie ma segmentow lokatora
+  // (to feed "surowy"), wiec odrzucamy spoty po ZNAKU odbiorcy - porownujemy
+  // tyle znakow, ile mamy w receiverCallsign (jesli ustawiony).
+  int rcIdx = 5;
+  if (pskReceiverCallsign.length() > 0) {
+    String topicRc = pskMqttTopicSegment(topic, rcIdx);
+    topicRc.toUpperCase();
+    String wantRc = pskReceiverCallsign;
+    wantRc.toUpperCase();
+    int cmp = topicRc.length();
+    if (cmp > wantRc.length()) cmp = wantRc.length();
+    if (cmp >= 2 && topicRc.substring(0, cmp) != wantRc.substring(0, cmp)) return;
   }
 
   // Parsuj JSON. Broker uzywa krotkich kluczy: sc=nadawca, sl=lokator nadawcy,
@@ -25548,23 +25566,15 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
 
   const char* sender = doc["sc"];
   const char* senderLocator = doc["sl"];
-  const char* receiverLocator = doc["rl"];
   const char* mode = doc["md"];
   float frequency = doc["f"] | 0.0f;
 
   if (!sender || !senderLocator) return;
 
-  // Na mapie rysujemy NADAWCE (DX) - tak jak tryb HTTP. Zeby mapa byla
-  // lokalnie istotna, zostawiamy tylko spoty odebrane w NASZYM POLU lokatora
-  // (odbiorca blisko nas), a nie nadawca. Porownujemy 2 znaki (pole) - zgodnie
-  // z subskrypcja v2_field. (Przy fallbacku "v2/#" to samo zawęża do pola.)
-  if (userLocator.length() >= 2 && receiverLocator && receiverLocator[0]) {
-    String loc2 = userLocator.substring(0, 2);
-    loc2.toUpperCase();
-    String rl2 = String(receiverLocator).substring(0, 2);
-    rl2.toUpperCase();
-    if (rl2 != loc2) return;
-  }
+  // Na mapie rysujemy NADAWCE (DX) - tak jak tryb HTTP. Feed v2raw nie ma
+  // segmentow lokatora, wiec nie da sie zawezic po polu odbiorcy; jesli
+  // uzytkownik podal wlasny znak odbiornika, odsiewamy po nim juz na poziomie
+  // tematu (patrz wyzej). Bez tego mapa pokazuje spoty z calego swiata (1%).
 
   // Konwersja lokatora na lat/lon
   double lat = 0, lon = 0;
