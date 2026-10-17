@@ -277,7 +277,7 @@
 
             <div class="config-section">
                 <h3>🖥️ TFT Screens (order)</h3>
-                <small>Page 1 shows first after power-up. You can set pages 1-15 or disable them (OFF).</small>
+                <small>Page 1 shows first after power-up. You can set pages 1-16 or disable them (OFF).</small>
                 <div class="form-group">
                     <label style="display: flex; align-items: center; gap: 10px;">
                         <input type="checkbox" id="tft_auto_switch" name="tft_auto_switch" style="width: auto;">
@@ -307,6 +307,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -328,6 +329,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -349,6 +351,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -370,6 +373,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -391,6 +395,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -412,6 +417,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -433,6 +439,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -454,6 +461,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -475,6 +483,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -496,6 +505,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -517,6 +527,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -538,6 +549,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -559,6 +571,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -580,6 +593,7 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
@@ -601,10 +615,34 @@
                             <option value="matrix">MATRIX</option>
                             <option value="systeminfo">SYSTEM INFO</option>
                             <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label>Page 16:</label>
+                    <select id="screen_slot_16">
+                            <option value="hamclock">HAM CLOCK</option>
+                            <option value="dxcluster">DX CLUSTER</option>
+                            <option value="aprsis">APRS-IS</option>
+                            <option value="aprsradar">APRS RADAR</option>
+                            <option value="bandinfo">BAND INFO</option>
+                            <option value="sunspots">SUN SPOTS</option>
+                            <option value="weather">WEATHER</option>
+                            <option value="weatherforecast">WEATHER FORECAST</option>
+                            <option value="pota">POTA</option>
+                            <option value="hamalert">HAMALERT</option>
+                            <option value="pskmap">PSK MAP</option>
+                            <option value="matrix">MATRIX</option>
+                            <option value="systeminfo">SYSTEM INFO</option>
+                            <option value="station">STATION</option>
+                            <option value="logger">LOGGER</option>
+                            <option value="iss">ISS</option>
+                            <option value="off">OFF</option>
+                    </select>
+                </div>
+
             </div>
 
             <div class="config-section">
@@ -1043,12 +1081,31 @@
                         <small>QRZ password (with the username it opens the XML API session for callsign lookup)</small>
                     </div>
                     <div class="form-group">
+                        <label>QRZ.com API Key (Logbook):</label>
+                        <input type="text" id="qrz_api_key" name="qrz_api_key" placeholder="QRZ Logbook API key" spellcheck="false">
+                        <small>QRZ Logbook API key - for direct ADIF upload from the device (ready for the future). Not needed for callsign lookup.</small>
+                    </div>
+                    <div class="form-group">
                         <label>QRZ Status:</label>
                         <input type="text" id="qrz_status" name="qrz_status" readonly style="background: #1a1a1a; color: #888;">
                         <small>QRZ.com connection status (auto-updated)</small>
                     </div>
                 </div>
                 
+                <div class="config-section">
+                    <h3>📝 ESP32 HAM LOGGER</h3>
+                    <div class="form-group">
+                        <label>ADIF export:</label>
+                        <a href="/qso.adi" download="qso.adi">qso.adi</a>
+                        <small>Downloads the QSO log stored on the device (ADIF format).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Upload to QRZ Logbook:</label>
+                        <button type="button" onclick="qrzLogbookUpload()">Upload ADIF to QRZ Logbook</button>
+                        <small>Requires the QRZ API key (above). Function ready for the future.</small>
+                    </div>
+                </div>
+
                 <!-- Section: OpenWeather -->
                 <div class="config-section">
                     <h3>🌤️ OpenWeather</h3>
@@ -1913,13 +1970,13 @@
             document.getElementById('status').textContent = "Showing " + filtered.length + " spots";
         }
         
-        const screenOptionsDefault = ["hamclock", "dxcluster", "aprsis", "aprsradar", "bandinfo", "sunspots", "weather", "weatherforecast", "pota", "hamalert", "pskmap", "matrix", "systeminfo", "station", "iss"];
+        const screenOptionsDefault = ["hamclock", "dxcluster", "aprsis", "aprsradar", "bandinfo", "sunspots", "weather", "weatherforecast", "pota", "hamalert", "pskmap", "matrix", "systeminfo", "station", "logger", "iss"];
 
         // Legacy screen-code aliases -> <option> values (prevents empty fields).
         const screenCodeAliases = { solarindex: "bandinfo", propagacja: "sunspots", forecast: "weatherforecast", pskreporter: "pskmap", unlishunter: "systeminfo" };
         const applyScreenOrderToUI = (order) => {
             const arr = Array.isArray(order) && order.length ? order : screenOptionsDefault;
-            for (let i = 0; i < 15; i++) {
+            for (let i = 0; i < 16; i++) {
                 const sel = document.getElementById(`screen_slot_${i+1}`);
                 if (!sel) continue;
                 let code = arr[i] || screenOptionsDefault[i] || "off";
@@ -1931,11 +1988,17 @@
 
         const readScreenOrderFromUI = () => {
             const arr = [];
-            for (let i = 0; i < 15; i++) {
+            for (let i = 0; i < 16; i++) {
                 const sel = document.getElementById(`screen_slot_${i+1}`);
                 arr.push(sel ? sel.value : "off");
             }
             return arr;
+        };
+
+        const qrzLogbookUpload = () => {
+            fetch('/api/qrz_upload', { method: 'POST' })
+                .then(r => r.text().then(t => alert(t)))
+                .catch(() => alert('Blad polaczenia z urzadzeniem'));
         };
 
         const normalizeAprsAlertInput = (value) => {
@@ -2048,6 +2111,7 @@
             if (gpsTxElEN && data.gps_tx_pin !== undefined && data.gps_tx_pin !== null) gpsTxElEN.value = data.gps_tx_pin;
             document.getElementById('qrz_user').value = data.qrz_user || "";
             document.getElementById('qrz_pass').value = data.qrz_pass || "";
+            document.getElementById('qrz_api_key').value = data.qrz_api_key || "";
             document.getElementById('weather_key').value = data.weather_key || "";
             document.getElementById('openwebrx_url').value = data.openwebrx_url || "";
             openWebRxBase = normalizeOpenWebRx(data.openwebrx_url);
@@ -2713,6 +2777,7 @@
             gps_tx_pin: (() => { const el = document.getElementById('gps_tx_pin'); const v = el ? parseInt(el.value, 10) : 17; return Number.isFinite(v) ? Math.min(48, Math.max(0, v)) : 17; })(),
             qrz_user: document.getElementById('qrz_user').value,
             qrz_pass: document.getElementById('qrz_pass').value,
+            qrz_api_key: document.getElementById('qrz_api_key').value,
             weather_key: document.getElementById('weather_key').value,
             openwebrx_url: document.getElementById('openwebrx_url').value,
             cluster_noann: document.getElementById('cluster_noann').checked,

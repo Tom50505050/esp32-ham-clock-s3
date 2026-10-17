@@ -24,6 +24,41 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 - Podglad 1:1: `tools/render_station_preview.py` (Pillow) -> pliki
   `stacja-1-start.png` ... `stacja-7-nieznaleziony.png` + `stacja-podglad.png`.
 
+## Ekran ESP32 HAM LOGGER (16. ekran) — dziennik ADIF (17.10.2026, v1.2c)
+- Nowy ekran `SCREEN_HAM_LOGGER = 16` (`logger`): formularz QSO + tabela
+  ostatnich lacznosci + 4 przyciski dotykowe. Funkcje: `drawLoggerScreen()`,
+  `drawLoggerForm()`, `drawLoggerKeyboard()`, `handleLoggerTouch()`,
+  `loggerHandleKeyboardKey()`, `loggerLookupCallsign()`, `loggerSaveCurrentQso()`,
+  `loggerSaveAll()`, `loggerLoadFromFs()`.
+- Pola: **CALLSIGN** (zolta ramka), **RST (S)/(R)**, **BAND/FREQ/MODE**,
+  **NAME/QTH**, **DATE/TIME** (UTC z NTP; `GMT_OFFSET_SEC = 0`). BAND i MODE
+  przelaczaja sie cyklicznie dotknieciem; zmiana pasma podstawia czestotliwosc
+  z `loggerBandFreq[]`.
+- **Log w PSRAM**: `LogQso` (`logbook`, `LOGGER_LOG_MAX=256`) alokowany przez
+  `ps_malloc` (fallback `malloc`) w `loggerEnsureBuffer()`. NIE zapisujemy do
+  flasha przy kazdym dotknieciu - tylko na **SAVE QSO**.
+- **Bezpieczny zapis**: `loggerSaveAll()` pisze do `/qso.adi.tmp`, potem
+  `LittleFS.rename()` na `/qso.adi` - utrata zasilania nie uszkadza bazy.
+- **ADIF bajtowo poprawny**: `loggerAdifField()` liczy dlugosc pola w BAJTACH
+  UTF-8 (`String::length()`), nie w znakach (np. `Knurów` = 8 bajtow). Naglowek:
+  `ADIF_VER` / `PROGRAMID` / `PROGRAMVERSION`.
+- Autouzupelnianie NAME/QTH po zamknieciu pola CALLSIGN - ten sam lancuch co
+  STACJA: QRZ.com -> HamDB -> callook.info (`loggerLookupCallsign()`).
+- UI WWW: pozycja `logger` w `data/index.html` / `data/indexEN.html`
+  (lista stron 15 -> 16, nowy `screen_slot_16`). Endpointy:
+  `GET /qso.adi` (pobranie pliku ADIF) oraz `POST /api/qrz_upload`
+  (wysylka do QRZ Logbook - **gotowe na przyszlosc**, wymaga `qrzApiKey`,
+  pole "QRZ.com API Key (Logbook)" w ustawieniach; zapis w NVS `qrz_api_key`).
+  Klucz API QRZ sluzy TYLKO do logbooka - wyszukiwanie znakow idzie przez
+  login+haslo XML API (`qrz_user`/`qrz_pass`).
+- Podglad 1:1: `tools/render_logger_preview.py` (Pillow) -> `logger-1-nowy.png`,
+  `logger-2-wpisane.png`, `logger-3-klawiatura.png`, `logger-4-klasyczny.png`,
+  `logger-podglad.png`.
+- Nowy ekran wymaga dopisania w KILKU miejscach: enum `ScreenType`, obie tablice
+  `DEFAULT_SCREEN_ORDER`/`screenOrder` (+ `SCREEN_PAGE_COUNT`/`SCREEN_ORDER_COUNT`
+  15->16), `normalizeScreenType()`, `screenTypeToCodeStr()`/`screenCodeToType()`,
+  `drawScreen()` (naglowek + case), dispatch dotyku i `uiFooter`-guard.
+
 ## ISS: "brak danych" najblizszy/nastepny przelot — PRZYCZYNA = TLE z celestrak (15.10.2026)
 - OBJAW: na ekranie ISS TRACKER panele "NAJBLIZSZY PRZELOT"/"NASTEPNE
   PRZELOTY" pokazywaly "brak danych", mimo ze pozycja ISS i kraj dzialaly.

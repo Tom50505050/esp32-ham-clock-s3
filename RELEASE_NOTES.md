@@ -1,8 +1,64 @@
 # ESP32-HAM-CLOCK — informacje o wydaniach
 
-Dokument obejmuje wydania **v1.2**, **v1.2a** i **v1.2b** dla platformy
-**ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM) z wyświetlaczem
+Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b** i **v1.2c** dla
+platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM) z wyświetlaczem
 **ILI9488 3.5" IPS 480×320** po SPI i panelem dotykowym XPT2046.
+
+---
+
+# ESP32-HAM-CLOCK v1.2c — ekran ESP32 HAM LOGGER (dziennik ADIF)
+
+Wydanie **v1.2c** (17.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 3.5"**
++ XPT2046. Zakres: **nowy ekran ESP32 HAM LOGGER (16. ekran)** — dziennik
+łączności w formacie **ADIF**, integracja z UI WWW oraz narzędzie podglądu.
+Pozostałe ekrany i zależności bez zmian.
+
+## Zmiany od v1.2b
+
+### Nowy ekran ESP32 HAM LOGGER (16. ekran)
+- **Formularz QSO** — `drawLoggerForm()`: **CALLSIGN** (żółta ramka),
+  **RST (S) / RST (R)**, **BAND / FREQ / MODE**, **NAME / QTH**,
+  **DATE/TIME** (UTC z NTP).
+- **Klawiatura ekranowa** — `drawLoggerKeyboard()`, `loggerHandleKeyboardKey()`;
+  wspólna dla wszystkich pól; po zamknięciu CALLSIGN **autouzupełnia NAME/QTH**
+  (`loggerLookupCallsign()` — QRZ.com → HamDB → callook.info).
+- **BAND / MODE** — dotknięcie cyklicznie zmienia wartość; zmiana pasma podstawia
+  domyślną częstotliwość (`loggerBandFreq[]`).
+- **Tabela „Ostatnie łączności"** — 3 najnowsze wpisy (CALL/FREQ/MODE/UTC).
+- **4 przyciski dotykowe** — SAVE QSO / CLEAR / EXPORT ADIF / SETTINGS
+  (`handleLoggerTouch()`).
+- **Styl klasyczny i nowoczesny** — respektuje `uiStyleClassic()`.
+
+### Log w PSRAM + bezpieczny zapis
+- Rekordy w **PSRAM** (`LogQso`, `loggerEnsureBuffer()`), zapis dopiero na SAVE.
+- **Plik tymczasowy + rename** (`/qso.adi.tmp` → `/qso.adi`) — odporność na
+  utratę zasilania (`loggerSaveAll()`).
+- **ADIF bajtowo poprawny** (`loggerAdifField()` liczy długość w bajtach UTF-8).
+
+### UI WWW
+- Nowa pozycja **LOGGER** (`logger`) — lista stron z 15 do **16**
+  (`screen_slot_16`) w `data/index.html` i `data/indexEN.html`.
+- **`GET /qso.adi`** — pobranie pliku ADIF.
+- **`POST /api/qrz_upload`** — wysyłka do QRZ Logbook (gotowe na przyszłość,
+  wymaga klucza API) + pole **QRZ.com API Key (Logbook)** w ustawieniach.
+
+### Narzędzia (`tools/`)
+- `tools/render_logger_preview.py` — podgląd ekranu LOGGER 1:1 (Pillow).
+
+### Wersja
+- `FIRMWARE_VERSION`: `1.2b` → **`1.2c`**.
+
+### Kompatybilność
+- Bez zmian zależności i układu partycji. Zmienione pliki firmware i ZIP.
+
+## Pliki
+
+| Plik | Opis | Offset |
+|---|---|---|
+| `merged-flash.bin` | cały obraz 16 MB (bootloader + partycje + firmware + LittleFS) | `0x0` |
+| `merged-flash-notouch.bin` | to samo, wariant bez obsługi dotyku | `0x0` |
+| `firmware.bin` | firmware | `0x10000` |
+| `littlefs.bin` | dane / UI WWW | `0x810000` |
 
 ---
 

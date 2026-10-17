@@ -36,7 +36,7 @@ void normalizePolish(String &text);
 #endif
 
 // Wersja firmware
-#define FIRMWARE_VERSION "1.2b"
+#define FIRMWARE_VERSION "1.2c"
 
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -44,6 +44,7 @@ void normalizePolish(String &text);
 #include <Preferences.h>
 #include <time.h>
 #include <ArduinoJson.h>
+#include <new>
 #include <PubSubClient.h>
 #include <esp_rom_sys.h>
 #include <esp_system.h>
@@ -112,6 +113,14 @@ extern String stationCallsign;
 extern bool stationKeyboardActive;
 extern bool stationLoading;
 extern bool stationResultPending;
+
+// EKRAN "ESP32 HAM LOGGER" (16. ekran) - dziennik lacznosci (ADIF)
+void drawLoggerScreen();
+void handleLoggerTouch(uint16_t x, uint16_t y);
+static void drawLoggerKeyboard();
+static void loggerHandleKeyboardKey(uint16_t x, uint16_t y);
+static void drawLoggerForm();
+extern bool loggerKeyboardActive;
 
 void drawHamburgerMenuButton3D(int x, int y);
 void handleTouchCalibrationTouch(int16_t rawX, int16_t rawY, uint16_t x, uint16_t y, bool isNewTap);
@@ -338,7 +347,8 @@ enum ScreenType : uint8_t {
   SCREEN_WEATHER_FORECAST = 12,
   SCREEN_PSK_MAP = 13,
   SCREEN_ISS_PASS_TRACKING = 14,
-  SCREEN_STATION = 15
+  SCREEN_STATION = 15,
+  SCREEN_HAM_LOGGER = 16
 };
 
 #define LOG_VERBOSE false
@@ -669,7 +679,7 @@ bool littleFsReady = false;
 bool splashPathLoaded = false;
 
 // ========== SYSTEM MENU I NAWIGACJI ==========
-const int SCREEN_PAGE_COUNT = 15;
+const int SCREEN_PAGE_COUNT = 16;
 const ScreenType DEFAULT_SCREEN_ORDER[SCREEN_PAGE_COUNT] = {
   SCREEN_HAM_CLOCK,
   SCREEN_DX_CLUSTER,
@@ -685,7 +695,8 @@ const ScreenType DEFAULT_SCREEN_ORDER[SCREEN_PAGE_COUNT] = {
   SCREEN_MATRIX_CLOCK,
   SCREEN_SYSTEM_INFO,
   SCREEN_STATION,
-  SCREEN_ISS_PASS_TRACKING
+  SCREEN_ISS_PASS_TRACKING,
+  SCREEN_HAM_LOGGER
 };
 
 ScreenType screenOrder[SCREEN_PAGE_COUNT] = {
@@ -703,7 +714,8 @@ ScreenType screenOrder[SCREEN_PAGE_COUNT] = {
   SCREEN_MATRIX_CLOCK,
   SCREEN_SYSTEM_INFO,
   SCREEN_STATION,
-  SCREEN_ISS_PASS_TRACKING
+  SCREEN_ISS_PASS_TRACKING,
+  SCREEN_HAM_LOGGER
 };
 ScreenType currentScreen = SCREEN_OFF;  // Ustawiany po wczytaniu preferencji
 bool inMenu = false;    // Czy jesteĹ›my w menu wewnÄ™trznym strony
@@ -1757,6 +1769,8 @@ bool gpsPositionOverrideActive = false;
 
 int timezoneHours = DEFAULT_TIMEZONE_HOURS;
 String qrzUsername = "";
+String qrzApiKey = "";   // klucz API QRZ Logbook (wysylka ADIF z WWW/urzadzenia)
+String qrzLogbookLastStatus = "";
 String qrzPassword = "";
 String qrzStatus = "Callook.info: ready";
 String weatherApiKey = "";
@@ -2495,7 +2509,7 @@ void drawWelcomeScreenYellow() {
 
   tft.fillScreen(TFT_BLACK);
 
-  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2b").
+  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2c").
   // Polskie znaki - wymaga UTF-8 w zrodle (--utf8-source).
   String lines[5];
   lines[0] = "ESP32-HAM-CLOCK v" FIRMWARE_VERSION;
@@ -2798,6 +2812,10 @@ void drawScreen(ScreenType screenNum) {
       stationKeyboardActive = false;
       stationLoading = false;
     }
+    if (screenNum == SCREEN_HAM_LOGGER) {
+      // Wejscie na ekran LOGGER: zamknij klawiature, pokaz formularz.
+      loggerKeyboardActive = false;
+    }
     lastDrawnScreen = screenNum;
   }
 
@@ -2829,6 +2847,7 @@ void drawScreen(ScreenType screenNum) {
       case SCREEN_BAND_INFO:        uiHeader("SOLAR PROPAGATION INDEX", false); break;
       case SCREEN_SYSTEM_INFO:      uiHeader("SYSTEM INFO", true); break;
       case SCREEN_STATION:          uiHeader((tftLanguage == TFT_LANG_EN) ? "STATION INFO" : "STACJA", false); break;
+      case SCREEN_HAM_LOGGER:       uiHeader("ESP32 HAM LOGGER", false); break;
       default: break;
     }
   }
@@ -2875,6 +2894,9 @@ void drawScreen(ScreenType screenNum) {
       break;
     case SCREEN_STATION:
       drawStationScreen();
+      break;
+    case SCREEN_HAM_LOGGER:
+      drawLoggerScreen();
       break;
     case SCREEN_ISS_PASS_TRACKING:
       issForceNextPassRefresh = true;  // odswiez plan przelotow przy wejsciu
@@ -5423,7 +5445,7 @@ bool readTouchPoint(uint16_t &x, uint16_t &y) {
   return true;
 }
 
-const int SCREEN_ORDER_COUNT = 15;//SCREEN_PAGE_COUNT;
+const int SCREEN_ORDER_COUNT = 16;//SCREEN_PAGE_COUNT;
 
 ScreenType normalizeScreenType(uint8_t raw) {
   switch (raw) {
@@ -5442,6 +5464,7 @@ ScreenType normalizeScreenType(uint8_t raw) {
     case SCREEN_SYSTEM_INFO:
     case SCREEN_STATION:
     case SCREEN_ISS_PASS_TRACKING:
+    case SCREEN_HAM_LOGGER:
       return (ScreenType)raw;
     default:
       return SCREEN_OFF;
@@ -5466,6 +5489,7 @@ const char* screenTypeToCodeStr(ScreenType t) {
     case SCREEN_MATRIX_CLOCK: return "matrix";
     case SCREEN_SYSTEM_INFO: return "systeminfo";
     case SCREEN_STATION: return "station";
+    case SCREEN_HAM_LOGGER: return "logger";
     case SCREEN_ISS_PASS_TRACKING: return "iss";
     case SCREEN_OFF:
     default:
@@ -5491,6 +5515,7 @@ ScreenType screenCodeToType(const String &code) {
   if (c == "matrix") return SCREEN_MATRIX_CLOCK;
   if (c == "systeminfo" || c == "unlishunter") return SCREEN_SYSTEM_INFO;
   if (c == "station" || c == "stacja" || c == "qrz" || c == "callsign") return SCREEN_STATION;
+  if (c == "logger" || c == "log" || c == "hamlogger" || c == "logbook" || c == "qso") return SCREEN_HAM_LOGGER;
   if (c == "iss") return SCREEN_ISS_PASS_TRACKING;
   return SCREEN_OFF;
 }
@@ -5503,12 +5528,12 @@ void loadDefaultScreenOrder() {
 
 void ensureScreenOrderValid() {
   bool hasActive = false;
-  bool seen[16] = {false}; // indeksy odpowiadajÄ… ScreenType wartoĹ›ciom (0..15)
+  bool seen[SCREEN_HAM_LOGGER + 1] = {false}; // indeksy odpowiadajÄ… ScreenType wartoĹ›ciom (0..15)
   for (int i = 0; i < SCREEN_ORDER_COUNT; i++) {
     screenOrder[i] = normalizeScreenType(screenOrder[i]);
     ScreenType t = screenOrder[i];
     if (t != SCREEN_OFF) {
-      if (t >= 0 && t <= SCREEN_STATION) {
+      if (t >= 0 && t <= SCREEN_HAM_LOGGER) {
         if (seen[t]) {
           // drugi raz ten sam ekran Ă˘â‚¬â€ś usuĹ„ duplikat
           screenOrder[i] = SCREEN_OFF;
@@ -5889,7 +5914,7 @@ void handleTouchNavigation() {
     // Nawigacja: dolne obszary dotyku (ok. 80x180)
     // Zamienione kierunki: lewa strona = w prawo (next), prawa strona = w lewo (prev)
     // TYLKO gdy nie jesteĹ›my w ĹĽadnym menu i nie ma aktywnej klawiatury
-    if (!inMenu && !brightnessMenuActive && !screenSaverMenuActive && !screenSleepMenuActive && !touchCalActive && !pskKeyboardActive && !stationKeyboardActive) {
+    if (!inMenu && !brightnessMenuActive && !screenSaverMenuActive && !screenSleepMenuActive && !touchCalActive && !pskKeyboardActive && !stationKeyboardActive && !loggerKeyboardActive) {
       const uint16_t cornerY = 60;
       const uint16_t cornerX = 80;
       if (y >= cornerY && x < cornerX) {
@@ -5912,6 +5937,10 @@ void handleTouchNavigation() {
     }
     if (currentScreen == SCREEN_STATION) {
       handleStationTouch(x, y);
+      return;
+    }
+    if (currentScreen == SCREEN_HAM_LOGGER) {
+      handleLoggerTouch(x, y);
       return;
     }
   } else {
@@ -17603,6 +17632,613 @@ void handleStationTouch(uint16_t x, uint16_t y) {
   }
 }
 
+// ========== EKRAN "ESP32 HAM LOGGER" (dziennik lacznosci, ADIF) ==========
+
+// 4 przyciski funkcyjne + 2 pola na ekranie.
+#define LOGGER_BTN_COUNT 4
+#define LOGGER_FIELD_COUNT 6
+#define LOGGER_BAND_COUNT 9
+#define LOGGER_MODE_COUNT 6
+#define LOGGER_LOG_MAX 256
+#define LOGGER_QSO_PATH "/qso.adi"
+#define LOGGER_QSO_TMP  "/qso.adi.tmp"
+
+// Indeksy pol formularza.
+enum {
+  LOG_F_CALL = 0, LOG_F_RSTS, LOG_F_RSTR, LOG_F_BAND,
+  LOG_F_FREQ, LOG_F_MODE, LOG_F_NAME, LOG_F_QTH
+};
+// Uproszczone indeksy do rysowania (pola z wlasnym wierszem).
+// LOG_F_CALL, LOG_F_RSTS, LOG_F_RSTR, LOG_F_BAND/FREQ/MODE, LOG_F_NAME, LOG_F_QTH
+
+// Rekord QSO trzymany w PSRAM (8 MB) - zapis na SAVE, nie przy kazdym dotknieciu.
+struct LogQso {
+  String call;
+  String rstSent;
+  String rstRcvd;
+  String band;
+  String freq;
+  String mode;
+  String name;
+  String qth;
+  String date;   // YYYYMMDD (UTC)
+  String time;   // HHMM (UTC)
+};
+
+LogQso *logbook = nullptr;          // tablica w PSRAM
+int logbookCount = 0;
+bool logbookDirty = false;
+bool logbookDirtyInit = false;
+
+String loggerCall = "";
+String loggerRstS = "59";
+String loggerRstR = "59";
+int    loggerBandIdx = 4;           // domyslnie 40m
+String loggerFreq = "7.145";
+int    loggerModeIdx = 0;           // domyslnie SSB
+String loggerName = "";
+String loggerQth = "";
+String loggerStatus = "";           // komunikat pod formularzem
+
+bool loggerKeyboardActive = false;
+String loggerKeyboardBuffer = "";
+int  loggerActiveField = LOG_F_CALL;
+
+static const int LOGGER_KB_TOP = 118;
+static const int LOGGER_KB_KEY_W = 32;
+static const int LOGGER_KB_KEY_H = 26;
+static const int LOGGER_KB_GAP = 4;
+
+// Pasma: nazwa + czestotliwosc domyslna.
+const char *loggerBands[LOGGER_BAND_COUNT]   = {"160m","80m","40m","30m","20m","17m","15m","10m","6m"};
+const char *loggerBandFreq[LOGGER_BAND_COUNT]= {"1.840","3.700","7.145","10.120","14.200","18.100","21.200","28.500","50.150"};
+const char *loggerModes[LOGGER_MODE_COUNT]   = {"SSB","CW","FT8","RTTY","AM","FM"};
+
+// Zapewnia bufor logu w PSRAM.
+static void loggerEnsureBuffer() {
+  if (logbook == nullptr) {
+    logbook = (LogQso *)ps_malloc(sizeof(LogQso) * LOGGER_LOG_MAX);
+    if (logbook == nullptr) logbook = (LogQso *)malloc(sizeof(LogQso) * LOGGER_LOG_MAX);
+    if (logbook != nullptr) {
+      for (int i = 0; i < LOGGER_LOG_MAX; i++) new (&logbook[i]) LogQso();
+    }
+  }
+}
+
+// ADIF: dlugosc pola liczymy w BAJTACH (UTF-8), nie w znakach.
+static void loggerAdifField(String &out, const char *tag, const String &value) {
+  out += "<";
+  out += tag;
+  out += ":";
+  out += String((unsigned int)value.length());
+  out += ">";
+  out += value;
+  out += " ";
+}
+
+static String loggerBuildAdifRecord(const LogQso &q) {
+  String r = "";
+  loggerAdifField(r, "CALL", q.call);
+  loggerAdifField(r, "QSO_DATE", q.date);
+  loggerAdifField(r, "TIME_ON", q.time);
+  loggerAdifField(r, "BAND", q.band);
+  loggerAdifField(r, "FREQ", q.freq);
+  loggerAdifField(r, "MODE", q.mode);
+  loggerAdifField(r, "RST_SENT", q.rstSent);
+  loggerAdifField(r, "RST_RCVD", q.rstRcvd);
+  if (q.name.length()) loggerAdifField(r, "NAME", q.name);
+  if (q.qth.length())  loggerAdifField(r, "QTH", q.qth);
+  if (userCallsign.length()) loggerAdifField(r, "OPERATOR", userCallsign);
+  if (userLocator.length())  loggerAdifField(r, "MY_GRIDSQUARE", userLocator);
+  r += "<EOR>\n";
+  return r;
+}
+
+static String loggerBuildAdifHeader() {
+  String h = "ESP32 HAM LOGGER ADIF export\n";
+  h += "<ADIF_VER:5>3.1.4 <PROGRAMID:14>ESP32-HAM-CLOCK <PROGRAMVERSION:4>";
+  h += FIRMWARE_VERSION;
+  h += " <EOH>\n";
+  return h;
+}
+
+// Zapis calego logu: plik tymczasowy + rename (odporny na utrate zasilania).
+static bool loggerSaveAll() {
+  if (!littleFsReady) return false;
+  loggerEnsureBuffer();
+  if (logbook == nullptr) return false;
+  File f = LittleFS.open(LOGGER_QSO_TMP, "w");
+  if (!f) { Serial.println("[LOGGER] nie moge otworzyc tmp"); return false; }
+  f.print(loggerBuildAdifHeader());
+  for (int i = 0; i < logbookCount; i++) {
+    f.print(loggerBuildAdifRecord(logbook[i]));
+  }
+  f.flush();
+  f.close();
+  LittleFS.remove(LOGGER_QSO_PATH);
+  if (!LittleFS.rename(LOGGER_QSO_TMP, LOGGER_QSO_PATH)) {
+    Serial.println("[LOGGER] rename nieudany");
+    return false;
+  }
+  logbookDirty = false;
+  return true;
+}
+
+// Wczytuje ADIF z LittleFS (prosty parser: czyta pola <TAG:LEN>wartosc).
+static void loggerLoadFromFs() {
+  if (!littleFsReady || !LittleFS.exists(LOGGER_QSO_PATH)) return;
+  loggerEnsureBuffer();
+  if (logbook == nullptr) return;
+  File f = LittleFS.open(LOGGER_QSO_PATH, "r");
+  if (!f) return;
+  String content = f.readString();
+  f.close();
+
+  int pos = 0;
+  LogQso cur;
+  bool hasField = false;
+  while (pos < (int)content.length() && logbookCount < LOGGER_LOG_MAX) {
+    int lt = content.indexOf('<', pos);
+    if (lt < 0) break;
+    int gt = content.indexOf('>', lt);
+    if (gt < 0) break;
+    String tag = content.substring(lt + 1, gt);
+    tag.trim();
+    String tagUp = tag; tagUp.toUpperCase();
+    if (tagUp == "EOH") { pos = gt + 1; continue; }
+    if (tagUp == "EOR") {
+      if (hasField && cur.call.length()) {
+        logbook[logbookCount++] = cur;
+      }
+      cur = LogQso();
+      hasField = false;
+      pos = gt + 1;
+      continue;
+    }
+    int colon = tag.indexOf(':');
+    if (colon < 0) { pos = gt + 1; continue; }
+    String name = tag.substring(0, colon); name.trim(); name.toUpperCase();
+    int len = tag.substring(colon + 1).toInt();
+    int vstart = gt + 1;
+    String val = content.substring(vstart, vstart + len);
+    if (name == "CALL")      { cur.call = val; hasField = true; }
+    else if (name == "QSO_DATE") cur.date = val;
+    else if (name == "TIME_ON")  cur.time = val;
+    else if (name == "BAND")     cur.band = val;
+    else if (name == "FREQ")     cur.freq = val;
+    else if (name == "MODE")     cur.mode = val;
+    else if (name == "RST_SENT") cur.rstSent = val;
+    else if (name == "RST_RCVD") cur.rstRcvd = val;
+    else if (name == "NAME")     cur.name = val;
+    else if (name == "QTH")      cur.qth = val;
+    pos = vstart + len;
+  }
+  logbookDirty = false;
+}
+
+// Dodaje biezace QSO do logu (w PSRAM) i zapisuje calosc na SAVE.
+static void loggerSaveCurrentQso() {
+  String call = loggerCall; call.trim(); call.toUpperCase();
+  if (call.length() == 0) { loggerStatus = "Podaj znak (CALL)"; return; }
+  loggerEnsureBuffer();
+  if (logbook == nullptr) { loggerStatus = "Brak pamieci logu"; return; }
+  if (logbookCount >= LOGGER_LOG_MAX) {
+    // Przesun o jeden (najstarszy wypada) - prosty ring.
+    for (int i = 1; i < LOGGER_LOG_MAX; i++) logbook[i - 1] = logbook[i];
+    logbookCount = LOGGER_LOG_MAX - 1;
+  }
+  LogQso q;
+  q.call = call;
+  q.rstSent = loggerRstS;
+  q.rstRcvd = loggerRstR;
+  q.band = loggerBands[loggerBandIdx];
+  q.freq = loggerFreq;
+  q.mode = loggerModes[loggerModeIdx];
+  q.name = loggerName;
+  q.qth = loggerQth;
+
+  struct tm t;
+  if (getLocalTime(&t, 1)) {
+    char db[9], tb[5];
+    strftime(db, sizeof(db), "%Y%m%d", &t);
+    strftime(tb, sizeof(tb), "%H%M", &t);
+    q.date = db;
+    q.time = tb;
+  } else {
+    q.date = "00000000";
+    q.time = "0000";
+  }
+  logbook[logbookCount++] = q;
+  if (loggerSaveAll()) {
+    loggerStatus = "Zapisano: " + call + "  (" + String(logbookCount) + " QSO)";
+  } else {
+    loggerStatus = "Blad zapisu do pliku";
+  }
+}
+
+static void loggerClearForm() {
+  loggerCall = "";
+  loggerRstS = "59";
+  loggerRstR = "59";
+  loggerBandIdx = 4;
+  loggerFreq = loggerBandFreq[4];
+  loggerModeIdx = 0;
+  loggerName = "";
+  loggerQth = "";
+  loggerStatus = "Formularz wyczyszczony";
+}
+
+// Autouzupelnianie NAME/QTH z tego samego lancucha zrodel co ekran STACJA.
+static void loggerLookupCallsign() {
+  String call = loggerCall; call.trim(); call.toUpperCase();
+  if (call.length() == 0) { loggerStatus = "Podaj znak do autouzupelnienia"; return; }
+  loggerStatus = "Szukam " + call + "...";
+  drawLoggerForm();
+  String grid, country, name, email, qth;
+  double lat = 0.0, lon = 0.0; bool hasLatLon = false;
+  bool ok = false;
+  if (getQrzCacheFresh(call, grid, country, name, email, qth, lat, lon, hasLatLon, QRZ_CACHE_TTL_MS, nullptr)) ok = true;
+  else if (fetchQrzCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) ok = true;
+  else if (fetchHamDbCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) ok = true;
+  else if (fetchCallookCallsignInfo(call, grid, country, name, email, qth, lat, lon, hasLatLon)) ok = true;
+  if (ok) {
+    loggerCall = call;
+    if (name.length() && name != "null") loggerName = name;
+    if (qth.length() && qth != "null")   loggerQth = qth;
+    loggerStatus = "Uzupelniono: " + call;
+  } else {
+    loggerStatus = "Nie znaleziono " + call;
+  }
+  drawLoggerForm();
+}
+
+// Znacznik czasu UTC do formularza (NTP; GMT_OFFSET_SEC = 0 -> getLocalTime = UTC).
+static String loggerUtcStamp() {
+  struct tm t;
+  if (getLocalTime(&t, 1)) {
+    char b[24];
+    strftime(b, sizeof(b), "%Y-%m-%d %H:%M UTC", &t);
+    return String(b);
+  }
+  return "---- --:-- UTC";
+}
+
+// Rysuje formularz QSO + tabele ostatnich lacznosci + 4 przyciski.
+static void drawLoggerForm() {
+  const bool classic = uiStyleClassic();
+  const uint16_t bg     = classic ? TFT_BLACK : UI_COL_BG;
+  const uint16_t panel  = classic ? TFT_BLACK : UI_COL_CARD;
+  const uint16_t border = classic ? TFT_BLUE : UI_COL_BORDER;
+  const uint16_t text   = classic ? TFT_WHITE : UI_COL_TEXT;
+  const uint16_t dim    = classic ? TFT_LIGHTGREY : UI_COL_DIM;
+  const uint16_t accent = classic ? TFT_YELLOW : UI_COL_ACCENT;
+  const uint16_t accent2= classic ? TFT_CYAN : UI_COL_ACCENT2;
+
+  tft.fillRect(0, UI_HEADER_H, 480, UI_FOOTER_Y - UI_HEADER_H, bg);
+
+  // Karta formularza.
+  tft.fillRoundRect(8, 28, 464, 206, 8, panel);
+  tft.drawRoundRect(8, 28, 464, 206, 8, border);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextSize(1);
+
+  auto label = [&](const char *l, int x, int y) { tft.setTextColor(dim, panel); tft.drawString(l, x, y); };
+  auto value = [&](const String &v, int x, int y, uint16_t col) { tft.setTextColor(col, panel); tft.drawString(v, x, y); };
+
+  // CALLSIGN - wyrozniona zolta ramka.
+  label("CALLSIGN", 18, 38);
+  tft.drawRect(90, 33, 208, 20, TFT_YELLOW);
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_YELLOW, panel);
+  tft.drawString(loggerCall.length() ? loggerCall : String("____"), 96, 35);
+  tft.setTextSize(1);
+
+  // RST nadany / odebrany.
+  label("RST (S)", 18, 62);
+  value(loggerRstS, 90, 62, text);
+  label("RST (R)", 160, 62);
+  value(loggerRstR, 232, 62, text);
+
+  // BAND / FREQ / MODE.
+  label("BAND", 18, 84);
+  value(loggerBands[loggerBandIdx], 90, 84, accent);
+  label("FREQ", 160, 84);
+  value(loggerFreq + " MHz", 210, 84, text);
+  label("MODE", 340, 84);
+  value(loggerModes[loggerModeIdx], 390, 84, accent);
+
+  // NAME / QTH.
+  label("NAME", 18, 106);
+  value(loggerName.length() ? loggerName : String("---"), 90, 106, text);
+  label("QTH", 250, 106);
+  value(loggerQth.length() ? loggerQth : String("---"), 300, 106, text);
+
+  // DATA / CZAS UTC.
+  label("DATE/TIME", 18, 128);
+  value(loggerUtcStamp(), 90, 128, dim);
+
+  // Status (komunikat operacji).
+  if (loggerStatus.length()) {
+    tft.setTextColor(accent2, panel);
+    tft.drawString(loggerStatus, 18, 148);
+  }
+
+  // Ostatnie lacznosci (Recent QSO Log).
+  tft.drawFastHLine(18, 164, 444, border);
+  tft.setTextColor(accent, panel);
+  tft.drawString("Ostatnie lacznosci (Recent QSO)", 18, 168);
+  tft.setTextColor(dim, panel);
+  tft.drawString("CALL", 18, 184);
+  tft.drawString("FREQ", 130, 184);
+  tft.drawString("MODE", 250, 184);
+  tft.drawString("UTC", 380, 184);
+  int shown = 0;
+  for (int i = logbookCount - 1; i >= 0 && shown < 3; i--, shown++) {
+    const LogQso &q = logbook[i];
+    int ry = 198 + shown * 12;
+    tft.setTextColor(text, panel);
+    tft.drawString(q.call, 18, ry);
+    tft.drawString(q.freq, 130, ry);
+    tft.drawString(q.mode, 250, ry);
+    tft.drawString(q.time, 380, ry);
+  }
+  if (logbookCount == 0) {
+    tft.setTextColor(dim, panel);
+    tft.drawString("(brak wpisow - zapisz pierwsze QSO)", 18, 198);
+  }
+
+  // Dolny panel przyciskow dotykowych.
+  const int by = 248, bh = 38, bw = 111;
+  int bx[4] = {8, 125, 242, 359};
+  const char *bt[4] = {"SAVE QSO", "CLEAR", "EXPORT ADIF", "SETTINGS"};
+  uint16_t bc[4] = {(uint16_t)(classic ? TFT_GREEN : UI_COL_ACCENT),
+                    (uint16_t)(classic ? TFT_ORANGE : 0xFD20),
+                    (uint16_t)(classic ? TFT_CYAN : UI_COL_ACCENT2),
+                    (uint16_t)(classic ? TFT_DARKGREY : UI_COL_BORDER)};
+  for (int i = 0; i < 4; i++) {
+    tft.fillRoundRect(bx[i], by, bw, bh, 8, bc[i]);
+    tft.drawRoundRect(bx[i], by, bw, bh, 8, classic ? TFT_WHITE : UI_COL_FAINT);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(classic ? TFT_BLACK : UI_COL_BG);
+    // GLCD 6 px/znak: dluzsze etykiety (EXPORT ADIF) musza zejsc do rozmiaru 1.
+    const int len = (int)strlen(bt[i]);
+    const int size = (len * 6 * 2 <= bw - 10) ? 2 : 1;
+    tft.setTextSize(size);
+    tft.drawString(bt[i], bx[i] + bw / 2, by + bh / 2 - (size == 2 ? 1 : 0));
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextSize(1);
+  }
+}
+
+// Klawiatura ekranowa do edycji aktywnego pola.
+static const char *loggerFieldName(int f) {
+  switch (f) {
+    case LOG_F_CALL: return "CALLSIGN";
+    case LOG_F_RSTS: return "RST (S)";
+    case LOG_F_RSTR: return "RST (R)";
+    case LOG_F_FREQ: return "FREQ (MHz)";
+    case LOG_F_NAME: return "NAME";
+    case LOG_F_QTH:  return "QTH";
+    default: return "POLE";
+  }
+}
+
+static void loggerStartKeyboard(int field) {
+  loggerActiveField = field;
+  loggerKeyboardActive = true;
+  switch (field) {
+    case LOG_F_CALL: loggerKeyboardBuffer = loggerCall; break;
+    case LOG_F_RSTS: loggerKeyboardBuffer = loggerRstS; break;
+    case LOG_F_RSTR: loggerKeyboardBuffer = loggerRstR; break;
+    case LOG_F_FREQ: loggerKeyboardBuffer = loggerFreq; break;
+    case LOG_F_NAME: loggerKeyboardBuffer = loggerName; break;
+    case LOG_F_QTH:  loggerKeyboardBuffer = loggerQth;  break;
+    default: loggerKeyboardBuffer = ""; break;
+  }
+  drawLoggerKeyboard();
+}
+
+static void loggerCommitKeyboard() {
+  switch (loggerActiveField) {
+    case LOG_F_CALL: loggerCall = loggerKeyboardBuffer; loggerCall.trim(); loggerCall.toUpperCase(); break;
+    case LOG_F_RSTS: loggerRstS = loggerKeyboardBuffer; break;
+    case LOG_F_RSTR: loggerRstR = loggerKeyboardBuffer; break;
+    case LOG_F_FREQ: loggerFreq = loggerKeyboardBuffer; break;
+    case LOG_F_NAME: loggerName = loggerKeyboardBuffer; break;
+    case LOG_F_QTH:  loggerQth  = loggerKeyboardBuffer; break;
+  }
+  loggerKeyboardActive = false;
+  if (loggerActiveField == LOG_F_CALL && loggerCall.length() > 0 &&
+      (loggerName.length() == 0 || loggerQth.length() == 0)) {
+    loggerLookupCallsign();   // autouzupelnij NAME/QTH jak na ekranie STACJA
+  } else {
+    drawLoggerForm();
+  }
+}
+
+static void drawLoggerKeyboard() {
+  const bool classic = uiStyleClassic();
+  const uint16_t card = classic ? 0x18E3 : UI_COL_CARD;
+  const uint16_t key  = classic ? TFT_DARKGREY : UI_COL_BORDER;
+
+  tft.fillRect(20, LOGGER_KB_TOP, 440, 195, card);
+  tft.drawRect(20, LOGGER_KB_TOP, 440, 195, classic ? TFT_WHITE : UI_COL_ACCENT);
+
+  tft.setTextSize(1);
+  tft.setTextColor(classic ? TFT_WHITE : UI_COL_DIM, card);
+  tft.setCursor(28, LOGGER_KB_TOP + 16);
+  tft.print(loggerFieldName(loggerActiveField));
+
+  tft.fillRect(90, LOGGER_KB_TOP + 8, 230, 28, TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setTextColor(classic ? TFT_YELLOW : UI_COL_ACCENT, TFT_BLACK);
+  tft.setCursor(95, LOGGER_KB_TOP + 14);
+  String shown = loggerKeyboardBuffer;
+  if (shown.length() > 18) shown = shown.substring(shown.length() - 18);
+  tft.print(shown);
+  tft.print("_");
+
+  const char* rows[] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM.-/:"};
+  int startX[] = {84, 84, 84, 84};
+  int startY[] = {LOGGER_KB_TOP + 44, LOGGER_KB_TOP + 70, LOGGER_KB_TOP + 96, LOGGER_KB_TOP + 122};
+  for (int r = 0; r < 4; r++) {
+    for (int i = 0; i < (int)strlen(rows[r]); i++) {
+      int x = startX[r] + i * (LOGGER_KB_KEY_W + LOGGER_KB_GAP);
+      int y = startY[r];
+      uint16_t fill = (r == 0 || (r == 3 && i >= 7)) ? (classic ? TFT_BLUE : UI_COL_ACCENT2) : key;
+      tft.fillRect(x, y, LOGGER_KB_KEY_W, LOGGER_KB_KEY_H, fill);
+      tft.drawRect(x, y, LOGGER_KB_KEY_W, LOGGER_KB_KEY_H, classic ? TFT_WHITE : UI_COL_FAINT);
+      tft.setTextSize(1);
+      tft.setTextColor(classic ? TFT_WHITE : UI_COL_TEXT);
+      tft.setCursor(x + 12, y + 9);
+      tft.print(rows[r][i]);
+    }
+  }
+
+  tft.fillRect(330, LOGGER_KB_TOP + 8, 58, 28, TFT_RED);
+  tft.drawRect(330, LOGGER_KB_TOP + 8, 58, 28, classic ? TFT_WHITE : UI_COL_FAINT);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(344, LOGGER_KB_TOP + 18);
+  tft.print("DEL");
+
+  tft.fillRect(396, LOGGER_KB_TOP + 8, 54, 28, TFT_ORANGE);
+  tft.drawRect(396, LOGGER_KB_TOP + 8, 54, 28, classic ? TFT_WHITE : UI_COL_FAINT);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(407, LOGGER_KB_TOP + 18);
+  tft.print("CLR");
+
+  tft.fillRect(250, LOGGER_KB_TOP + 158, 85, 28, classic ? TFT_GREEN : UI_COL_ACCENT);
+  tft.drawRect(250, LOGGER_KB_TOP + 158, 85, 28, classic ? TFT_WHITE : UI_COL_ACCENT2);
+  tft.setTextColor(classic ? TFT_BLACK : UI_COL_BG);
+  tft.setTextSize(2);
+  tft.setCursor(278, LOGGER_KB_TOP + 164);
+  tft.print("OK");
+
+  tft.fillRect(350, LOGGER_KB_TOP + 158, 85, 28, TFT_RED);
+  tft.drawRect(350, LOGGER_KB_TOP + 158, 85, 28, classic ? TFT_WHITE : UI_COL_FAINT);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(386, LOGGER_KB_TOP + 164);
+  tft.print("X");
+}
+
+static void loggerHandleKeyboardKey(uint16_t x, uint16_t y) {
+  const char* rows[] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM.-/:"};
+  int startX[] = {84, 84, 84, 84};
+  int startY[] = {LOGGER_KB_TOP + 44, LOGGER_KB_TOP + 70, LOGGER_KB_TOP + 96, LOGGER_KB_TOP + 122};
+  for (int r = 0; r < 4; r++) {
+    for (int i = 0; i < (int)strlen(rows[r]); i++) {
+      int kx = startX[r] + i * (LOGGER_KB_KEY_W + LOGGER_KB_GAP);
+      int ky = startY[r];
+      if (x >= kx && x <= kx + LOGGER_KB_KEY_W && y >= ky && y <= ky + LOGGER_KB_KEY_H) {
+        if (loggerKeyboardBuffer.length() < 14) loggerKeyboardBuffer += rows[r][i];
+        drawLoggerKeyboard();
+        return;
+      }
+    }
+  }
+  if (x >= 330 && x <= 388 && y >= LOGGER_KB_TOP + 8 && y <= LOGGER_KB_TOP + 36) {
+    if (loggerKeyboardBuffer.length() > 0) loggerKeyboardBuffer.remove(loggerKeyboardBuffer.length() - 1);
+    drawLoggerKeyboard();
+    return;
+  }
+  if (x >= 396 && x <= 450 && y >= LOGGER_KB_TOP + 8 && y <= LOGGER_KB_TOP + 36) {
+    loggerKeyboardBuffer = "";
+    drawLoggerKeyboard();
+    return;
+  }
+  if (x >= 250 && x <= 335 && y >= LOGGER_KB_TOP + 158 && y <= LOGGER_KB_TOP + 186) {
+    loggerCommitKeyboard();
+    return;
+  }
+  if (x >= 350 && x <= 435 && y >= LOGGER_KB_TOP + 158 && y <= LOGGER_KB_TOP + 186) {
+    loggerKeyboardActive = false;
+    drawLoggerForm();
+    return;
+  }
+}
+
+// Otwiera ekran ustawien urzadzenia (wspolne menu jasnosci/tematu).
+static void loggerOpenSettings() {
+  brightnessMenuPrevScreen = currentScreen;
+  brightnessMenuPrevInMenu = inMenu;
+  brightnessMenuPrevBacklight = backlightPercent;
+  brightnessMenuPrevThemeHue = menuThemeHue;
+  brightnessMenuPrevClockColor = clockDigitsColor;
+  brightnessMenuActive = true;
+  brightnessMenuValue = backlightPercent;
+  brightnessMenuOpenedMs = millis();
+  inMenu = true;
+  drawBrightnessMenu();
+}
+
+void drawLoggerScreen() {
+  tft.setTextDatum(TL_DATUM);
+  loggerEnsureBuffer();
+  if (!logbookDirtyInit) {
+    logbookDirtyInit = true;
+    loggerLoadFromFs();   // wczytaj /qso.adi raz, po starcie LittleFS
+  }
+  if (loggerKeyboardActive) {
+    drawLoggerKeyboard();
+    return;
+  }
+  drawLoggerForm();
+}
+
+void handleLoggerTouch(uint16_t x, uint16_t y) {
+  if (loggerKeyboardActive) {
+    loggerHandleKeyboardKey(x, y);
+    return;
+  }
+
+  // Dolny panel przyciskow.
+  const int by = 248, bh = 38, bw = 111;
+  int bx[4] = {8, 125, 242, 359};
+  for (int i = 0; i < 4; i++) {
+    if (x >= bx[i] && x <= bx[i] + bw && y >= by && y <= by + bh) {
+      if (i == 0) {            // SAVE QSO
+        loggerSaveCurrentQso();
+        drawLoggerForm();
+      } else if (i == 1) {     // CLEAR
+        loggerClearForm();
+        drawLoggerForm();
+      } else if (i == 2) {     // EXPORT ADIF
+        if (loggerSaveAll()) {
+          String ip = WiFi.localIP().toString();
+          loggerStatus = "ADIF: http://" + ip + "/qso.adi (" + String(logbookCount) + " QSO)";
+        } else {
+          loggerStatus = "Blad eksportu ADIF";
+        }
+        drawLoggerForm();
+      } else {                 // SETTINGS
+        loggerOpenSettings();
+      }
+      return;
+    }
+  }
+
+  // Pola edytowalne -> klawiatura.
+  if (x >= 88 && x <= 300 && y >= 31 && y <= 55) { loggerStartKeyboard(LOG_F_CALL); return; }
+  if (x >= 88 && x <= 150 && y >= 58 && y <= 74) { loggerStartKeyboard(LOG_F_RSTS); return; }
+  if (x >= 230 && x <= 300 && y >= 58 && y <= 74) { loggerStartKeyboard(LOG_F_RSTR); return; }
+  if (x >= 208 && x <= 330 && y >= 80 && y <= 96) { loggerStartKeyboard(LOG_F_FREQ); return; }
+  if (x >= 88 && x <= 240 && y >= 102 && y <= 118) { loggerStartKeyboard(LOG_F_NAME); return; }
+  if (x >= 298 && x <= 460 && y >= 102 && y <= 118) { loggerStartKeyboard(LOG_F_QTH); return; }
+
+  // BAND / MODE - dotkniecie cyklicznie zmienia wartosc.
+  if (x >= 88 && x <= 150 && y >= 80 && y <= 96) {
+    loggerBandIdx = (loggerBandIdx + 1) % LOGGER_BAND_COUNT;
+    loggerFreq = loggerBandFreq[loggerBandIdx];
+    drawLoggerForm();
+    return;
+  }
+  if (x >= 388 && x <= 440 && y >= 80 && y <= 96) {
+    loggerModeIdx = (loggerModeIdx + 1) % LOGGER_MODE_COUNT;
+    drawLoggerForm();
+    return;
+  }
+}
+
 // ========== MENU WYGASZACZA EKRANU ==========
 
 void drawScreenSaverMenu() {
@@ -17998,6 +18634,7 @@ void loadPreferences() {
   qrzUsername = preferences->getString("qrz_user", "");
   yield();
   qrzPassword = preferences->getString("qrz_pass", "");
+  qrzApiKey = preferences->getString("qrz_api_key", "");
   yield();
   weatherApiKey = preferences->getString("weather_key", "");
   yield();
@@ -18193,6 +18830,7 @@ void savePreferences() {
   preferences->putBool("user_ll_ok", gpsPositionOverrideActive ? userLatLonValidManual : userLatLonValid);
   preferences->putString("qrz_user", qrzUsername);
   preferences->putString("qrz_pass", qrzPassword);
+  preferences->putString("qrz_api_key", qrzApiKey);
   preferences->putString("weather_key", weatherApiKey);
   preferences->putString("n2yo_key", n2yoApiKey);
   preferences->putString("openwebrx_url", openWebRxUrl);
@@ -18513,6 +19151,36 @@ static void handleUpload(const String &targetForced) {
 }
 
 
+// Wysyla log ADIF do QRZ Logbook (API). Wymaga klucza API QRZ.
+// Bez klucza zwraca blad - gotowe na przyszlosc, gdy QRZ udostepni wysylke.
+static String loggerUploadToQrzLogbook() {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) return "ERR: brak WiFi";
+  if (qrzApiKey.length() == 0) return "ERR: brak klucza API QRZ (Ustawienia -> QRZ.com)";
+  if (!littleFsReady) return "ERR: LittleFS niedostepny";
+  String adif = loggerBuildAdifHeader();
+  if (logbookCount > 0) {
+    for (int i = 0; i < logbookCount; i++) adif += loggerBuildAdifRecord(logbook[i]);
+  } else if (LittleFS.exists(LOGGER_QSO_PATH)) {
+    File f = LittleFS.open(LOGGER_QSO_PATH, "r");
+    if (f) { adif = f.readString(); f.close(); }
+  }
+  if (adif.length() == 0) return "ERR: brak danych do wyslania";
+
+  static WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  if (!http.begin(client, "https://logbook.qrz.com/api")) return "ERR: HTTP begin";
+  http.setTimeout(15000);
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  String body = "KEY=" + urlEncode(qrzApiKey) + "&ACTION=INSERT&ADIF=" + urlEncode(adif);
+  int code = http.POST(body);
+  String resp = (code > 0) ? http.getString() : String("");
+  http.end();
+  qrzLogbookLastStatus = "HTTP " + String(code) + " " + resp.substring(0, 80);
+  if (code == 200 && resp.indexOf("RESULT=OK") >= 0) return "OK: wyslano do QRZ Logbook";
+  return "ERR: " + qrzLogbookLastStatus;
+}
+
 void setupWebServer() {
   // UtwĂ„â€šĹ‚rz serwer jeĂ„Ä…Ă˘â‚¬Ĺźli jeszcze nie istnieje
   if (server == nullptr) {
@@ -18567,6 +19235,24 @@ void setupWebServer() {
     } else {
       server->send(404, "text/plain", "manual.txt missing in LittleFS");
     }
+  });
+
+  // ===== ESP32 HAM LOGGER: eksport ADIF + wysylka do QRZ Logbook =====
+  server->on("/qso.adi", HTTP_GET, []() {
+    if (!littleFsReady || !LittleFS.exists(LOGGER_QSO_PATH)) {
+      server->send(200, "text/plain; charset=utf-8", loggerBuildAdifHeader());
+      return;
+    }
+    File f = LittleFS.open(LOGGER_QSO_PATH, "r");
+    server->sendHeader("Content-Disposition", "attachment; filename=\"qso.adi\"");
+    server->streamFile(f, "text/plain; charset=utf-8");
+    f.close();
+  });
+
+  // Wysyla log do QRZ Logbook (wymaga klucza API). Gotowe na przyszlosc.
+  server->on("/api/qrz_upload", HTTP_POST, []() {
+    String res = loggerUploadToQrzLogbook();
+    server->send(res.startsWith("OK") ? 200 : 400, "text/plain; charset=utf-8", res);
   });
 
   // Arkusze stylow CSS pelnego UI (LittleFS). Bez nich index.html nie ma wygladu.
@@ -19099,6 +19785,9 @@ void setupWebServer() {
       }
       if (doc["qrz_pass"].is<String>()) {
         qrzPassword = doc["qrz_pass"].as<String>();
+      }
+      if (doc["qrz_api_key"].is<String>()) {
+        qrzApiKey = doc["qrz_api_key"].as<String>();
       }
       if (doc["weather_key"].is<String>()) {
         weatherApiKey = doc["weather_key"].as<String>();
@@ -19769,6 +20458,7 @@ void setupWebServer() {
     doc["gps_override_active"] = gpsPositionOverrideActive;
     doc["qrz_user"] = qrzUsername;
     doc["qrz_pass"] = qrzPassword;
+    doc["qrz_api_key"] = qrzApiKey;
     doc["weather_key"] = weatherApiKey;
     doc["n2yo_key"] = n2yoApiKey;
     doc["openwebrx_url"] = openWebRxUrl;

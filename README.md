@@ -101,10 +101,62 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
+| **v1.2c** | 17.10.2026 | Nowy ekran **ESP32 HAM LOGGER** (16. ekran): dziennik łączności w formacie **ADIF** · formularz QSO (CALLSIGN w żółtej ramce, RST S/R, BAND/FREQ/MODE, NAME/QTH, DATE/TIME UTC z NTP) · **tabela ostatnich łączności** · **4 przyciski dotykowe** SAVE QSO / CLEAR / EXPORT ADIF / SETTINGS · log trzymany w **PSRAM** i zapisywany na SAVE **plik tymczasowy + rename** · autouzupełnianie NAME/QTH z **QRZ.com → HamDB → callook** · eksport przez WWW **`/qso.adi`** · gotowy endpoint **`/api/qrz_upload`** + pole **klucza API QRZ Logbook** · podgląd 1:1 `tools/render_logger_preview.py` |
 | **v1.2b** | 16.10.2026 | Nowy ekran **STACJA** (15. ekran): wyszukiwanie znaku w **QRZ.com → HamDB → callook.info** · dwa transceivery (lewy czerwony = Twój znak, prawy zielony = szukany), **czarny napis znaku na kolorowym wyświetlaczu radia** · karta wyniku (Imię/QTH/Grid/Kraj) · **dystans + kierunek geograficzny** (skróty N/NE/E/SE/S/SW/W/NW) · linie fal kolorowane wg odległości · źródło danych i godzina pobrania · klawiatura ekranowa · narzędzie podglądu 1:1 `tools/render_station_preview.py` |
 | **v1.2a** | 16.10.2026 | Poprawki ekranu **PSK MAP**: **kumulacja spotów** (dedup znak+pasmo+tryb, limit 200) · **auto-RESET** po 200 spotach · **panel informacyjny po prawej** (licznik + lista najnowszych, zwężona ramka) · **odświeżanie tylko spotów** (bez przerysowywania nagłówka, paska, ikony baterii i napisów) · **MQTT domyślnie włączone** (start bez HTTP) · eksport rozmów do Markdown |
 | **v1.2** | 15.10.2026 | Nowy ekran **APRS RADAR** i **Informacje systemowe** (zamiast Unlis Hunter) · **ISS Pass Tracking** przebudowany (n2yo visualpasses, mapa+radar+metryki, flagi kraju) · **GPS** (NMEA UART2 + automatyczny lokator Maidenhead) · **kolory w TFT**: kolor znaku (menu HSV + picker WWW) i **kolor zegara** · **globalny przełącznik stylu** KLASYCZNY/nowoczesny · **wspólny styl „ISS TRACKER"** na wszystkich ekranach · nowy **ekran startowy** (karta QSL → emblemat ESP32-HAM-CLOCK + VERSION 1.2) i **ekran powitalny** (godło PZK, czcionka VLW) · **WWW**: upload grafiki JPG/PNG/BMP, 14 pozycji, ikony SVG, naprawa „Instrukcja" · **WiFi**: przypinanie do BSSID AP, drabinka mocy TX (AUTH_EXPIRE) |
 | **v1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
+
+---
+
+## Zmiany między v1.2b a v1.2c
+
+Wydanie **v1.2c** (17.10.2026) dodaje **nowy ekran ESP32 HAM LOGGER** (16. ekran)
+— dziennik łączności zapisywany w formacie **ADIF**. Pozostałe ekrany i
+zależności bez zmian.
+
+### Nowy ekran ESP32 HAM LOGGER (16. ekran)
+- **Formularz bieżącego QSO** — pola: **CALLSIGN** (w wyróżnionej żółtej ramce),
+  **RST (S) / RST (R)**, **BAND / FREQ / MODE**, **NAME / QTH** oraz
+  **DATE/TIME** (UTC z NTP, `GMT_OFFSET_SEC = 0`).
+- **Klawiatura ekranowa** — wspólna dla wszystkich pól; po zamknięciu pola
+  CALLSIGN następuje **autouzupełnianie NAME/QTH** z tego samego łańcucha źródeł
+  co ekran STACJA (**QRZ.com → HamDB → callook.info**).
+- **BAND / MODE** — dotknięcie cyklicznie przełącza wartość; zmiana pasma
+  podstawia domyślną częstotliwość (np. `40m` → `7.145`).
+- **Tabela „Ostatnie łączności"** — 3 najnowsze wpisy (CALL / FREQ / MODE / UTC).
+- **Dolny panel przycisków dotykowych**: **SAVE QSO**, **CLEAR**,
+  **EXPORT ADIF**, **SETTINGS** (SETTINGS otwiera wspólne menu jasności/tematu).
+
+### Log w PSRAM + bezpieczny zapis
+- Rekordy QSO trzymane są w **PSRAM** (8 MB), nie w NVS — brak zużycia flash
+  przy każdym dotknięciu.
+- Zapis następuje dopiero na **SAVE QSO**, przez **plik tymczasowy + rename**
+  (`/qso.adi.tmp` → `/qso.adi`), więc **utrata zasilania nie uszkadza bazy**.
+- **ADIF** budowany poprawnie bajtowo (długości pól liczone w **bajtach UTF-8**,
+  nie w znakach — np. `Knurów` = 8 bajtów), z nagłówkiem `ADIF_VER`, `PROGRAMID`
+  i `PROGRAMVERSION`.
+
+### Integracja z UI WWW
+- Nowa pozycja **LOGGER** na liście ekranów (`data/index.html`, `data/indexEN.html`)
+  — kod `logger`, lista stron rozszerzona z 15 do **16** (nowy slot `screen_slot_16`).
+- **Eksport ADIF**: endpoint **`GET /qso.adi`** (pobranie pliku) + link i przycisk
+  w sekcji „ESP32 HAM LOGGER".
+- **Wysyłka do QRZ Logbook**: endpoint **`POST /api/qrz_upload`** oraz pole
+  **QRZ.com API Key (Logbook)** w ustawieniach WWW. Funkcja jest **gotowa na
+  przyszłość** — wymaga klucza API; bez niego zwraca czytelny komunikat błędu.
+  (Klucz API QRZ nie służy do wyszukiwania znaków — to robi login+hasło XML API.)
+
+### Narzędzia (`tools/`)
+- `tools/render_logger_preview.py` — podgląd ekranu LOGGER 1:1 (Pillow): nowy,
+  wypełniony, klawiatura, wariant klasyczny.
+
+### Wersja
+- `FIRMWARE_VERSION`: `1.2b` → **`1.2c`**.
+
+### Kompatybilność
+- Bez zmian zależności (TFT_eSPI, ArduinoJson, PubSubClient, …) i układu partycji.
+- Zmienione pliki firmware i ZIP (nowy build).
 
 ---
 
