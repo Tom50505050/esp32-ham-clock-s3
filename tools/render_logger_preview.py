@@ -292,7 +292,7 @@ save(im, "logger-1-nowy.png")
 im, d = render(False)
 header(d, "ESP32 HAM LOGGER", False)
 form(d, False, call="SQ9ABC", rsts="59", rstr="57", band="40m", freq="7.145", mode="SSB",
-     name="Janusz", qth="Knurów", status="Zapisano: SQ9ABC  (3 QSO)", recent=RECENT)
+     name="Janusz", qth="Knurow", status="Zapisano: SQ9ABC  (3 QSO)", recent=RECENT)
 footer(d, False)
 save(im, "logger-2-wpisane.png")
 
@@ -311,6 +311,12 @@ form(d, True, call="DL1ABC", rsts="59", rstr="59", band="20m", freq="14.200", mo
 footer(d, True)
 save(im, "logger-4-klasyczny.png")
 
+im, d = render(True)
+header(d, "ESP32 HAM LOGGER", True)
+keyboard(d, "DL1AB", "CALLSIGN", True)
+footer(d, True)
+save(im, "logger-5-klasyczny-klawiatura.png")
+
 # --- sklejka 2x2 ---
 names = ["logger-1-nowy.png", "logger-2-wpisane.png", "logger-3-klawiatura.png", "logger-4-klasyczny.png"]
 sheet = Image.new("RGB", (480 * 2 + 30, 320 * 2 + 30), (40, 40, 40))
@@ -320,3 +326,42 @@ for i, n in enumerate(names):
     y = (i // 2) * (320 + 10) + 10
     sheet.paste(img, (x, y))
 save(sheet, "logger-podglad.png")
+
+# --- porownanie: nowoczesny (lewo) vs klasyczny (prawo), te same dane ---
+FILL = dict(call="SQ9ABC", rsts="59", rstr="57", band="40m", freq="7.145", mode="SSB",
+            name="Janusz", qth="Knurow", status="Zapisano: SQ9ABC  (3 QSO)", recent=RECENT)
+
+im, d = render(False)
+header(d, "ESP32 HAM LOGGER", False)
+form(d, False, **FILL)
+footer(d, False)
+save(im, "_cmp-now-form.png")
+
+im, d = render(True)
+header(d, "ESP32 HAM LOGGER", True)
+form(d, True, **FILL)
+footer(d, True)
+save(im, "_cmp-kl-form.png")
+
+im, d = render(False)
+header(d, "ESP32 HAM LOGGER", False)
+keyboard(d, "SQ9AB", "CALLSIGN", False)
+footer(d, False)
+save(im, "_cmp-now-kb.png")
+
+im, d = render(True)
+header(d, "ESP32 HAM LOGGER", True)
+keyboard(d, "SQ9AB", "CALLSIGN", True)
+footer(d, True)
+save(im, "_cmp-kl-kb.png")
+
+cmp_names = ["_cmp-now-form.png", "_cmp-kl-form.png", "_cmp-now-kb.png", "_cmp-kl-kb.png"]
+cmp = Image.new("RGB", (480 * 2 + 30, 320 * 2 + 30), (40, 40, 40))
+for i, n in enumerate(cmp_names):
+    img = Image.open(os.path.join(OUT, n))
+    x = (i % 2) * (480 + 10) + 10
+    y = (i // 2) * (320 + 10) + 10
+    cmp.paste(img, (x, y))
+save(cmp, "logger-nowoczesny-vs-klasyczny.png")
+for n in cmp_names:
+    os.remove(os.path.join(OUT, n))
