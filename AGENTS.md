@@ -1600,3 +1600,18 @@ same"), a po RESET zostawala pusta ("brak odczytu").
 - Uwaga: tryb MQTT dalej KUMULUJE (`copyPskMqttToDisplay` -> `pskAddSpot`) -
   to zamierzone dla strumienia na zywo; dotyczy tylko sciezki HTTP.
 
+## PSK: MQTT znowu domyslny (17.10.2026)
+Uzytkownik potwierdzil, ze po przelaczeniu na MQTT mapa dziala i odswieza sie
+na zywo ("ruszylo na mqtt"), i poprosil, by zapisac ten tryb na stale.
+
+- `pskMqttEnabled` domyslnie **true** (bylo false) - deklaracja (linia ~252)
+  i `preferences->getBool("psk_mqtt_en", true)` w `loadPreferences()`.
+- Migracja odwrocona: zamiast wylaczac MQTT (`psk_mqtt_off_migr`), nowa
+  `psk_mqtt_default_migr` **wlacza i zapisuje** `psk_mqtt_en=true` raz, gdy
+  broker to `mqtt.pskreporter.info`. Dzieki temu tryb jest aktywny od razu po
+  starcie (bez potrzeby recznego przelaczania). Wlasny broker uzytkownika
+  (inny niz pskreporter) nie jest nadpisywany.
+- Tryb HTTP zostaje jako opcja w menu PSK MAP i w panelu WWW
+  (`psk_mqtt_enabled`).
+- Feed: `pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nad>/<odb>` - dziala (wrocil).
+

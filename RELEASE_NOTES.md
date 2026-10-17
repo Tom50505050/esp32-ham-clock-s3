@@ -95,6 +95,15 @@ z UI WWW oraz narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
 ### Wersja
 - `FIRMWARE_VERSION`: `1.2a` → **`1.2b`**.
 
+### Tryb PSK: MQTT domyślnie
+- PSK Reporter działa teraz domyślnie w trybie **MQTT** (`pskMqttEnabled=true`),
+  bo feed PSK wrócił na `pskr/filter/v2raw_1pc` i daje spoty na żywo, a mapa
+  odświeża się sama (bez limitu zapytań HTTP i bez „zamarzania" na kilku
+  spotach). Migracja NVS (`psk_mqtt_default_migr`) **włącza i zapisuje** ten tryb
+  raz, więc jest aktywny **od razu po starcie**; własny broker użytkownika nie
+  jest nadpisywany. Tryb HTTP (pskreporter.info) zostaje do wyboru w menu
+  ekranu PSK MAP i w panelu WWW.
+
 ### Naprawa: PSK Reporter i POTA Cluster (brak danych)
 - **PSK Reporter (pusta mapa).** Trzy nakładające się przyczyny:
   1. domyślny host HTTP `retrieve.pskreporter.info/query` zwracał Cloudflare

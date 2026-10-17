@@ -245,11 +245,11 @@ String pskMonitorCallsign = "";
 int pskReportDays = 0;
 int pskAutoRefreshMinutes = 5;
 
-// MQTT PSK Reporter - alternatywny tryb
-// Domyslnie HTTP. Broker mqtt.pskreporter.info NIE publikuje juz feedu PSK
-// (pskr/filter/v2*, zostal tylko WSPR), wiec tryb MQTT nie dawal spotow.
-// Tryb HTTP (pskreporter.info/query) dziala i to on jest teraz domyslny.
-bool pskMqttEnabled = false;
+// MQTT PSK Reporter - DOMYSLNY tryb od v1.2b (feed na zywo, mapa odswieza sie
+// sama, bez limitu zapytan HTTP). Broker mqtt.pskreporter.info publikuje PSK
+// na pskr/filter/v2raw_1pc. Tryb HTTP (pskreporter.info/query) zostaje jako
+// alternatywa do wyboru w menu ekranu / panelu WWW.
+bool pskMqttEnabled = true;
 String pskMqttServer = "mqtt.pskreporter.info";  // Serwer MQTT
 int pskMqttPort = 1883;                   // Port MQTT (1883 dla plain, 8883 dla TLS)
 String pskMqttSubscribedTopic = "";       // aktualnie zasubskrybowany temat (do resubskrypcji)
@@ -19279,20 +19279,21 @@ void loadPreferences() {
   if (pskAutoRefreshMinutes > 60) pskAutoRefreshMinutes = 60;
 
   // MQTT PSK Reporter settings
-  // Domyslnie HTTP (patrz komentarz przy pskMqttEnabled). Zapisane w NVS ma priorytet.
-  pskMqttEnabled = preferences->getBool("psk_mqtt_en", false);
+  // Domyslnie MQTT (patrz komentarz przy pskMqttEnabled). Zapisane w NVS ma priorytet.
+  pskMqttEnabled = preferences->getBool("psk_mqtt_en", true);
   pskMqttServer = preferences->getString("psk_mqtt_srv", "mqtt.pskreporter.info");
   pskMqttPort = preferences->getInt("psk_mqtt_port", 1883);
   if (pskMqttPort <= 0 || pskMqttPort > 65535) pskMqttPort = 1883;
   pskMqttCallsign = preferences->getString("psk_mqtt_call", "");
-  // Migracja: broker mqtt.pskreporter.info przestal publikowac feed PSK (zostal
-  // tylko WSPR), wiec zapisany "true" (dawny domyslny) dawal pusta mape. Wylacz
-  // MQTT RAZ, jesli uzytkownik nie zmienil serwera (wlasny broker zostawiamy).
-  if (pskMqttEnabled && pskMqttServer == "mqtt.pskreporter.info" &&
-      !preferences->getBool("psk_mqtt_off_migr", false)) {
-    pskMqttEnabled = false;
-    preferences->putBool("psk_mqtt_off_migr", true);
-    preferences->putBool("psk_mqtt_en", false);
+  // Migracja v1.2b: MQTT jest teraz domyslnym, dzialajacym trybem (feed PSK
+  // wrocil na pskr/filter/v2raw_1pc). Wlacz go RAZ i ZAPISZ w NVS, zeby po
+  // restarcie byl aktywny od razu. Nie ruszamy, jesli uzytkownik ma wlasny
+  // broker (nie pskreporter) albo juz sam przelaczyl tryb.
+  if (pskMqttServer == "mqtt.pskreporter.info" &&
+      !preferences->getBool("psk_mqtt_default_migr", false)) {
+    pskMqttEnabled = true;
+    preferences->putBool("psk_mqtt_default_migr", true);
+    preferences->putBool("psk_mqtt_en", true);
   }
 
   screen1TimeMode = (uint8_t)preferences->getInt("screen1_time", SCREEN1_TIME_UTC);
