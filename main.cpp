@@ -12632,6 +12632,7 @@ static void gpsParseNmea(const String &line) {
     if (n < 10) return;
     // f[2] = status (A=aktywny, V=nieaktywny), f[7] = predkosc [wezly]
     bool active = (f[2] == "A");
+    if (f[1].length() >= 6) gpsUtcTime = f[1];  // czas UTC (GGA tez go dostarcza)
     if (f[9].length() == 6) gpsDateStr = f[9];
     if (active && f[3].length() >= 4 && f[5].length() >= 4) {
       gpsLat = nmeaToDeg(f[3], f[4]);
@@ -12702,15 +12703,20 @@ static void gpsApplyTime() {
   bool clockValid = tv.tv_sec > 1600000000;  // ~2020: NTP/GPS juz ustawil czas
 
   if (!clockValid && gpsDateStr.length() == 6) {
-    // Data ddmmvy -> dzien roku (bez czasu lokalnego; DST liczymy z UTC).
+    // Data ddmmyy -> sekundy od epoki. Liczba dni liczona algorytmem
+    // cywilnym (Howard Hinnant) - uwzglednia lata przestepne; stara wersja
+    // (yr-1970)*365 zanizala date o 1 dzien na kazdy rok przestepny.
     int day = gpsDateStr.substring(0, 2).toInt();
     int mon = gpsDateStr.substring(2, 4).toInt();
     int yr = 2000 + gpsDateStr.substring(4, 6).toInt();
     if (day >= 1 && day <= 31 && mon >= 1 && mon <= 12) {
-      static const int cum[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
-      int doy = cum[mon - 1] + (day - 1);
-      if (mon > 2 && ((yr % 4 == 0 && yr % 100 != 0) || yr % 400 == 0)) doy++;
-      tv.tv_sec = (time_t)(yr - 1970) * 31536000L + (time_t)doy * 86400L + (time_t)hh * 3600L + (time_t)mm * 60L + ss;
+      int y = yr - (mon <= 2 ? 1 : 0);
+      long era = (y >= 0 ? y : y - 399) / 400;
+      long yoe = y - era * 400;
+      long doy = (153L * (mon + (mon > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+      long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+      long days = era * 146097L + doe - 719468L;
+      tv.tv_sec = (time_t)days * 86400L + (time_t)hh * 3600L + (time_t)mm * 60L + ss;
       tv.tv_usec = 0;
       settimeofday(&tv, nullptr);
       gpsLastTimeSetMs = nowMs;
