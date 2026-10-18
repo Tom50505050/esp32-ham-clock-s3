@@ -3619,11 +3619,11 @@ void drawBatteryQuickUpdate(bool skipScreenCheck = false) {
   // Brak akumulatora/dzielnika = brak pomiaru; naglowek nie rysuje ikony.
   if (batteryVoltage <= 0.1f || batteryVoltage > 5.0f) return;
   // Ta sama pozycja, w ktorej naglowek rysuje ikone baterii (20x10, obudowa
-  // o 2 px w dol od y). Zegar: drawBatteryIcon(screenW-70, 8); inne ekrany:
-  // uiHeader -> drawBatteryIcon(420, 1); splash -> prawy gorny rog, tlo czarne.
+  // o 2 px w dol od y). Zegar: drawBatteryIcon(screenW-82, 8); inne ekrany:
+  // uiHeader -> drawBatteryIcon(408, 1); splash -> prawy gorny rog, tlo czarne.
   int screenW = tft.width();
   bool clockScreen = (currentScreen == SCREEN_HAM_CLOCK);
-  int x = clockScreen ? (screenW - 70) : 420;
+  int x = clockScreen ? (screenW - 82) : 408;
   int y = clockScreen ? 8 : 1;
   // Tlo wnetrza musi byc takie samo jak w naglowku, inaczej puste pole
   // baterii zmieniloby kolor po pierwszej aktualizacji.
@@ -3741,7 +3741,7 @@ static void updateScreen1HeaderClassic() {
   tft.print(logoPart2);
 
   drawWifiSignalBars(screenW - 45, 8);
-  drawBatteryIcon(screenW - 70, 8);
+  drawBatteryIcon(screenW - 82, 8);
   drawGpsIconInHeader(true);
 
   drawHeaderTime(TFT_BLACK, TFT_RADIO_ORANGE);
@@ -4058,7 +4058,7 @@ static void hamClockModernHeader() {
   tft.print(logo);
 
   drawWifiSignalBars(screenW - 45, 8);
-  drawBatteryIcon(screenW - 70, 8);
+  drawBatteryIcon(screenW - 82, 8);
   drawGpsIconInHeader(false);
 
   drawHeaderTime(HC_CYAN, HC_BG);
@@ -6257,7 +6257,7 @@ static void uiHeader(const char *title, bool showMenu) {
   // textsize=7, co rozdmuchuje tytul naglowka (np. "POTA.app") przy wejsciu.
   tft.setTextSize(1);
   const int leftLimit = 34;
-  const int rightLimit = 415;
+  const int rightLimit = 403;  // bateria przesunieta w lewo (x=408) - nie nachodz na nia
   const int availW = rightLimit - leftLimit;
   // textWidthFont() jest niezalezne od setTextSize() - mierzymy realna szerokosc
   // napisu w danym foncie (Font 2 = 16 px, Font 1 = 8 px).
@@ -6280,7 +6280,7 @@ static void uiHeader(const char *title, bool showMenu) {
   }
   tft.setTextDatum(TL_DATUM);
   drawWifiSignalBars(445, 1);
-  drawBatteryIcon(420, 1);
+  drawBatteryIcon(408, 1);
 }
 
 // Naglowek MENU: nowoczesny = ciemna karta + teal linia, klasyczny =

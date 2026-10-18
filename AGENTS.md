@@ -1652,3 +1652,14 @@ Przyczyny i poprawki:
    odrzucal wszystko. Dodano 160/30/17/12 m w OBU sciezkach (HTTP ~linia 23210,
    MQTT ~linia 25667) oraz kolory w `getPskBandColor`.
 
+## Ikona baterii przesunieta w lewo (17.10.2026)
+Na prosbe uzytkownika ikona baterii na WSZYSTKICH ekranach przesunieta o 12 px
+w lewo, zeby nie nachodzila na prawa krawedz:
+- ekran zegara (klasyczny + nowoczesny): `drawBatteryIcon(screenW - 70, 8)` ->
+  `screenW - 82, 8` (~linie 3744 i 4061),
+- pozostale ekrany (`uiHeader`): `drawBatteryIcon(420, 1)` -> `408, 1` (~linia 6283),
+- `drawBatteryQuickUpdate` (mirror pozycji): `screenW-70`/`420` -> `screenW-82`/`408`
+  (~linia 3626),
+- `uiHeader`: `rightLimit` 415 -> 403, by tytul nie wchodzil na przesunieta baterie.
+Wifi (445/405) i GPS (88) bez zmian.
+
