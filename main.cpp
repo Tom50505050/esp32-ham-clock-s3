@@ -23207,10 +23207,14 @@ bool fetchPskReporterData() {
         // OkreĹ›l pasmo z czÄ™stotliwoĹ›ci
         int freq_khz = frequency / 1000;
         int band = 0;
-        if (freq_khz >= 3500 && freq_khz <= 4000) band = 80;
+        if (freq_khz >= 1800 && freq_khz <= 2000) band = 160;
+        else if (freq_khz >= 3500 && freq_khz <= 4000) band = 80;
         else if (freq_khz >= 7000 && freq_khz <= 7300) band = 40;
+        else if (freq_khz >= 10100 && freq_khz <= 10150) band = 30;
         else if (freq_khz >= 14000 && freq_khz <= 14350) band = 20;
+        else if (freq_khz >= 18068 && freq_khz <= 18168) band = 17;
         else if (freq_khz >= 21000 && freq_khz <= 21450) band = 15;
+        else if (freq_khz >= 24890 && freq_khz <= 24990) band = 12;
         else if (freq_khz >= 28000 && freq_khz <= 29700) band = 10;
         else if (freq_khz >= 50000 && freq_khz <= 54000) band = 6;
 
@@ -23245,10 +23249,14 @@ bool fetchPskReporterData() {
 // Kolory dla pasm
 static uint16_t getPskBandColor(int band) {
   switch (band) {
+    case 160: return TFT_PURPLE;
     case 80: return TFT_RED;
     case 40: return TFT_ORANGE;
+    case 30: return TFT_GREENYELLOW;
     case 20: return TFT_GREEN;
+    case 17: return TFT_PINK;
     case 15: return TFT_CYAN;
+    case 12: return TFT_OLIVE;
     case 10: return TFT_BLUE;
     case 6:  return TFT_MAGENTA;
     default: return TFT_WHITE;
@@ -23989,6 +23997,13 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
     if (x >= 70 && x < 140 && y >= 210 && y < 240) {
       Serial.println("[PSK] ZAPISZ button pressed!");
       // Zapisz ustawienia
+      // Zmiana filtra pasma/trybu/odbiorcy unieważnia dotychczasowe spoty -
+      // bez tego stare kreski z poprzedniego pasma zostawaly na mapie i wygladalo
+      // to jak "zawieszenie" (nowy filtr nic nie dorysowywal). Wyczysc mape i
+      // wymus swiezy odczyt przy najblizszym rysowaniu.
+      bool pskFilterChanged = (pskFilterBand != pskTempBand) ||
+                              (pskFilterMode != pskTempMode) ||
+                              (pskReceiverCallsign != pskTempReceiver);
       pskReceiverCallsign = pskTempReceiver;
       pskFilterBand = pskTempBand;
       pskFilterMode = pskTempMode;
@@ -24031,7 +24046,16 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       // backoffu po 429). Nie polegamy na bramce drawPskMap, bo przy
       // auto-refresh=0 zaleznosc od interwalu blokowalaby pobranie danych.
       Serial.printf("[PSK] Before drawPskMap, pskMapMenuOpen=%d\n", pskMapMenuOpen);
-      if (pskFetchAllowed(millis())) {
+      if (pskFilterChanged) {
+        // Stary filtr uniewaznia spoty - czyscimy mape. W trybie MQTT nowy temat
+        // subskrybujemy w loopPskMqtt (desired != subscribed), a tu tylko
+        // wymuszamy pelne przerysowanie bez resztek starego pasma.
+        pskSpotCount = 0;
+        lastPskSpotCount = 0;
+        if (!pskMqttEnabled) lastPskFetchMs = 0;  // HTTP: pobierz od razu nowy filtr
+        Serial.println("[PSK] Zmiana filtra - czyszcze mape i wymuszam odswiezenie");
+      }
+      if (!pskMqttEnabled && pskFetchAllowed(millis())) {
         fetchPskReporterData();
         lastPskFetchMs = millis();
       }
@@ -25579,12 +25603,15 @@ static String getPskMqttTopicForLocator(const String& locator) {
   String mode = (pskFilterMode.length() > 0) ? pskFilterMode : String("+");
   // Broker mqtt.pskreporter.info nie publikuje juz feedu PSK "pskr/filter/v2"
   // ani "pskr/filter/v2_field" (usuniete - zostal tylko WSPR). Dziala jeszcze
-  // "pskr/filter/v2raw_1pc": 1% losowa probka v2raw (bez segmentow lokatorow/
-  // DXCC), ktora strona mqtt.pskreporter.info sama uzywa do dashboardu.
-  // Uklad v2raw: pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nadawca>/<odbiorca>.
-  // Pasmo/tryb zawezamy w subskrypcji, a odbiorce filtrujemy w callbacku.
+  // "pskr/filter/v2raw_1pc": 1% losowa probka v2raw, ktora strona
+  // mqtt.pskreporter.info sama uzywa do dashboardu.
+  // Uklad v2raw ma 11 segmentow (zweryfikowane na zywym brokerze):
+  //   pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nad>/<odb>/<lokNad>/<lokOdb>/<sa>/<ra>
+  // UWAGA: dawny filtr ".../<pasmo>/<tryb>/+/+/+" (6 segmentow) NIE pasowal do
+  // ZADNEGO tematu - po wybraniu pasma/trybu subskrypcja nie dawala spotow i
+  // mapa wygladala na zawieszona. Poprawnie: ".../<pasmo>/<tryb>/#".
   if (band != "+" || mode != "+") {
-    return "pskr/filter/v2raw_1pc/" + band + "/" + mode + "/+/+";
+    return "pskr/filter/v2raw_1pc/" + band + "/" + mode + "/#";
   }
   return "pskr/filter/v2raw_1pc/#";
 }
@@ -25611,12 +25638,13 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
-  // Uklad segmentow subskrybowanego tematu:
-  //   pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nadawca>/<odbiorca>
-  // Segment odbiorcy to idx 5 (nadawca idx 4). v2raw nie ma segmentow lokatora
-  // (to feed "surowy"), wiec odrzucamy spoty po ZNAKU odbiorcy - porownujemy
-  // tyle znakow, ile mamy w receiverCallsign (jesli ustawiony).
-  int rcIdx = 5;
+  // Uklad segmentow subskrybowanego tematu (11 segmentow):
+  //   idx: 0=pskr 1=filter 2=v2raw_1pc 3=pasmo 4=tryb
+  //        5=nadawca 6=odbiorca 7=lokNad 8=lokOdb 9=sa 10=ra
+  // Segment ODBIORCY to idx 6 (nadawca idx 5). Wczesniej kod czytal idx 5 jako
+  // odbiorce (= nadawca), wiec gdy ustawiono receiverCallsign, porownanie
+  // odrzucalo praktycznie wszystkie spoty -> mapa wygladala na zawieszona.
+  int rcIdx = 6;
   if (pskReceiverCallsign.length() > 0) {
     String topicRc = pskMqttTopicSegment(topic, rcIdx);
     topicRc.toUpperCase();
@@ -25656,10 +25684,14 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
   // OkreĹ›l pasmo
   int band = 0;
   int freq_khz = (int)(frequency / 1000);
-  if (freq_khz >= 3500 && freq_khz <= 4000) band = 80;
+  if (freq_khz >= 1800 && freq_khz <= 2000) band = 160;
+  else if (freq_khz >= 3500 && freq_khz <= 4000) band = 80;
   else if (freq_khz >= 7000 && freq_khz <= 7300) band = 40;
+  else if (freq_khz >= 10100 && freq_khz <= 10150) band = 30;
   else if (freq_khz >= 14000 && freq_khz <= 14350) band = 20;
+  else if (freq_khz >= 18068 && freq_khz <= 18168) band = 17;
   else if (freq_khz >= 21000 && freq_khz <= 21450) band = 15;
+  else if (freq_khz >= 24890 && freq_khz <= 24990) band = 12;
   else if (freq_khz >= 28000 && freq_khz <= 29700) band = 10;
   else if (freq_khz >= 50000 && freq_khz <= 54000) band = 6;
 
@@ -25790,6 +25822,11 @@ void loopPskMqtt() {
     // zostaje stary az do rozlaczenia i mapa przestaje pasowac do ustawien.
     String desired = getPskMqttTopicForLocator(userLocator);
     if (desired != pskMqttSubscribedTopic) {
+      // Odsubskrybuj stary temat - inaczej po zmianie pasma/trybu przychodzilyby
+      // spoty z OBU subskrypcji (stare pasmo zostawalo na mapie).
+      if (pskMqttSubscribedTopic.length() > 0) {
+        pskMqttClient.unsubscribe(pskMqttSubscribedTopic.c_str());
+      }
       pskMqttClient.subscribe(desired.c_str());
       Serial.printf("[PSK MQTT] Zmiana subskrypcji: %s\n", desired.c_str());
       pskMqttSubscribedTopic = desired;

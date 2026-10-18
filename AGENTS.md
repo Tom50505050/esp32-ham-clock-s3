@@ -1613,5 +1613,42 @@ na zywo ("ruszylo na mqtt"), i poprosil, by zapisac ten tryb na stale.
   (inny niz pskreporter) nie jest nadpisywany.
 - Tryb HTTP zostaje jako opcja w menu PSK MAP i w panelu WWW
   (`psk_mqtt_enabled`).
-- Feed: `pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nad>/<odb>` - dziala (wrocil).
+- Feed: `pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nad>/<odb>/<lokNad>/<lokOdb>/<sa>/<ra>`
+  (11 segmentow) - dziala (wrocil).
+
+## PSK MQTT: zmiana pasma nie sciagala danych (17.10.2026)
+Objaw: po przelaczeniu na inne pasmo (np. 40m) mapa "zawieszala sie" - zero
+nowych spotow. Zdiagnozowane na ZYWYM brokerze (`mqtt.pskreporter.info:1883`,
+paho-mqtt): realny temat ma **11 segmentow**, a nie 6:
+`pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nad>/<odb>/<lokNad>/<lokOdb>/<sa>/<ra>`
+(probka payloadu: `{"sq":..,"f":7074689,"md":"FT8","rp":-16,"sc":"KA1MXL",
+"sl":"FN41hs00","rc":"KY4WI","rl":"EL89WA","sa":291,"ra":291,"b":"40m"}`).
+
+Zmierzony czas 30 s na filtr:
+| filtr | spoty |
+|---|---|
+| `pskr/filter/v2raw_1pc/40m/+/+/+` (dawny kod) | **0** |
+| `pskr/filter/v2raw_1pc/40m/+/#` | 25 |
+| `pskr/filter/v2raw_1pc/40m/#` | 29 |
+| `pskr/filter/v2raw_1pc/+/FT8/#` | 129 |
+| `pskr/filter/v2raw_1pc/40m/FT8/#` | 21 |
+
+Przyczyny i poprawki:
+1. **Filtr subskrypcji 6-seg. nie pasowal do niczego.** `getPskMqttTopicForLocator`
+   budowal `.../<pasmo>/<tryb>/+/+/+` (za malo segmentow) -> 0 spotow. Teraz
+   `.../<pasmo>/<tryb>/#` (albo `#` gdy brak filtra).
+2. **Zly indeks segmentu odbiorcy.** W callbacku `rcIdx` byl 5 = NADawca
+   (odbiorca to idx 6). Gdy ustawiono `pskReceiverCallsign`, porownanie
+   odrzucalo prawie wszystko. Poprawione na 6.
+3. **Stare spoty zostawaly na mapie.** Po zapisie zmiany filtra mapa nie byla
+   czyszczona, wiec wygladala jak zamrozona (nowy filtr nic nie dorysowywal).
+   W handlerze ZAPISZ: `pskFilterChanged` -> `pskSpotCount=0`,
+   `lastPskSpotCount=0` + (HTTP) `lastPskFetchMs=0` + `drawPskMap()`.
+4. **Resubskrypcja bez odsubskrybowania.** `loopPskMqtt` przy zmianie tematu
+   tylko subskrybowal nowy, wiec lecialy spoty z OBU. Dodano `unsubscribe`
+   starego tematu.
+5. **Brak mapowania pasm 160/30/17/12 m.** `pskFilterBand.toInt()` dawal np.
+   160, ale blok `freq_khz` mapowal tylko 80/40/20/15/10/6 -> `band=0` -> filtr
+   odrzucal wszystko. Dodano 160/30/17/12 m w OBU sciezkach (HTTP ~linia 23210,
+   MQTT ~linia 25667) oraz kolory w `getPskBandColor`.
 

@@ -104,6 +104,20 @@ z UI WWW oraz narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
   jest nadpisywany. Tryb HTTP (pskreporter.info) zostaje do wyboru w menu
   ekranu PSK MAP i w panelu WWW.
 
+### Naprawa: PSK MQTT — zmiana pasma nie ściągała spotów
+- Po przełączeniu na inne pasmo (np. **40 m**) mapa wyglądała na zawieszoną.
+  Przyczyna: realny temat brokera ma **11 segmentów**, a kod subskrybował filtr
+  **6-segmentowy** (`.../40m/FT8/+/+/+`) — taki filtr nie pasuje do **żadnego**
+  tematu (0 spotów w 30 s; `.../40m/FT8/#` = 21 spotów). Poprawione na
+  `.../<pasmo>/<tryb>/#`.
+- Filtr po znaku odbiorcy czytał zły segment (idx 5 = nadawca zamiast 6 =
+  odbiorca) — gdy ustawiono znak odbiornika, odrzucał prawie wszystko.
+- Po zapisie zmiany filtra mapa nie była czyszczona (stare spoty zostawały) —
+  teraz czyścimy spoty i wymuszamy przerysowanie; resubskrypcja odsubskrybowuje
+  stary temat (koniec spotów z dwóch pasm naraz).
+- Dodano mapowanie pasm **160/30/17/12 m** (menu oferowało je, ale kod nie
+  rozpoznawał częstotliwości → 0 spotów) oraz ich kolory.
+
 ### Naprawa: PSK Reporter i POTA Cluster (brak danych)
 - **PSK Reporter (pusta mapa).** Trzy nakładające się przyczyny:
   1. domyślny host HTTP `retrieve.pskreporter.info/query` zwracał Cloudflare
