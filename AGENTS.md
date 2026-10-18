@@ -2,6 +2,22 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## v1.2c — poprawki PSK MQTT i nagłówka (18.10.2026)
+- **PSK MQTT — brak spotów po zmianie pasma/trybu**: realny temat brokera ma
+  **11 segmentów**, a subskrypcja budowała filtr **6-segmentowy**
+  (`.../<pasmo>/<tryb>/+/+/+`), który nie pasował do żadnego tematu. Zmiana na
+  **`.../<pasmo>/<tryb>/#`**. Dodano mapowanie pasm **160/30/17/12 m** (HTTP i
+  MQTT), poprawiono indeks odbiorcy (5→6), po zapisie filtra czyszczone są spoty,
+  a resubskrypcja odsubskrybowuje stary temat.
+- **Ikona baterii 12 px w lewo** na wszystkich ekranach: zegar
+  `drawBatteryIcon(screenW-70,8)` → `screenW-82,8`, `uiHeader`
+  `drawBatteryIcon(420,1)` → `408,1`, `rightLimit` 415→403; mirror w
+  `drawBatteryQuickUpdate()`.
+- **`tools/render_header_preview.py`** zsynchronizowany z firmware (398/408/
+  `screenW-82`).
+- **`FIRMWARE_VERSION` 1.2b → 1.2c**; zaktualizowane `data/index.html`,
+  `data/indexEN.html`, `tools/make_qsl_splash.py`.
+
 ## GPS w nagłówku + ekran satelitów, nowe logi online (17.10.2026, v1.2b)
 - **Ikona GPS** w nagłówku ekranu zegara (`drawGpsIconInHeader(bool classic)`,
   rysowana tylko gdy `gpsEnabled`) - oba style nagłówka (klasyczny i nowoczesny).

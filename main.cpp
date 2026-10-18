@@ -36,7 +36,7 @@ void normalizePolish(String &text);
 #endif
 
 // Wersja firmware
-#define FIRMWARE_VERSION "1.2b"
+#define FIRMWARE_VERSION "1.2c"
 
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -2536,7 +2536,7 @@ void drawWelcomeScreenYellow() {
 
   tft.fillScreen(TFT_BLACK);
 
-  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2b").
+  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2c").
   // Polskie znaki - wymaga UTF-8 w zrodle (--utf8-source).
   String lines[5];
   lines[0] = "ESP32-HAM-CLOCK v" FIRMWARE_VERSION;
@@ -19559,7 +19559,7 @@ static bool streamLittleFsFile(const char *path, const char *contentType) {
 
 String getManualPL() {
   return String(
-    "ESP32-HAM-CLOCK v1.2 (12.10.2026)\n"
+    "ESP32-HAM-CLOCK v1.2c (18.10.2026)\n"
     "Autor oprogramowania: Tomasz SP9TNV\n"
     "Na podstawie projektu: Konrad Wisniewski SP3KON (z uĹĽyciem AI)\n"
     "Kontakt: SP9TNV@gmail.com\n\n"
@@ -20448,7 +20448,7 @@ void setupWebServer() {
     // Stopka
     html += "<hr style='margin:40px 0;'>";
     html += "<p style='text-align:center;color:#666;'>";
-    html += "<strong>ESP32-HAM-CLOCK v1.2</strong> | Autor oprogramowania: Tomasz SP9TNV<br>";
+    html += "<strong>ESP32-HAM-CLOCK v1.2c</strong> | Autor oprogramowania: Tomasz SP9TNV<br>";
     html += "Na podstawie projektu Konrad WiĹ›niewski SP3KON | Licencja: MIT<br>";
     html += "<a href='mailto:SP9TNV@gmail.com'>SP9TNV@gmail.com</a>";
     html += "</p>";

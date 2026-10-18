@@ -1,6 +1,6 @@
 # ESP32-HAM-CLOCK — informacje o wydaniach
 
-Dokument obejmuje wydania **v1.2**, **v1.2a** i **v1.2b** dla platformy
+Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b** i **v1.2c** dla platformy
 **ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM) z wyświetlaczem
 **ILI9488 na 3.5" i 4" 480×320** po SPI i panelem dotykowym XPT2046.
 
@@ -10,6 +10,70 @@ Dokument obejmuje wydania **v1.2**, **v1.2a** i **v1.2b** dla platformy
 > W wydaniach dostępne są **tylko te dwa pliki** — osobne obrazy `firmware.bin`,
 > `littlefs.bin`, `bootloader.bin`, `boot_app0.bin` i `partitions.bin` zostały
 > usunięte ze wszystkich wydań.
+
+---
+
+# ESP32-HAM-CLOCK v1.2c — poprawki PSK MQTT i nagłówka
+
+Wydanie **v1.2c** (18.10.2026) dla platformy **ESP32-S3 N16R8** + **ILI9488 na 3.5" i 4" 480×320**
++ XPT2046. Zakres: **naprawa PSK MQTT (brak spotów po zmianie pasma/trybu)**,
+**przesunięcie ikony baterii w lewo na wszystkich ekranach** oraz synchronizacja
+narzędzia podglądu nagłówka. Pozostałe ekrany, zależności i układ partycji bez zmian.
+
+## Zmiany od v1.2b
+
+### Naprawa: PSK MQTT — zmiana pasma nie ściągała spotów
+- Realny temat brokera PSK Reporter ma **11 segmentów**, a subskrypcja budowała
+  filtr **6-segmentowy** (`.../<pasmo>/<tryb>/+/+/+`), który **nie pasował do
+  żadnego tematu** — po wybraniu pasma mapa zostawała pusta (wyglądała na
+  zawieszoną). Subskrypcja zmieniona na **`.../<pasmo>/<tryb>/#`**.
+- Dodano mapowanie pasm **160 / 30 / 17 / 12 m** w obu ścieżkach (HTTP i MQTT).
+- Poprawka filtra odbiorcy: czytany był indeks **5** (nadawca) zamiast **6**
+  (odbiorca).
+- Po zapisie filtra **czyszczone są spoty** i wymuszane przerysowanie mapy.
+- Przy resubskrypcji **odsubskrybowywany jest stary temat** — koniec spotów
+  napływających jednocześnie z dwóch pasm.
+
+### Nagłówek — ikona baterii przesunięta w lewo
+- Ikona baterii przesunięta **12 px w lewo** na wszystkich ekranach:
+  zegar (klasyczny i nowoczesny) `drawBatteryIcon(screenW-70, 8)` →
+  **`screenW-82, 8`**, wspólny nagłówek `uiHeader` `drawBatteryIcon(420, 1)` →
+  **`408, 1`**.
+- `rightLimit` nagłówka z **415** na **403** (napis nie nachodzi na ikonę).
+- `drawBatteryQuickUpdate()` — pozycje lustrzane zaktualizowane do tej samej
+  geometrii (bez migania przy odświeżaniu MQTT).
+
+### Narzędzia (`tools/`)
+- `render_header_preview.py` — usunięte zaszyte stare współrzędne baterii
+  (410/420, `screenW-120`), zsynchronizowane z firmware (**398 / 408 /
+  `screenW-82`**); usunięty nieistniejący tekst „%” w podglądzie quick-update.
+
+### Wersja
+- `FIRMWARE_VERSION`: `1.2b` → **`1.2c`** (banner startowy, ADIF `PROGRAMVERSION`,
+  stopka WWW, instrukcja). Zaktualizowane także `data/index.html` /
+  `data/indexEN.html` (LittleFS) oraz `tools/make_qsl_splash.py`.
+
+### Kompatybilność
+- Bez zmian zależności i układu partycji. Zmienione pliki firmware i ZIP.
+
+## Pliki
+
+| Plik | Opis | Offset |
+|---|---|---|
+| `merged-flash.bin` | cały obraz 16 MB (bootloader + partycje + firmware + LittleFS) | `0x0` |
+| `merged-flash-notouch.bin` | to samo, wariant bez obsługi dotyku | `0x0` |
+| `esp32-ham-clock-s3.zip` | paczka projektu (źródła + `data/` + pliki `.bin`) | — |
+
+## Wgrywanie
+
+Przez przeglądarkę: **https://jason2866.github.io/WebSerial_ESPTool/** — wybierz
+`merged-flash.bin` (albo `merged-flash-notouch.bin`) i offset `0x0`.
+
+```bash
+esptool.py -p COM9 write_flash 0x0 merged-flash.bin
+```
+
+Autor: **Tomasz SP9TNV**. Projekt bazowy: **Konrad SP3KON**. Licencja: **MIT**.
 
 ---
 

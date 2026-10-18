@@ -106,10 +106,44 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
+| **v1.2c** | 18.10.2026 | **Naprawa PSK MQTT**: zmiana pasma/trybu nie ściągała spotów (filtr subskrypcji 6-segmentowy → `.../<pasmo>/<tryb>/#`) · mapowanie pasm **160/30/17/12 m** (HTTP i MQTT) · poprawka indeksu odbiorcy (5→6) · czyszczenie spotów po zapisie filtra · **ikona baterii 12 px w lewo** na wszystkich ekranach · synchronizacja `tools/render_header_preview.py` |
 | **v1.2b** | 17.10.2026 | **Nagłówek**: ikona **GPS po lewej** stronie (za godziną) · ikona **baterii na wszystkich ekranach** · wspólny `drawHeaderTime()` · Nowe ekrany: **STACJA** (15.) i **ESP32 HAM LOGGER** (16., dziennik ADIF: formularz QSO, klawiatura, tabela ostatnich łączności, SAVE QSO/CLEAR/EXPORT ADIF/SETTINGS, log w **PSRAM** + zapis **plik tymczasowy + rename**, autouzupełnianie NAME/QTH z **QRZ.com → HamDB → callook**, eksport **`/qso.adi`**, endpoint **`/api/qrz_upload`**) · STACJA: wyszukiwanie znaku w **QRZ.com → HamDB → callook.info**, dwa transceivery, dystans + kierunek geograficzny · podglądy 1:1 `tools/render_station_preview.py`, `render_logger_preview.py` |
 | **v1.2a** | 16.10.2026 | Poprawki ekranu **PSK MAP**: **kumulacja spotów** (dedup znak+pasmo+tryb, limit 200) · **auto-RESET** po 200 spotach · **panel informacyjny po prawej** (licznik + lista najnowszych, zwężona ramka) · **odświeżanie tylko spotów** (bez przerysowywania nagłówka, paska, ikony baterii i napisów) · **MQTT domyślnie włączone** (start bez HTTP) · eksport rozmów do Markdown |
 | **v1.2** | 15.10.2026 | Nowy ekran **APRS RADAR** i **Informacje systemowe** (zamiast Unlis Hunter) · **ISS Pass Tracking** przebudowany (n2yo visualpasses, mapa+radar+metryki, flagi kraju) · **GPS** (NMEA UART2 + automatyczny lokator Maidenhead) · **kolory w TFT**: kolor znaku (menu HSV + picker WWW) i **kolor zegara** · **globalny przełącznik stylu** KLASYCZNY/nowoczesny · **wspólny styl „ISS TRACKER"** na wszystkich ekranach · nowy **ekran startowy** (karta QSL → emblemat ESP32-HAM-CLOCK + VERSION 1.2) i **ekran powitalny** (godło PZK, czcionka VLW) · **WWW**: upload grafiki JPG/PNG/BMP, 14 pozycji, ikony SVG, naprawa „Instrukcja" · **WiFi**: przypinanie do BSSID AP, drabinka mocy TX (AUTH_EXPIRE) |
 | **v1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
+
+
+---
+
+## Zmiany między v1.2b a v1.2c
+
+Wydanie **v1.2c** (18.10.2026) to wydanie poprawkowe: **naprawa PSK MQTT**
+(brak spotów po zmianie pasma/trybu) oraz **przesunięcie ikony baterii** w lewo
+na wszystkich ekranach. Pozostałe ekrany i zależności bez zmian.
+
+### Naprawa: PSK MQTT — zmiana pasma nie ściągała spotów
+- Realny temat brokera PSK Reporter ma **11 segmentów**, a subskrypcja budowała
+  filtr **6-segmentowy** (`.../<pasmo>/<tryb>/+/+/+`), który **nie pasował do
+  żadnego tematu** — po wybraniu pasma mapa zostawała pusta. Subskrypcja zmieniona
+  na **`.../<pasmo>/<tryb>/#`**.
+- Mapowanie pasm **160 / 30 / 17 / 12 m** w obu ścieżkach (HTTP i MQTT).
+- Poprawka filtra odbiorcy: indeks **5** (nadawca) → **6** (odbiorca).
+- Po zapisie filtra **czyszczone są spoty** i wymuszane przerysowanie.
+- Resubskrypcja **odsubskrybowuje stary temat** — koniec spotów z dwóch pasm.
+
+### Nagłówek — ikona baterii przesunięta w lewo
+- Ikona baterii **12 px w lewo**: zegar `drawBatteryIcon(screenW-70, 8)` →
+  **`screenW-82, 8`**, wspólny nagłówek `uiHeader` `420, 1` → **`408, 1`**.
+- `rightLimit` nagłówka **415 → 403**.
+- `drawBatteryQuickUpdate()` — pozycje lustrzane w tej samej geometrii.
+
+### Narzędzia (`tools/`)
+- `render_header_preview.py` zsynchronizowany z firmware (**398 / 408 /
+  `screenW-82`**); usunięty nieistniejący tekst „%”.
+
+### Wersja
+- `FIRMWARE_VERSION`: `1.2b` → **`1.2c`**. Zaktualizowane też `data/index.html`,
+  `data/indexEN.html` (LittleFS) i `tools/make_qsl_splash.py`.
 
 ---
 

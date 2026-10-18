@@ -28,7 +28,7 @@ def firmware_version():
                 return m.group(1)
     except OSError:
         pass
-    return "1.2b"
+    return "1.2c"
 
 
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"

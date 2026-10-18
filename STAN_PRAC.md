@@ -1,8 +1,21 @@
 # Stan prac — ESP32-HAM-CLOCK-S3
 
-Ostatnia aktualizacja: 2026-10-13 (wieczor). Ostatni commit: `a1f9394`.
+Ostatnia aktualizacja: 2026-10-18 (wieczor). Wersja firmware: **v1.2c**.
 
-## Zrobione dzisiaj (PSK / mapa)
+## v1.2c — poprawki PSK MQTT i nagłówka (18.10.2026)
+
+- **PSK MQTT**: zmiana pasma/trybu nie ściągała spotów — subskrypcja budowała filtr
+  6-segmentowy (`.../<pasmo>/<tryb>/+/+/+`), a realny temat brokera ma 11 segmentów.
+  Poprawka: `.../<pasmo>/<tryb>/#`. Dodano mapowanie pasm 160/30/17/12 m (HTTP i
+  MQTT), poprawiono indeks odbiorcy (5→6), po zapisie filtra czyszczone są spoty,
+  resubskrypcja odsubskrybowuje stary temat.
+- **Ikona baterii 12 px w lewo** na wszystkich ekranach (zegar `screenW-82`,
+  `uiHeader` `408`), `rightLimit` 415→403, mirror w `drawBatteryQuickUpdate()`.
+- **`tools/render_header_preview.py`** zsynchronizowany z firmware.
+- **`FIRMWARE_VERSION` 1.2b → 1.2c**; zaktualizowane `data/index.html`,
+  `data/indexEN.html`, `tools/make_qsl_splash.py`.
+
+## Zrobione wcześniej (PSK / mapa)
 
 - Spoty **kumuluja sie** na mapie (dedup: znak+pasmo+tryb, `pskAddSpot()`),
   limit `PSK_MAX_SPOTS = 200`.
@@ -17,21 +30,8 @@ Ostatnia aktualizacja: 2026-10-13 (wieczor). Ostatni commit: `a1f9394`.
 - Przycisk RESET w menu PSK czysci spoty (`resetPskMapSpots()`).
 - Zapis rozmow: `tools/export_conversation.py` + `conversations/`.
 
-Buildy: `esp32-s3-n16r8`, `-notouch`, `-altpins` — 3/3 SUCCESS.
-Artefakty w `dist/` i `/workspace/share/` (merged-flash*.bin, ZIP).
-
-## Do zrobienia rano
-
-1. **Weryfikacja na urzadzeniu** — po flashowaniu potwierdzic, ze:
-   - spoty pojawiaja sie na mapie i narastaja (`spotow=28/29/30 ...`),
-   - przy odswiezaniu MQTT **nie mruga** naglowek/bateria/napisy,
-   - po 200 spotach nastepuje AUTO-RESET,
-   - RESET czysci mape do zera (`spotow=0`).
-2. **Spojnosc przycisku ANULUJ** — sprawdzic, czy rysowanie i obszar dotyku
-   zgadzaja sie (`x=300..380` vs `230..300` z AGENTS.md). W widocznych
-   edycjach nie bylo zmiany wspolrzednych.
-3. Ewentualne dopracowanie panelu po prawej (rozmiar/czcionka), jesli na
-   ekranie wyglada za ciasno lub zaslania spoty.
+Buildy: `esp32-s3-n16r8`, `-notouch` — SUCCESS. Artefakty w `dist/`, `download/`
+i `/workspace/share/` (merged-flash*.bin, ZIP).
 
 ## Uwagi techniczne
 
