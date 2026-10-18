@@ -101,9 +101,10 @@ def battery_icon(d, x, y, percentage, bg):
 
 
 def battery_quick(d, screenW, percentage, bg):
-    """drawBatteryQuickUpdate(): x=screenW-120, y=10, 26x12 + tekst % @ x+32."""
-    x, y, w, h = screenW - 120, 10, 26, 12
-    d.rectangle([x - 2, y - 2, x - 2 + (w + 6) - 1, y - 2 + (h + 4) - 1], fill=bg)
+    """drawBatteryQuickUpdate(): x=screenW-82, y=8, obudowa 20x10 (bez tekstu %)."""
+    x, y = screenW - 82, 8
+    bw, bh = 20, 10
+    d.rectangle([x + 2, y + 4, x + 2 + (bw - 4) - 1, y + 4 + (bh - 4) - 1], fill=bg)
     if percentage <= 20:
         col = c565(0xF800)
     elif percentage <= 50:
@@ -112,14 +113,11 @@ def battery_quick(d, screenW, percentage, bg):
         col = c565(0xFFE0)
     else:
         col = c565(0x07E0)
-    d.rectangle([x, y, x + w - 1, y + h - 1], outline=WHITE)
-    d.rectangle([x + w, y + h // 4, x + w + 2, y + h // 4 + h // 2 - 1], fill=WHITE)
-    fillw = (w - 4) * percentage // 100
+    d.rectangle([x, y + 2, x + bw - 1, y + 2 + bh - 1], outline=WHITE)
+    d.rectangle([x + bw, y + 4, x + bw + 2, y + 4 + 5], fill=WHITE)
+    fillw = (bw - 4) * percentage // 100
     if fillw > 0:
-        d.rectangle([x + 2, y + 2, x + 2 + fillw - 1, y + 2 + (h - 4) - 1], fill=col)
-    d.rectangle([x + 32, y + 3, x + 32 + 30 - 1, y + 3 + 8 - 1], fill=bg)
-    # "%d%%" w Font 1 (5x7) ~ przyblizenie 6 px/znak
-    draw_f1(d, x + 32, y + 3, "%d%%" % percentage, WHITE)
+        d.rectangle([x + 2, y + 4, x + 2 + fillw - 1, y + 4 + (bh - 4) - 1], fill=col)
 
 
 GLCD = None
@@ -178,7 +176,7 @@ def classic_header():
     draw_f2(d, startX, 12, p1, ORANGE)
     draw_f2(d, startX + tw2(p1), 12, p2, BLACK)
     wifi_bars(d, 435, 8)
-    battery_icon(d, 410, 8, 60, ORANGE)
+    battery_icon(d, 398, 8, 60, ORANGE)
     gps_icon(d, 88, 9, True, ORANGE)
     d.rectangle([8, 10, 8 + 60 - 1, 10 + 20 - 1], fill=ORANGE)
     draw_f2(d, 10, 12, "12:34", BLACK)
@@ -192,7 +190,7 @@ def modern_header():
     logo = "ESP32-HAM-CLOCK"
     draw_f2(d, (480 - tw2(logo)) // 2, 12, logo, WHITE)
     wifi_bars(d, 435, 8)
-    battery_icon(d, 410, 8, 60, HC_BG)
+    battery_icon(d, 398, 8, 60, HC_BG)
     gps_icon(d, 88, 9, False, HC_BG)
     draw_f2(d, 10, 12, "12:34", HC_CYAN)
     return im
@@ -208,7 +206,7 @@ def ui_header():
     for i in range(3):
         d.rectangle([5, 5 + i * 6, 25, 7 + i * 6], fill=c565(0x4D5F))
     wifi_bars(d, 445, 1)
-    battery_icon(d, 420, 1, 60, UI_CARD)
+    battery_icon(d, 408, 1, 60, UI_CARD)
     return im
 
 
