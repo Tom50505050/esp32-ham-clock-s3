@@ -2,6 +2,18 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Bateria na GPIO7 + ciągłe odświeżanie ekranu GPS (18.10.2026)
+- **Pin dzielnika napięcia baterii przeniesiony z GPIO1 (ADC1_CH0) na
+  GPIO7 (ADC1_CH6)**: `BATTERY_ADC_PIN 1` → `7` (`main.cpp`). Zaktualizowany
+  schemat na stronie WWW (`getMainHTML`: `GPIO 1 (ADC1_CH0)` → `GPIO 7
+  (ADC1_CH6)`) oraz `PINOUT.md` (tabela pinów + lista piny zarezerwowane/wolne).
+  Przykład „fałszywego odczytu 0.21 V" dotyczy odtąd GPIO7.
+- **Ekran informacji GPS odświeża się ciągle**: `updateGpsScreen()` (wołany w
+  `uiTaskLoop` co ~10 ms) rysuje teraz pełny ekran co **300 ms** zamiast co
+  **1500 ms**. Dane satelitów/SNR/fix zmieniają się na bieżąco (GSV), więc ekran
+  satelitów „żyje" jak pozostałe odczyty GPS (bez migania strefy/stopki - modal
+  zajmuje pełny ekran 480×320).
+
 ## v1.2c — poprawki PSK MQTT i nagłówka (18.10.2026)
 - **PSK MQTT — brak spotów po zmianie pasma/trybu**: realny temat brokera ma
   **11 segmentów**, a subskrypcja budowała filtr **6-segmentowy**
@@ -496,7 +508,7 @@ Wnioski:
    (`drawSplashScreen` -> `/splash.bmp`) albo główny ekran rysuje się, ale bez
    WiFi/spotów jest wizualnie ubogi. Dodano log `[UI] alive screen=... menu=... sleep=...`
    co 15 s w `uiTaskLoop`, żeby potwierdzić, że zadanie UI żyje i jaki ekran rysuje.
-2. **Fałszywy odczyt baterii `0.21V (0%)`** = GPIO1 (ADC1_CH0) niepodłączony
+2. **Fałszywy odczyt baterii `0.21V (0%)`** = GPIO7 (ADC1_CH6) niepodłączony
    (wisi) -> dzielnik nie zamontowany albo akumulator niepodłączony. To NIE usterka
    ESP. Dodano sanity-check: odczyt < 1.0 V -> brak pomiaru (bez fałszywego 0%
    i ostrzeżenia "podłącz ładowarkę"), w `updateBatteryStatus()` i przy starcie.
@@ -504,8 +516,8 @@ Wnioski:
    teraz też filtrowany progiem 1.0 V.
 
 ### Uwaga o odczycie baterii
-`BATTERY_ADC_PIN 1` = GPIO1 (ADC1_CH0) z dzielnikiem 100k/100k. Jeśli dzielnik
-nie jest fizycznie podłączony, GPIO1 "wisi" i ADC zwraca śmieci (0.2-0.4 V).
+`BATTERY_ADC_PIN 7` = GPIO7 (ADC1_CH6) z dzielnikiem 100k/100k. Jeśli dzielnik
+nie jest fizycznie podłączony, GPIO7 "wisi" i ADC zwraca śmieci (0.2-0.4 V).
 Nie da się tego naprawić w firmware — trzeba podłączyć dzielnik lub ustawić
 pomiar nieaktywny.
 

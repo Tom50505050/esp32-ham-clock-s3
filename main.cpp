@@ -2118,7 +2118,7 @@ bool rgbBlueAprsStateOn = false;
 // - Pomiar napiÄ™cia przez dzielnik 100k/100k na pin ADC
 
 #define BATTERY_MONITORING_ENABLED  // WĹ‚Ä…cz pomiar napiÄ™cia baterii
-#define BATTERY_ADC_PIN 1           // Pin ADC1_CH0 (GPIO1) - pomiar napiÄ™cia baterii (ESP32-S3)
+#define BATTERY_ADC_PIN 7           // Pin ADC1_CH6 (GPIO7) - pomiar napięcia baterii (ESP32-S3)
 #define BATTERY_ADC_RESOLUTION 12   // RozdzielczoĹ›Ä‡ ADC (12 bit = 0-4095)
 #define BATTERY_VOLTAGE_DIVIDER 2.0f // Dzielnik napiÄ™cia 100k/100k (1:2)
 #define BATTERY_ADC_VREF 3.3f       // NapiÄ™cie referencyjne ADC (3.3V)
@@ -12418,11 +12418,12 @@ void openGpsScreen() {
   drawGpsScreen();
 }
 
-// Odswieza ekran satelitow, gdy zmienia sie dane (licznik satelitow/fix).
+// Odswieza ekran satelitow w trybie ciaglym - dane GPS (satelity, fix, pozycja,
+// SNR) zmieniaja sie na biezaco, wiec ekran odswieza sie takze bez nowej ramki.
 static void updateGpsScreen() {
   if (!gpsScreenActive || !tftInitialized) return;
   unsigned long now = millis();
-  if (now - gpsScreenLastDrawMs < 1500) return;
+  if (now - gpsScreenLastDrawMs < 300) return;
   gpsScreenLastDrawMs = now;
   drawGpsScreen();
 }
@@ -20369,7 +20370,7 @@ void setupWebServer() {
 
     html += "<h3>Pomiar napięcia baterii (dzielnik)</h3>";
     html += "<pre>";
-    html += "Bateria 18650 (+) ----+--- [R1 100k] ---+---> GPIO 1 (ADC1_CH0)\n";
+    html += "Bateria 18650 (+) ----+--- [R1 100k] ---+---> GPIO 7 (ADC1_CH6)\n";
     html += "                      |                 |\n";
     html += "                     GND             [R2 100k] ---+--- GND\n";
     html += "                                                   |\n";

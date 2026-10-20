@@ -25,7 +25,7 @@ Arduino IDE przez `-D...`, bez edycji pliku).
 | Dotyk DIN (MOSI) | **11** | T_DIN | = TFT_MOSI |
 | Dotyk CLK | **12** | T_CLK | = TFT_SCLK |
 | RGB LED R / G / B | **4 / 5 / 6** | — | statusowy LED, opcjonalny |
-| Bateria (ADC) | **1** | — | dzielnik 100k/100k (ADC1_CH0) |
+| Bateria (ADC) | **7** | — | dzielnik 100k/100k (ADC1_CH6) |
 
 - `TFT_MISO 14`: T_DO XPT2046 jest na GPIO 14 (ustalone testem sprzętowym; GPIO 13 dawał szum).
 - Dotyk korzysta z **tej samej** magistrali SPI co TFT — nie ma osobnych pinów CLK/MOSI/MISO.
@@ -35,10 +35,10 @@ Arduino IDE przez `-D...`, bez edycji pliku).
 - **19, 20** — natywne USB (D-, D+).
 - **0, 3, 45, 46** — piny strapping (tryb boot / napięcie).
 - **43, 44** — UART0 (logi na COM9).
-- **1** — używane na pomiar baterii (można zwolnić, jeśli nie używasz dzielnika).
+- **7** — używane na pomiar baterii (można zwolnić, jeśli nie używasz dzielnika).
 
 ### Wolne, bezpieczne GPIO (gdyby trzeba było przenieść piny)
-`2, 7, 8, 13, 17, 18, 38, 39, 40, 41, 42, 47, 48`
+`1, 2, 8, 13, 17, 18, 38, 39, 40, 41, 42, 47, 48`
 (z 13 uwaga: u Ciebie to nie jest T_DO, ale nadaje się na CS/DC/BL).
 Uwaga: GPIO 45/46 bywają zajęte przez PSRAM/strapping — unikać.
 
