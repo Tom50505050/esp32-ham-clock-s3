@@ -8,11 +8,12 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
   schemat na stronie WWW (`getMainHTML`: `GPIO 1 (ADC1_CH0)` → `GPIO 7
   (ADC1_CH6)`) oraz `PINOUT.md` (tabela pinów + lista piny zarezerwowane/wolne).
   Przykład „fałszywego odczytu 0.21 V" dotyczy odtąd GPIO7.
-- **Ekran informacji GPS odświeża się ciągle**: `updateGpsScreen()` (wołany w
-  `uiTaskLoop` co ~10 ms) rysuje teraz pełny ekran co **300 ms** zamiast co
-  **1500 ms**. Dane satelitów/SNR/fix zmieniają się na bieżąco (GSV), więc ekran
-  satelitów „żyje" jak pozostałe odczyty GPS (bez migania strefy/stopki - modal
-  zajmuje pełny ekran 480×320).
+- **Ekran informacji GPS odświeża się ciągle (bez migania)**: `updateGpsScreen()`
+  (wołany w `uiTaskLoop` co ~10 ms) rysuje pełny ekran co **300 ms** (było
+  **1500 ms**). Cały ekran trafia do sprite w PSRAM (`gpsScreenSprite`, 480×320,
+  16 bpp) i jest wypychany **jednym** `pushSprite()` — inaczej kolejne etapy
+  rysowania (`fillScreen`, karty, tekst) było widać jako miganie. Ten sam
+  wzorzec co `aprsRadarSprite`. Gdy brak PSRAM, rysowanie idzie wprost na `tft`.
 
 ## v1.2c — poprawki PSK MQTT i nagłówka (18.10.2026)
 - **PSK MQTT — brak spotów po zmianie pasma/trybu**: realny temat brokera ma

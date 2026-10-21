@@ -12252,25 +12252,46 @@ static const char *gpsConstellationLabel(uint8_t cons) {
   }
 }
 
+// Sprite calego ekranu w PSRAM (16bpp = 307 200 B). Caly ekran rysujemy do
+// bufora i wypychamy jednym pushSprite() - inaczej ciagle odswiezanie (co
+// 300 ms) migotalo, bo widac bylo kolejne etapy rysowania (fillScreen, potem
+// karty, tekst...). Ten sam wzorzec co aprsRadarSprite.
+TFT_eSprite gpsScreenSprite = TFT_eSprite(&tft);
+static bool gpsScreenSpriteReady = false;
+static bool gpsScreenSpriteInitTried = false;
+
+static bool ensureGpsScreenSprite() {
+  if (gpsScreenSpriteReady) return true;
+  if (gpsScreenSpriteInitTried) return false;
+  gpsScreenSpriteInitTried = true;
+  gpsScreenSprite.setColorDepth(16);
+  gpsScreenSpriteReady = (gpsScreenSprite.createSprite(480, 320) != nullptr);
+  if (!gpsScreenSpriteReady) {
+    Serial.println("[GPS] Brak sprite 480x320 (PSRAM?) - odswiezanie bez bufora");
+  }
+  return gpsScreenSpriteReady;
+}
+
 // Rysuje satelite na wykresie nieba: kat = azymut (0=N, zgodnie z zegarem),
 // promien = (90-elewacja). SNR decyduje o rozmiarze, "used" o kolorze.
-static void drawGpsSkyPlot(int cx, int cy, int radius, bool classic) {
+// g = cel rysowania (sprite ekranu albo tft) - patrz drawGpsScreen().
+static void drawGpsSkyPlot(TFT_eSPI &g, int cx, int cy, int radius, bool classic) {
   uint16_t ring = classic ? GPS_ORANGE_BG : 0x2124;
   uint16_t cross = classic ? 0x8410 : 0x39E7;
   uint16_t label = classic ? GPS_ORANGE : GPS_ACCENT;
 
-  tft.drawCircle(cx, cy, radius, ring);
-  tft.drawCircle(cx, cy, (radius * 2) / 3, ring);
-  tft.drawCircle(cx, cy, radius / 3, ring);
-  tft.drawFastHLine(cx - radius, cy, radius * 2, cross);
-  tft.drawFastVLine(cx, cy - radius, radius * 2, cross);
+  g.drawCircle(cx, cy, radius, ring);
+  g.drawCircle(cx, cy, (radius * 2) / 3, ring);
+  g.drawCircle(cx, cy, radius / 3, ring);
+  g.drawFastHLine(cx - radius, cy, radius * 2, cross);
+  g.drawFastVLine(cx, cy - radius, radius * 2, cross);
 
-  tft.setTextSize(1);
-  tft.setTextColor(label);
-  tft.setCursor(cx - 3, cy - radius - 10); tft.print("N");
-  tft.setCursor(cx - 3, cy + radius + 3);  tft.print("S");
-  tft.setCursor(cx + radius + 3, cy - 3);  tft.print("E");
-  tft.setCursor(cx - radius - 9, cy - 3);  tft.print("W");
+  g.setTextSize(1);
+  g.setTextColor(label);
+  g.setCursor(cx - 3, cy - radius - 10); g.print("N");
+  g.setCursor(cx - 3, cy + radius + 3);  g.print("S");
+  g.setCursor(cx + radius + 3, cy - 3);  g.print("E");
+  g.setCursor(cx - radius - 9, cy - 3);  g.print("W");
 
   for (int i = 0; i < gpsSatCount; i++) {
     const GpsSatInfo &s = gpsSatList[i];
@@ -12281,13 +12302,17 @@ static void drawGpsSkyPlot(int cx, int cy, int radius, bool classic) {
     int py = cy - (int)(cosf(ang) * rr);
     uint16_t col = gpsConstellationColor(s.constellation, s.used);
     int dotR = 2 + (s.snr >= 40 ? 2 : (s.snr >= 25 ? 1 : 0));
-    tft.fillCircle(px, py, dotR, col);
-    if (s.used) tft.drawCircle(px, py, dotR + 2, col);
+    g.fillCircle(px, py, dotR, col);
+    if (s.used) g.drawCircle(px, py, dotR + 2, col);
   }
 }
 
 static void drawGpsScreen() {
   if (!tftInitialized) return;
+  // Rysujemy do sprite w PSRAM (jezeli jest) i wypychamy jednym pushSprite()
+  // w openGpsScreen()/updateGpsScreen() - brak migotania przy odswiezaniu.
+  // Bez PSRAM rysujemy wprost na tft.
+  TFT_eSPI &g = ensureGpsScreenSprite() ? (TFT_eSPI &)gpsScreenSprite : (TFT_eSPI &)tft;
   bool classic = (screen1ClockStyle == 1);
 
   uint16_t card   = classic ? GPS_ORANGE_BG : GPS_CARD;
@@ -12295,23 +12320,23 @@ static void drawGpsScreen() {
   uint16_t border = classic ? GPS_ORANGE : 0x298A;
   uint16_t text   = classic ? 0xFFFF : GPS_TEXT;
 
-  tft.fillScreen(GPS_BG_DARK);
+  g.fillScreen(GPS_BG_DARK);
 
   // Ramka okna + pasek naglowka
-  tft.fillRoundRect(GPS_SCREEN_X, GPS_SCREEN_Y, GPS_SCREEN_W, GPS_SCREEN_H, 8, card);
-  tft.drawRoundRect(GPS_SCREEN_X, GPS_SCREEN_Y, GPS_SCREEN_W, GPS_SCREEN_H, 8, border);
-  tft.fillRect(GPS_SCREEN_X + 1, GPS_SCREEN_Y + 1, GPS_SCREEN_W - 2, 34, accent);
+  g.fillRoundRect(GPS_SCREEN_X, GPS_SCREEN_Y, GPS_SCREEN_W, GPS_SCREEN_H, 8, card);
+  g.drawRoundRect(GPS_SCREEN_X, GPS_SCREEN_Y, GPS_SCREEN_W, GPS_SCREEN_H, 8, border);
+  g.fillRect(GPS_SCREEN_X + 1, GPS_SCREEN_Y + 1, GPS_SCREEN_W - 2, 34, accent);
 
-  tft.setTextColor(classic ? TFT_BLACK : GPS_BG_DARK, accent);
-  tft.setTextSize(2);
+  g.setTextColor(classic ? TFT_BLACK : GPS_BG_DARK, accent);
+  g.setTextSize(2);
   String title = "GPS - SATELITY";
-  tft.setCursor(GPS_SCREEN_X + 12, GPS_SCREEN_Y + 10);
-  tft.print(title);
+  g.setCursor(GPS_SCREEN_X + 12, GPS_SCREEN_Y + 10);
+  g.print(title);
 
   // Przycisk zamkniecia (X)
-  tft.drawRect(GPS_CLOSE_X, GPS_CLOSE_Y, GPS_CLOSE_W, GPS_CLOSE_H, classic ? TFT_BLACK : GPS_BG_DARK);
-  tft.drawLine(GPS_CLOSE_X + 8, GPS_CLOSE_Y + 8, GPS_CLOSE_X + GPS_CLOSE_W - 8, GPS_CLOSE_Y + GPS_CLOSE_H - 8, classic ? TFT_BLACK : GPS_BG_DARK);
-  tft.drawLine(GPS_CLOSE_X + GPS_CLOSE_W - 8, GPS_CLOSE_Y + 8, GPS_CLOSE_X + 8, GPS_CLOSE_Y + GPS_CLOSE_H - 8, classic ? TFT_BLACK : GPS_BG_DARK);
+  g.drawRect(GPS_CLOSE_X, GPS_CLOSE_Y, GPS_CLOSE_W, GPS_CLOSE_H, classic ? TFT_BLACK : GPS_BG_DARK);
+  g.drawLine(GPS_CLOSE_X + 8, GPS_CLOSE_Y + 8, GPS_CLOSE_X + GPS_CLOSE_W - 8, GPS_CLOSE_Y + GPS_CLOSE_H - 8, classic ? TFT_BLACK : GPS_BG_DARK);
+  g.drawLine(GPS_CLOSE_X + GPS_CLOSE_W - 8, GPS_CLOSE_Y + 8, GPS_CLOSE_X + 8, GPS_CLOSE_Y + GPS_CLOSE_H - 8, classic ? TFT_BLACK : GPS_BG_DARK);
 
   // --- Duza liczba satelitow (uzywane w fixie / widoczne) ---
   int satUsed = (gpsUsedInFix > 0) ? gpsUsedInFix : (int)gpsViewSats;
@@ -12319,78 +12344,78 @@ static void drawGpsScreen() {
   if (satView < gpsSatCount) satView = gpsSatCount;
 
   int boxX = GPS_SCREEN_X + 12, boxY = GPS_SCREEN_Y + 46, boxW = 150, boxH = 74;
-  tft.fillRoundRect(boxX, boxY, boxW, boxH, 6, GPS_BG_DARK);
-  tft.drawRoundRect(boxX, boxY, boxW, boxH, 6, border);
+  g.fillRoundRect(boxX, boxY, boxW, boxH, 6, GPS_BG_DARK);
+  g.drawRoundRect(boxX, boxY, boxW, boxH, 6, border);
 
-  tft.setTextSize(1);
-  tft.setTextColor(GPS_FAINT);
-  tft.setCursor(boxX + 8, boxY + 6);
-  tft.print("SATELITY W FIXIE");
+  g.setTextSize(1);
+  g.setTextColor(GPS_FAINT);
+  g.setCursor(boxX + 8, boxY + 6);
+  g.print("SATELITY W FIXIE");
 
-  tft.setTextColor(gpsFix ? GPS_OK : GPS_WARN);
-  tft.setTextSize(4);
+  g.setTextColor(gpsFix ? GPS_OK : GPS_WARN);
+  g.setTextSize(4);
   String big = String(satUsed);
-  tft.setCursor(boxX + 10, boxY + 20);
-  tft.print(big);
+  g.setCursor(boxX + 10, boxY + 20);
+  g.print(big);
 
-  tft.setTextSize(2);
-  tft.setTextColor(text);
-  tft.setCursor(boxX + 10 + tft.textWidth(big) + 6, boxY + 34);
-  tft.print("/ ");
-  tft.print(satView);
+  g.setTextSize(2);
+  g.setTextColor(text);
+  g.setCursor(boxX + 10 + g.textWidth(big) + 6, boxY + 34);
+  g.print("/ ");
+  g.print(satView);
 
   // Status fixu
-  tft.setTextSize(1);
-  tft.setTextColor(gpsFix ? GPS_OK : GPS_WARN);
-  tft.setCursor(boxX + 8, boxY + 56);
+  g.setTextSize(1);
+  g.setTextColor(gpsFix ? GPS_OK : GPS_WARN);
+  g.setCursor(boxX + 8, boxY + 56);
   if (gpsFix) {
     char hd[24]; snprintf(hd, sizeof(hd), "FIX  HDOP %.1f", (double)gpsHdop);
-    tft.print(hd);
+    g.print(hd);
   } else {
-    tft.print("SZUKA FIXU...");
+    g.print("SZUKA FIXU...");
   }
 
   // --- Panel informacyjny (pozycja / czas / modul) ---
   int infoX = boxX, infoY = boxY + boxH + 8, infoW = boxW, infoH = GPS_SCREEN_H - (infoY - GPS_SCREEN_Y) - 12;
-  tft.fillRoundRect(infoX, infoY, infoW, infoH, 6, GPS_BG_DARK);
-  tft.drawRoundRect(infoX, infoY, infoW, infoH, 6, border);
-  tft.setTextSize(1);
+  g.fillRoundRect(infoX, infoY, infoW, infoH, 6, GPS_BG_DARK);
+  g.drawRoundRect(infoX, infoY, infoW, infoH, 6, border);
+  g.setTextSize(1);
   int ty = infoY + 6;
-  tft.setTextColor(GPS_FAINT); tft.setCursor(infoX + 8, ty); tft.print("POZYCJA"); ty += 12;
-  tft.setTextColor(text);
+  g.setTextColor(GPS_FAINT); g.setCursor(infoX + 8, ty); g.print("POZYCJA"); ty += 12;
+  g.setTextColor(text);
   char posBuf[40];
   if (gpsHasPosition) snprintf(posBuf, sizeof(posBuf), "%.4f, %.4f", gpsLat, gpsLon);
   else snprintf(posBuf, sizeof(posBuf), "--");
-  tft.setCursor(infoX + 8, ty); tft.print(posBuf); ty += 12;
-  tft.setTextColor(GPS_FAINT); tft.setCursor(infoX + 8, ty); tft.print("LOKATOR"); ty += 12;
-  tft.setTextColor(text); tft.setCursor(infoX + 8, ty);
-  tft.print(gpsLocator.length() ? gpsLocator : "--"); ty += 14;
-  tft.setTextColor(GPS_FAINT); tft.setCursor(infoX + 8, ty);
-  tft.print(gpsSerialBegun ? "MODUL: OK" : "MODUL: BRAK");
+  g.setCursor(infoX + 8, ty); g.print(posBuf); ty += 12;
+  g.setTextColor(GPS_FAINT); g.setCursor(infoX + 8, ty); g.print("LOKATOR"); ty += 12;
+  g.setTextColor(text); g.setCursor(infoX + 8, ty);
+  g.print(gpsLocator.length() ? gpsLocator : "--"); ty += 14;
+  g.setTextColor(GPS_FAINT); g.setCursor(infoX + 8, ty);
+  g.print(gpsSerialBegun ? "MODUL: OK" : "MODUL: BRAK");
 
   // --- Wykres nieba (sky plot) ---
   int plotR = 70;
   int cx = GPS_SCREEN_X + 190 + plotR + 10;
   int cy = GPS_SCREEN_Y + 46 + plotR + 6;
-  drawGpsSkyPlot(cx, cy, plotR, classic);
+  drawGpsSkyPlot(g, cx, cy, plotR, classic);
 
   // --- Legenda konstelacji ---
   int lx = cx + plotR + 12;
   int ly = GPS_SCREEN_Y + 52;
-  tft.setTextSize(1);
+  g.setTextSize(1);
   for (int c = 0; c < 5; c++) {
-    tft.fillCircle(lx + 5, ly + 4, 4, gpsConstellationColor(c, true));
-    tft.setTextColor(text);
-    tft.setCursor(lx + 14, ly);
-    tft.print(gpsConstellationLabel(c));
+    g.fillCircle(lx + 5, ly + 4, 4, gpsConstellationColor(c, true));
+    g.setTextColor(text);
+    g.setCursor(lx + 14, ly);
+    g.print(gpsConstellationLabel(c));
     ly += 14;
   }
 
   // --- Pasek sygnalu SNR dla kazdego satelity (max 12, miesci sie w oknie) ---
   int barX = GPS_SCREEN_X + 190, barY = cy + plotR + 14;
   int barW = GPS_SCREEN_W - 190 - 20;
-  tft.setTextColor(GPS_FAINT);
-  tft.setCursor(barX, barY - 11); tft.print("C/N0 [dBHz]");
+  g.setTextColor(GPS_FAINT);
+  g.setCursor(barX, barY - 11); g.print("C/N0 [dBHz]");
   int shown = 0;
   for (int i = 0; i < gpsSatCount && shown < 12; i++) {
     const GpsSatInfo &s = gpsSatList[i];
@@ -12399,15 +12424,15 @@ static void drawGpsScreen() {
     if (bw > barW - 26) bw = barW - 26;
     int by = barY + shown * 6;
     uint16_t col = gpsConstellationColor(s.constellation, s.used);
-    tft.setTextColor(col);
-    tft.setCursor(barX, by); tft.printf("%02d", s.prn);
-    tft.fillRect(barX + 20, by, bw, 4, col);
+    g.setTextColor(col);
+    g.setCursor(barX, by); g.printf("%02d", s.prn);
+    g.fillRect(barX + 20, by, bw, 4, col);
     shown++;
   }
   if (gpsSatCount == 0) {
-    tft.setTextColor(GPS_FAINT);
-    tft.setCursor(barX, barY + 6);
-    tft.print("Brak danych GSV (modul nie wysyla?)");
+    g.setTextColor(GPS_FAINT);
+    g.setCursor(barX, barY + 6);
+    g.print("Brak danych GSV (modul nie wysyla?)");
   }
 }
 
@@ -12416,16 +12441,19 @@ void openGpsScreen() {
   gpsScreenActive = true;
   gpsScreenLastDrawMs = 0;
   drawGpsScreen();
+  if (gpsScreenSpriteReady) gpsScreenSprite.pushSprite(0, 0);  // jeden push = brak migotania
 }
 
 // Odswieza ekran satelitow w trybie ciaglym - dane GPS (satelity, fix, pozycja,
 // SNR) zmieniaja sie na biezaco, wiec ekran odswieza sie takze bez nowej ramki.
+// Rysujemy do sprite i wypychamy jednym pushSprite(), wiec nie ma migotania.
 static void updateGpsScreen() {
   if (!gpsScreenActive || !tftInitialized) return;
   unsigned long now = millis();
   if (now - gpsScreenLastDrawMs < 300) return;
   gpsScreenLastDrawMs = now;
   drawGpsScreen();
+  if (gpsScreenSpriteReady) gpsScreenSprite.pushSprite(0, 0);
 }
 
 static bool isGpsScreenCloseButtonHit(uint16_t x, uint16_t y) {
