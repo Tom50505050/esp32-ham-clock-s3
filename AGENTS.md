@@ -2,7 +2,7 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
-## v1.2d — czcionki zegara, alert pogodowy, migotanie, pin baterii (23.10.2026)
+## v1.2d — czcionki zegara, alert pogodowy, migotanie (23.10.2026)
 Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.2d**):
 - **Wybór czcionki znaku i zegara** — 14 krojów VLW + wbudowana, menu TIME MODE
   (siatka 5×3), zapis w NVS `clock_font`.
@@ -14,8 +14,6 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
   SPI), `clockTimeInkOffset()` (stały pionowy offset `"0123456789:"`, koniec
   drgania 1 px), guard przerysowania w `updateScreen1ClockClassic()`.
   Podgląd QA: `tools/render_clock_flicker_preview.py`.
-- **Pin dzielnika baterii GPIO7 → GPIO1** (`BATTERY_ADC_PIN 1`, ADC1_CH0); w WWW i
-  `PINOUT.md` GPIO1 zajęty, GPIO7 wolny.
 - **`FIRMWARE_VERSION` 1.2c → 1.2d**; `data/index*.html` (6 języków),
   `tools/lang_pages.json`, `platformio.ini`, README/RELEASE_NOTES zaktualizowane.
 

@@ -106,7 +106,7 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
-| **v1.2d** | 23.10.2026 | **Naprawa migotania cyfr zegara** (wszystkie 15 czcionek): rysowanie tylko **zmienionych komórek** (dirty cells, ~67% mniej pikseli na SPI), **stały pionowy offset atramentu** (`clockTimeInkOffset()`, koniec drgania 1 px), guard przerysowania w klasycznym zegarze · **pin dzielnika baterii GPIO7 → GPIO1** (ADC1_CH0) |
+| **v1.2d** | 23.10.2026 | **Naprawa migotania cyfr zegara** (wszystkie 15 czcionek): rysowanie tylko **zmienionych komórek** (dirty cells, ~67% mniej pikseli na SPI), **stały pionowy offset atramentu** (`clockTimeInkOffset()`, koniec drgania 1 px), guard przerysowania w klasycznym zegarze |
 | **v1.2c** | 18.10.2026 | **Naprawa PSK MQTT**: zmiana pasma/trybu nie ściągała spotów (filtr subskrypcji 6-segmentowy → `.../<pasmo>/<tryb>/#`) · mapowanie pasm **160/30/17/12 m** (HTTP i MQTT) · poprawka indeksu odbiorcy (5→6) · czyszczenie spotów po zapisie filtra · **ikona baterii 12 px w lewo** na wszystkich ekranach · synchronizacja `tools/render_header_preview.py` |
 | **v1.2b** | 17.10.2026 | **Nagłówek**: ikona **GPS po lewej** stronie (za godziną) · ikona **baterii na wszystkich ekranach** · wspólny `drawHeaderTime()` · Nowe ekrany: **STACJA** (15.) i **ESP32 HAM LOGGER** (16., dziennik ADIF: formularz QSO, klawiatura, tabela ostatnich łączności, SAVE QSO/CLEAR/EXPORT ADIF/SETTINGS, log w **PSRAM** + zapis **plik tymczasowy + rename**, autouzupełnianie NAME/QTH z **QRZ.com → HamDB → callook**, eksport **`/qso.adi`**, endpoint **`/api/qrz_upload`**) · STACJA: wyszukiwanie znaku w **QRZ.com → HamDB → callook.info**, dwa transceivery, dystans + kierunek geograficzny · podglądy 1:1 `tools/render_station_preview.py`, `render_logger_preview.py` |
 | **v1.2a** | 16.10.2026 | Poprawki ekranu **PSK MAP**: **kumulacja spotów** (dedup znak+pasmo+tryb, limit 200) · **auto-RESET** po 200 spotach · **panel informacyjny po prawej** (licznik + lista najnowszych, zwężona ramka) · **odświeżanie tylko spotów** (bez przerysowywania nagłówka, paska, ikony baterii i napisów) · **MQTT domyślnie włączone** (start bez HTTP) · eksport rozmów do Markdown |
@@ -119,7 +119,7 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 ## Zmiany między v1.2c a v1.2d
 
 Wydanie **v1.2d** (23.10.2026) to wydanie poprawkowe: **migotanie cyfr zegara**
-oraz **zmiana pinu dzielnika napięcia baterii**.
+dla wszystkich czcionek.
 
 ### Naprawa: migotanie cyfr zegara (wszystkie czcionki)
 Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczyny:
@@ -136,16 +136,6 @@ Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczy
 - `updateScreen1ClockClassic()` rysuje tylko gdy tekst godziny się zmienił
   (wcześniej przerysowywał w każdej iteracji `loop()`).
 - Podgląd QA: `tools/render_clock_flicker_preview.py`.
-
-### Pin dzielnika napięcia baterii: GPIO7 → GPIO1
-- `BATTERY_ADC_PIN 7` → **`BATTERY_ADC_PIN 1`** (GPIO1 = ADC1_CH0).
-- Schemat na stronie WWW (`getMainHTML`) oraz `PINOUT.md` zaktualizowane
-  (GPIO1 → zajęty, GPIO7 → wolny).
-
-### Porządki: usunięcie eksportu rozmów (czatu)
-- Usunięte narzędzie `tools/export_conversation.py` oraz katalog `conversations/`
-  (skrócone zapisy `*-dialog.md`) — funkcja eksportu dziennika rozmowy nie jest już
-  częścią projektu. Wyczyszczone reguły w `.gitignore` i wzmianki w dokumentacji.
 
 ### Wersja
 - `FIRMWARE_VERSION`: `1.2c` → **`1.2d`**. Zaktualizowane też `data/index*.html`

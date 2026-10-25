@@ -13,14 +13,13 @@ Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b**, **v1.2c** i **v1.2d** 
 
 ---
 
-# ESP32-HAM-CLOCK v1.2d — czcionki zegara, alert pogodowy, migotanie i pin baterii
+# ESP32-HAM-CLOCK v1.2d — czcionki zegara, alert pogodowy i migotanie
 
 Wydanie **v1.2d** (23.10.2026) dla platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB
 PSRAM) + **ILI9488 na 3.5" i 4" 480×320** + XPT2046. Zakres wydania:
 - **wybór czcionki** znaku (callsign) i dużego zegara — 14 krojów + wbudowana,
 - **własne grafiki alertu pogodowego** (burza / wiatr) z podglądem całego ekranu,
-- **naprawa migotania cyfr zegara** dla wszystkich czcionek,
-- **pin dzielnika napięcia baterii GPIO7 → GPIO1** (ADC1_CH0).
+- **naprawa migotania cyfr zegara** dla wszystkich czcionek.
 
 ## Wybór czcionki znaku i zegara
 ### Menu czasu — wybór czcionki (15 opcji)
@@ -106,16 +105,6 @@ Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczy
 - `updateScreen1ClockClassic()` rysuje tylko gdy tekst godziny się zmienił
   (wcześniej przerysowywał w każdej iteracji `loop()`).
 - Podgląd QA: `tools/render_clock_flicker_preview.py`.
-
-## Pin dzielnika napięcia baterii: GPIO7 → GPIO1
-- `BATTERY_ADC_PIN 7` → **`BATTERY_ADC_PIN 1`** (GPIO1 = ADC1_CH0).
-- Schemat na stronie WWW (`getMainHTML`) oraz `PINOUT.md` zaktualizowane
-  (GPIO1 → zajęty, GPIO7 → wolny).
-
-## Porządki: usunięcie eksportu rozmów (czatu)
-- Usunięte `tools/export_conversation.py` i katalog `conversations/` (skrócone
-  zapisy `*-dialog.md`). Funkcja eksportu dziennika rozmowy nie jest już częścią
-  projektu; wyczyszczone reguły `.gitignore` i wzmianki w dokumentacji.
 
 ## Wersja
 - `FIRMWARE_VERSION`: `1.2c` → **`1.2d`**. Zaktualizowane też `data/index*.html`

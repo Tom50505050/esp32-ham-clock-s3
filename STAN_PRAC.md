@@ -14,7 +14,6 @@ Ostatnia aktualizacja: 2026-10-23. Wersja firmware: **v1.2d**.
   `clockDrawMonospace()` (tylko zmienione komórki, ~67% mniej pikseli na SPI),
   `clockTimeInkOffset()` (stały pionowy offset `"0123456789:"` — koniec drgania
   1 px), guard przerysowania w `updateScreen1ClockClassic()`.
-- **Pin dzielnika baterii GPIO7 → GPIO1** (`BATTERY_ADC_PIN 1`, ADC1_CH0).
 - **`FIRMWARE_VERSION` 1.2c → 1.2d**; `data/index*.html` (6 języków),
   `tools/lang_pages.json`, `platformio.ini`, README/RELEASE_NOTES zaktualizowane.
 
