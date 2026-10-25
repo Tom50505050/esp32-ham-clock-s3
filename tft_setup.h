@@ -84,6 +84,13 @@
   #define TOUCH_IRQ 16
 #endif
 
+// T_IRQ opcjonalny (domyślnie wyłączony). Dotyk działa w trybie odpytywania -
+// biblioteka mierzy Z w touched(), więc T_IRQ nie musi być podłączony.
+// Włącz (-DTOUCH_USE_IRQ=1) tylko gdy T_IRQ jest podłączony do GPIO 16.
+#ifndef TOUCH_USE_IRQ
+  #define TOUCH_USE_IRQ 0
+#endif
+
 // Przełącznik dotyku. Domyślnie 1 (włączony) - XPT2046 podłączony, T_DO na
 // GPIO 14. Wyłącz (0 / -DTOUCH_ENABLED=0), jeśli kontroler odłączony: wiszące
 // MISO daje fałszywe dotknięcia. main.cpp dodatkowo filtruje odczyty

@@ -106,12 +106,50 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
+| **v1.2d** | 23.10.2026 | **Naprawa migotania cyfr zegara** (wszystkie 15 czcionek): rysowanie tylko **zmienionych komórek** (dirty cells, ~67% mniej pikseli na SPI), **stały pionowy offset atramentu** (`clockTimeInkOffset()`, koniec drgania 1 px), guard przerysowania w klasycznym zegarze · **pin dzielnika baterii GPIO7 → GPIO1** (ADC1_CH0) |
 | **v1.2c** | 18.10.2026 | **Naprawa PSK MQTT**: zmiana pasma/trybu nie ściągała spotów (filtr subskrypcji 6-segmentowy → `.../<pasmo>/<tryb>/#`) · mapowanie pasm **160/30/17/12 m** (HTTP i MQTT) · poprawka indeksu odbiorcy (5→6) · czyszczenie spotów po zapisie filtra · **ikona baterii 12 px w lewo** na wszystkich ekranach · synchronizacja `tools/render_header_preview.py` |
 | **v1.2b** | 17.10.2026 | **Nagłówek**: ikona **GPS po lewej** stronie (za godziną) · ikona **baterii na wszystkich ekranach** · wspólny `drawHeaderTime()` · Nowe ekrany: **STACJA** (15.) i **ESP32 HAM LOGGER** (16., dziennik ADIF: formularz QSO, klawiatura, tabela ostatnich łączności, SAVE QSO/CLEAR/EXPORT ADIF/SETTINGS, log w **PSRAM** + zapis **plik tymczasowy + rename**, autouzupełnianie NAME/QTH z **QRZ.com → HamDB → callook**, eksport **`/qso.adi`**, endpoint **`/api/qrz_upload`**) · STACJA: wyszukiwanie znaku w **QRZ.com → HamDB → callook.info**, dwa transceivery, dystans + kierunek geograficzny · podglądy 1:1 `tools/render_station_preview.py`, `render_logger_preview.py` |
 | **v1.2a** | 16.10.2026 | Poprawki ekranu **PSK MAP**: **kumulacja spotów** (dedup znak+pasmo+tryb, limit 200) · **auto-RESET** po 200 spotach · **panel informacyjny po prawej** (licznik + lista najnowszych, zwężona ramka) · **odświeżanie tylko spotów** (bez przerysowywania nagłówka, paska, ikony baterii i napisów) · **MQTT domyślnie włączone** (start bez HTTP) · eksport rozmów do Markdown |
 | **v1.2** | 15.10.2026 | Nowy ekran **APRS RADAR** i **Informacje systemowe** (zamiast Unlis Hunter) · **ISS Pass Tracking** przebudowany (n2yo visualpasses, mapa+radar+metryki, flagi kraju) · **GPS** (NMEA UART2 + automatyczny lokator Maidenhead) · **kolory w TFT**: kolor znaku (menu HSV + picker WWW) i **kolor zegara** · **globalny przełącznik stylu** KLASYCZNY/nowoczesny · **wspólny styl „ISS TRACKER"** na wszystkich ekranach · nowy **ekran startowy** (karta QSL → emblemat ESP32-HAM-CLOCK + VERSION 1.2) i **ekran powitalny** (godło PZK, czcionka VLW) · **WWW**: upload grafiki JPG/PNG/BMP, 14 pozycji, ikony SVG, naprawa „Instrukcja" · **WiFi**: przypinanie do BSSID AP, drabinka mocy TX (AUTH_EXPIRE) |
 | **v1** | 12.10.2026 | Wersja dla ESP32-S3 N16R8 + ILI9488 · ikony SVG w UI WWW (nawigacja, status, metryki ISS) · naprawa zakładki „Instrukcja” · flaga kraju pod ISS wyrównana na TFT · wyrazista ikona satelity |
 
+
+---
+
+## Zmiany między v1.2c a v1.2d
+
+Wydanie **v1.2d** (23.10.2026) to wydanie poprawkowe: **migotanie cyfr zegara**
+oraz **zmiana pinu dzielnika napięcia baterii**.
+
+### Naprawa: migotanie cyfr zegara (wszystkie czcionki)
+Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczyny:
+- **Przerysowanie całego zegara co sekundę.** `clockDrawMonospace()` czyścił i
+  rysował wszystkie 8 komórek przy każdym odświeżeniu. Teraz pamięta poprzednią
+  godzinę (`prevText`) i dotyka **tylko komórek, które się zmieniły** (zwykle 1
+  zamiast 8, ~67% mniej pikseli na SPI). `useCache=false` (podgląd w menu) wymusza
+  pełne rysowanie; pamięć unieważniana przy `fillScreen` (`clockMonoGeneration`)
+  i gdy chwilowo brak czcionki VLW (`clockMonoInvalidate()`).
+- **Pionowe drganie 1 px.** Korekta pionowa liczona z bieżącej godziny
+  (`clockInkOffset(text)`) — różne cyfry mają różną wysokość atramentu (BUNGEE
+  `clock10`, MONO BOLD `clock14`: „1" i „8" różnią się o 1 px). Teraz
+  `clockTimeInkOffset()` liczy offset ze stałego zestawu `"0123456789:"`.
+- `updateScreen1ClockClassic()` rysuje tylko gdy tekst godziny się zmienił
+  (wcześniej przerysowywał w każdej iteracji `loop()`).
+- Podgląd QA: `tools/render_clock_flicker_preview.py`.
+
+### Pin dzielnika napięcia baterii: GPIO7 → GPIO1
+- `BATTERY_ADC_PIN 7` → **`BATTERY_ADC_PIN 1`** (GPIO1 = ADC1_CH0).
+- Schemat na stronie WWW (`getMainHTML`) oraz `PINOUT.md` zaktualizowane
+  (GPIO1 → zajęty, GPIO7 → wolny).
+
+### Porządki: usunięcie eksportu rozmów (czatu)
+- Usunięte narzędzie `tools/export_conversation.py` oraz katalog `conversations/`
+  (skrócone zapisy `*-dialog.md`) — funkcja eksportu dziennika rozmowy nie jest już
+  częścią projektu. Wyczyszczone reguły w `.gitignore` i wzmianki w dokumentacji.
+
+### Wersja
+- `FIRMWARE_VERSION`: `1.2c` → **`1.2d`**. Zaktualizowane też `data/index*.html`
+  (PL/EN/DE/FR/ES/RU), `tools/lang_pages.json` i `platformio.ini`.
 
 ---
 
@@ -287,14 +325,8 @@ i narzędzi projektu. Nie zmieniono innych ekranów ani zależności.
   (usunięto zerowanie licznika i przerywanie pętli na limicie).
 
 ### Narzędzia i dokumentacja
-- **`tools/export_conversation.py`** — eksport dziennika zdarzeń rozmowy do
-  Markdown; tryb pełny i `--dialog` (tylko wypowiedzi), **redakcja sekretów**
-  (`gAAAAA*`, `ghp_*`, `github_pat_*`, `sk-*`, `api_key=…`, `Bearer …`).
-- **`conversations/`** — skrócony zapis rozmowy (`*-dialog.md`); pełna wersja
-  w `.gitignore`.
 - **`STAN_PRAC.md`** — notatka o stanie prac i punktach do weryfikacji.
-- **`AGENTS.md`** — opis MQTT domyślnego, kumulacji spotów, panelu bocznego
-  i procedury zapisu rozmów.
+- **`AGENTS.md`** — opis MQTT domyślnego, kumulacji spotów i panelu bocznego.
 
 ### Wersja
 - `FIRMWARE_VERSION` zmieniona z `1.2.1` na **`1.2a`**.
@@ -358,7 +390,8 @@ Poniżej pełne zestawienie zmian wprowadzonych od wydania **v1** do **v1.2**
 ### Narzędzia (`tools/`)
 - Nowe skrypty: `gen_worldmask.py`, `img_to_bmp565.py`, `make_vlw_font.py`,
   `make_qsl_splash.py`, `render_clock_color_preview.py`, `render_menu_preview.py`,
-  `render_welcome_preview.py`; `serve.sh` (setsid — serwer nie pada).
+  `render_welcome_preview.py`, `make_clock_fonts.py` (generator czcionek zegara),
+  `render_clock_fonts_preview.py` (podglad QA czcionek); `serve.sh` (setsid — serwer nie pada).
 
 ### Nowe pliki danych
 - `data/pzk-logo.bmp`, `data/fonts/Welcome-Regular21.vlw`, `iss_worldmask.h`.

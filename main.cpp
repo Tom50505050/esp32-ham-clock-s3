@@ -36,7 +36,7 @@ void normalizePolish(String &text);
 #endif
 
 // Wersja firmware
-#define FIRMWARE_VERSION "1.2c"
+#define FIRMWARE_VERSION "1.2d"
 
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -99,6 +99,7 @@ void drawWeather();
 void drawWeatherForecast();
 void drawAprsIs();
 void drawAprsRadar();
+void drawAprsTnc2Monitor();
 void drawPotaCluster();
 void drawHamalertCluster();
 void drawMatrixClock();
@@ -127,6 +128,7 @@ void drawHamburgerMenuButton3D(int x, int y);
 void handleTouchCalibrationTouch(int16_t rawX, int16_t rawY, uint16_t x, uint16_t y, bool isNewTap);
 static bool isAprsAlertCloseButtonHit(uint16_t x, uint16_t y);
 static void dismissAprsAlertScreen();
+static void dismissWeatherAlertScreen();
 // Ekran "GPS - satelity" (modalny, otwierany ikona GPS w naglowku zegara).
 void openGpsScreen();
 static void drawGpsScreen();
@@ -335,6 +337,8 @@ void sendAPRSLogin();
 static String getAprsTxCallsignWithSsid();
 static String getAprsBaseCallsign();
 void sendAPRSFilter();
+bool parseAPRSFrame(String line, APRSStation &station);
+void addAPRSStation(APRSStation station);
 void fetchIssData();
 void getIssCountryFromCoords(double lat, double lng);
 String lookupIssCountryFromCoords(double lat, double lng);
@@ -644,6 +648,13 @@ int tftNightDimmingPercent = 0;   // nocne obnizenie jasnosci (0-100%), z WWW
 #ifndef TOUCH_IRQ
 #define TOUCH_IRQ 16
 #endif
+// T_IRQ jest OPCJONALNY. Domyślnie dotyk pracuje w trybie odpytywania
+// (biblioteka mierzy Z i porownuje z progiem w touched()), wiec T_IRQ nie musi
+// byc podlaczony ani dzialac. Ustaw -DTOUCH_USE_IRQ=1 tylko gdy T_IRQ jest
+// naprawde podlaczony do GPIO 16 - wiszacy pin moglby generowac przerwania.
+#ifndef TOUCH_USE_IRQ
+#define TOUCH_USE_IRQ 0
+#endif
 #ifndef TOUCH_MOSI
 #define TOUCH_MOSI TFT_MOSI
 #endif
@@ -683,7 +694,15 @@ static bool sanitizeTftInvertSetting(bool requested) {
 }
 
 bool tftInitialized = false;
+// T_IRQ opcjonalny: bez -DTOUCH_USE_IRQ=1 podajemy 255 (sentyne "brak pinu").
+// Wtedy biblioteka nie konfiguruje przerwania i nie trzyma isrWake=false po
+// zwolnieniu dotyku - touched() dziala w trybie odpytywania (pomiar Z).
+// Uwaga: wariant TFT_ONLY (-DTOUCH_ENABLED=0) i tak nie tworzy obiektu dotyku.
+#if TOUCH_ENABLED && TOUCH_USE_IRQ
 XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
+#else
+XPT2046_Touchscreen touch(TOUCH_CS, 255);
+#endif
 bool touchReady = false;  // true tylko po udanym touch.begin(); patrz TOUCH_ENABLED
 
 int bootLogY = 2;
@@ -876,7 +895,12 @@ static bool uiStyleClassic() { return screen1ClockStyle == 1; }
 
 enum TftLang : uint8_t {
   TFT_LANG_PL = 0,
-  TFT_LANG_EN = 1
+  TFT_LANG_EN = 1,
+  TFT_LANG_DE = 2,
+  TFT_LANG_FR = 3,
+  TFT_LANG_ES = 4,
+  TFT_LANG_RU = 5,
+  TFT_LANG_COUNT = 6
 };
 uint8_t tftLanguage = TFT_LANG_PL;
 
@@ -936,7 +960,12 @@ enum TrKey : uint8_t {
   TR_SATURATION,
   TR_VALUE,
   TR_CLOCK_COLOR,
+  TR_CLOCK_FONT,
   TR_HUE,
+  TR_WX_ALERT,
+  TR_WX_STORM,
+  TR_WX_WIND,
+  TR_WX_IN_6H,
   TR_KEY_COUNT
 };
 
@@ -947,31 +976,36 @@ static const char* TR_PL[TR_KEY_COUNT] = {
   "Oczekiwanie na spoty...",
   "POGODA",
   "TEMPERATURA",
-  "WILGOTNOĹšÄ†",
-  "CIĹšNIENIE",
+  "WILGOTNOSC",
+  "CISNIENIE",
   "WIATR",
   "Prognoza na 3 godziny:",
   "Prognoza na jutro:",
   "Brak danych",
-  "BĹÄ„D: ",
+  "BLAD: ",
   "Strona",
   "Przytrzymaj 5 sek = Kalibracja",
   "TFT Kalibracja",
-  "ObrĂłt 90deg w prawo (rot90cw)",
-  "ObrĂłt 90deg w lewo (rot90ccw)",
+  "Obrot 90deg w prawo (rot90cw)",
+  "Obrot 90deg w lewo (rot90ccw)",
   "USTAWIENIA TFT",
-  "JASNOĹšÄ†:",
+  "JASNOSC:",
   "KOLOR MOTYWU:",
   "Przytrzymaj 3 sek = Kalibracja",
   "ZAPISZ",
-  "DOMYĹšLNE",
+  "DOMYSLNE",
   "ZAMKNIJ",
-  "JÄZYK",
+  "JEZYK",
   "KOLOR ZNAKU",
   "NASYCENIE",
-  "JASNOĹšÄ†",
+  "JASNOSC",
   "KOLOR ZEGARA",
-  "ODCIEĹ"
+  "CZCIONKA ZEGARA",
+  "ODCIEN",
+  "ALERT POGODOWY",
+  "BURZA",
+  "SILNY WIATR",
+  "w ciagu 6h",
 };
 
 static const char* TR_EN[TR_KEY_COUNT] = {
@@ -1005,27 +1039,222 @@ static const char* TR_EN[TR_KEY_COUNT] = {
   "SATURATION",
   "VALUE",
   "CLOCK COLOR",
-  "HUE"
+  "CLOCK FONT",
+  "HUE",
+  "WEATHER ALERT",
+  "STORM",
+  "STRONG WIND",
+  "within 6h",
 };
 
+static const char* TR_DE[TR_KEY_COUNT] = {
+  "Zeit",
+  "Rufz.",
+  "LAND",
+  "Warte auf Spots...",
+  "WETTER",
+  "TEMPERATUR",
+  "LUFTFEUCHTE",
+  "DRUCK",
+  "WIND",
+  "Vorhersage (3 Std):",
+  "Vorhersage morgen:",
+  "Keine Daten",
+  "FEHLER: ",
+  "Seite",
+  "5 Sek halten = Kalibrierung",
+  "TFT Kalibrierung",
+  "90 Grad rechts (rot90cw)",
+  "90 Grad links (rot90ccw)",
+  "ANZEIGE EINSTELLUNGEN",
+  "HELLIGKEIT:",
+  "THEMA FARBE:",
+  "3 Sek halten = Kalibrierung",
+  "SPEICHERN",
+  "STANDARD",
+  "SCHLIESSEN",
+  "SPRACHE",
+  "RUFZEICHEN FARBE",
+  "SAETTIGUNG",
+  "WERT",
+  "UHRFARBE",
+  "UHR-SCHRIFTART",
+  "FARBTON",
+  "WETTERWARNUNG",
+  "GEWITTER",
+  "STARKER WIND",
+  "in 6 Std",
+};
+
+static const char* TR_FR[TR_KEY_COUNT] = {
+  "Heure",
+  "Indic.",
+  "PAYS",
+  "Attente des spots...",
+  "METEO",
+  "TEMPERATURE",
+  "HUMIDITE",
+  "PRESSION",
+  "VENT",
+  "Previsions (3 h):",
+  "Previsions demain:",
+  "Aucune donnee",
+  "ERREUR: ",
+  "Page",
+  "Maintenir 5 s = Calibration",
+  "Calibration TFT",
+  "Rotation 90 deg droite (rot90cw)",
+  "Rotation 90 deg gauche (rot90ccw)",
+  "REGLAGES AFFICHAGE",
+  "LUMINOSITE:",
+  "COULEUR THEME:",
+  "Maintenir 3 s = Calibration",
+  "ENREGISTRER",
+  "DEFAUT",
+  "FERMER",
+  "LANGUE",
+  "COULEUR INDIC.",
+  "SATURATION",
+  "VALEUR",
+  "COULEUR HORLOGE",
+  "POLICE HORLOGE",
+  "TEINTE",
+  "ALERTE METEO",
+  "ORAGE",
+  "VENT FORT",
+  "dans 6h",
+};
+
+static const char* TR_ES[TR_KEY_COUNT] = {
+  "Hora",
+  "Indic.",
+  "PAIS",
+  "Esperando spots...",
+  "TIEMPO",
+  "TEMPERATURA",
+  "HUMEDAD",
+  "PRESION",
+  "VIENTO",
+  "Pronostico (3 h):",
+  "Pronostico manana:",
+  "Sin datos",
+  "ERROR: ",
+  "Pagina",
+  "Mantener 5 s = Calibracion",
+  "Calibracion TFT",
+  "Girar 90 grados derecha (rot90cw)",
+  "Girar 90 grados izquierda (rot90ccw)",
+  "AJUSTES PANTALLA",
+  "BRILLO:",
+  "COLOR TEMA:",
+  "Mantener 3 s = Calibracion",
+  "GUARDAR",
+  "DEFECTO",
+  "CERRAR",
+  "IDIOMA",
+  "COLOR INDIC.",
+  "SATURACION",
+  "VALOR",
+  "COLOR RELOJ",
+  "FUENTE RELOJ",
+  "TONO",
+  "ALERTA METEO",
+  "TORMENTA",
+  "VIENTO FUERTE",
+  "en 6h",
+};
+
+static const char* TR_RU[TR_KEY_COUNT] = {
+  "Vremya",
+  "Pozivnoy",
+  "STRANA",
+  "Ozhidanie spotov...",
+  "POGODA",
+  "TEMPERATURA",
+  "VLAZHNOST",
+  "DAVLENIE",
+  "VETER",
+  "Prognoz (3 chasa):",
+  "Prognoz na zavtra:",
+  "Net dannykh",
+  "OSHIBKA: ",
+  "Stranitsa",
+  "Uderzh. 5 sek = Kalibrovka",
+  "Kalibrovka TFT",
+  "Povorot 90 gr. vpravo (rot90cw)",
+  "Povorot 90 gr. vlevo (rot90ccw)",
+  "NASTROYKI DISPLEYA",
+  "YARKOST:",
+  "TSVET TEMY:",
+  "Uderzh. 3 sek = Kalibrovka",
+  "SOKHRANIT",
+  "PO UMOLCHANIYU",
+  "ZAKRYT",
+  "YAZYK",
+  "TSVET POZIVNOGO",
+  "NASYSHCHENNOST",
+  "ZNACHENIE",
+  "TSVET CHASOV",
+  "SHRIFT CHASOV",
+  "OTTENOK",
+  "POGODNYY ALERT",
+  "GROZA",
+  "SILNYY VETER",
+  "v techenie 6ch",
+};
+
+// Zwraca tekst UI w biezacym jezyku (PL/EN/DE/FR/ES/RU). Napisy sa ASCII-only:
+// czcionki VLW nie maja cyrylicy, a czesc ekranow uzywa wbudowanego Font 2
+// (tylko ASCII), wiec diakrytyki/cyrylica i tak nie renderowalyby sie poprawnie.
 static const char* tr(TrKey key) {
   uint8_t idx = static_cast<uint8_t>(key);
   if (idx >= TR_KEY_COUNT) {
     return "";
   }
-  return (tftLanguage == TFT_LANG_EN) ? TR_EN[idx] : TR_PL[idx];
+  switch (tftLanguage) {
+    case TFT_LANG_EN: return TR_EN[idx];
+    case TFT_LANG_DE: return TR_DE[idx];
+    case TFT_LANG_FR: return TR_FR[idx];
+    case TFT_LANG_ES: return TR_ES[idx];
+    case TFT_LANG_RU: return TR_RU[idx];
+    default:          return TR_PL[idx];
+  }
+}
+
+// Wybor napisu z 6 jezykow (PL/EN/DE/FR/ES/RU) dla pojedynczych etykiet,
+// ktore nie sa w tablicy TrKey (naglowki ekranow, etykiety opcji).
+static const char* trStr(const char* pl, const char* en, const char* de,
+                         const char* fr, const char* es, const char* ru) {
+  switch (tftLanguage) {
+    case TFT_LANG_EN: return en;
+    case TFT_LANG_DE: return de;
+    case TFT_LANG_FR: return fr;
+    case TFT_LANG_ES: return es;
+    case TFT_LANG_RU: return ru;
+    default:          return pl;
+  }
 }
 
 static const char* tftLangToCode(uint8_t lang) {
-  return (lang == TFT_LANG_EN) ? "en" : "pl";
+  switch (lang) {
+    case TFT_LANG_EN: return "en";
+    case TFT_LANG_DE: return "de";
+    case TFT_LANG_FR: return "fr";
+    case TFT_LANG_ES: return "es";
+    case TFT_LANG_RU: return "ru";
+    default:          return "pl";
+  }
 }
 
 static uint8_t tftLangFromCode(const String &code) {
   String up = code;
   up.toLowerCase();
-  if (up == "en") {
-    return TFT_LANG_EN;
-  }
+  up.trim();
+  if (up == "en") return TFT_LANG_EN;
+  if (up == "de") return TFT_LANG_DE;
+  if (up == "fr") return TFT_LANG_FR;
+  if (up == "es") return TFT_LANG_ES;
+  if (up == "ru") return TFT_LANG_RU;
   return TFT_LANG_PL;
 }
 
@@ -1296,6 +1525,7 @@ Preferences* preferences = nullptr;
 WiFiClient telnetClient;
 WiFiClient potaTelnetClient;
 WiFiClient aprsClient;  // Klient dla APRS-IS
+WiFiClient aprsKissClient;  // Klient TCP do TNC-KISS (LoRa/Digi APRS)
 
 struct PropagationData {
   String sfi;
@@ -1356,6 +1586,36 @@ struct WeatherData {
 WeatherData weatherData;
 unsigned long lastWeatherFetchMs = 0;
 bool lastWeatherFetchOk = true;
+
+// ===== ALERTY POGODOWE / BURZOWE (open-meteo) =====
+// Dodatkowe (obok OpenWeatherMap) zrodlo danych: open-meteo.com (bez klucza API).
+// Wykrywa burze (WMO weather_code 95-99 lub wysokie CAPE) i silny wiatr
+// (prognoza wiatr/porywy w ciagu najblizszych 6 godzin).
+bool weatherAlertStormEnabled = false;
+bool weatherAlertWindEnabled = false;
+float weatherAlertWindThresholdMs = 12.0f;
+String openMeteoUrl = "https://api.open-meteo.com/v1/forecast";
+// Sciezki ikon alertu pogodowego (BMP/PNG/JPG w LittleFS). Domyslnie gotowe
+// pliki z data/icon50; uzytkownik moze wgrac wlasne z panelu WWW.
+String weatherIconStormPath = "/icon50/burza.bmp";
+String weatherIconWindPath = "/icon50/wiatr.bmp";
+const float DEFAULT_WEATHER_ALERT_WIND_THRESHOLD_MS = 12.0f;
+const unsigned long WEATHER_ALERT_FETCH_INTERVAL_MS = 15UL * 60UL * 1000UL;  // 15 min
+const unsigned long WEATHER_ALERT_REPEAT_MS = 30UL * 60UL * 1000UL;          // powtorz max co 30 min
+const unsigned long WEATHER_ALERT_DISPLAY_MS = 12000UL;                      // czas wyswietlania
+unsigned long lastWeatherAlertFetchMs = 0;
+bool lastWeatherAlertFetchOk = false;
+unsigned long weatherAlertLastTriggerMs = 0;
+bool weatherAlertScreenActive = false;
+unsigned long weatherAlertScreenUntilMs = 0;
+struct WeatherAlertInfo {
+  bool active = false;
+  bool storm = false;
+  bool wind = false;
+  float gustMs = 0.0f;
+  int weatherCode = -1;
+  unsigned long updatedMs = 0;
+} weatherAlertInfo;
 
 struct PendingQrzLookup {
   String callsign;
@@ -1445,27 +1705,25 @@ static inline void unlockDxSpots() {
 
 // Forward declarations for timezone conversion
 extern int timezoneHours;
+extern bool autoDst;
 bool isEuropeanDST(struct tm *timeinfo);
 
-// Global cache for timezone calculation to avoid repeated time() calls
-static int cachedTimezoneOffset = -999;  // -999 means not initialized
-static unsigned long lastTimezoneCacheMs = 0;
-static const unsigned long TIMEZONE_CACHE_MS = 60000; // Cache for 1 minute
+// Data/godzina UTC z NTP jest juz poprawna przez SNTP (configTime(0,0,...) + pool.ntp.org),
+// wiec nie modyfikujemy procesu POSIX - stary offset TZ i tak jest zerowy. Zamiast
+// tego liczymy offset numerycznie i dodajemy go do czasu UTC.
 
-static int getCachedTimezoneOffset() {
-  unsigned long nowMs = millis();
-  if (cachedTimezoneOffset == -999 || (nowMs - lastTimezoneCacheMs) > TIMEZONE_CACHE_MS) {
-    int dstOffset = 0;
-    time_t now = time(nullptr);
-    if (now > 100000) {
-      struct tm utcTm;
-      gmtime_r(&now, &utcTm);
-      dstOffset = isEuropeanDST(&utcTm) ? 1 : 0;
-    }
-    cachedTimezoneOffset = timezoneHours + dstOffset;
-    lastTimezoneCacheMs = nowMs;
+// Aktualny offset strefy lokalnej w godzinach (timezoneHours + ewentualne DST).
+// Liczony na biezaco z UTC (bez cache), dzieki czemu automatyczna zmiana czasu
+// letni/zimowy dziala natychmiast, takze tuz po zmianie roku - bez restartu.
+int currentTimezoneOffsetHours() {
+  int dstOffset = 0;
+  time_t now = time(nullptr);
+  if (now > 100000) {
+    struct tm utcTm;
+    gmtime_r(&now, &utcTm);
+    dstOffset = (autoDst && isEuropeanDST(&utcTm)) ? 1 : 0;
   }
-  return cachedTimezoneOffset;
+  return timezoneHours + dstOffset;
 }
 
 String formatSpotUtc(String raw) {
@@ -1506,8 +1764,8 @@ String formatSpotUtc(String raw) {
     return raw; // Nie udaĹ‚o siÄ™ sparsowaÄ‡
   }
 
-  // Konwersja na czas lokalny (uĹĽyj cache'owanego offsetu)
-  int offset = getCachedTimezoneOffset();
+  // Konwersja na czas lokalny (offset liczony na biezaco, bez stalego cache)
+  int offset = currentTimezoneOffsetHours();
   int localHour = hour + offset;
   
   // ObsĹ‚uga przejĹ›cia przez pĂłĹ‚noc
@@ -1564,6 +1822,13 @@ const char *NVS_KEY_APRS_ALERT_SCREEN_SEC = "alrt_scr_s";
 const float DEFAULT_APRS_ALERT_DISTANCE_KM = 1.0f;
 const char *NVS_KEY_APRS_ALERT_DISTANCE_KM = "alrt_dst_km";
 const char *NVS_KEY_APRS_ALERT_WX_ENABLED = "alrt_wx_en";
+const char *NVS_KEY_WEATHER_ALERT_STORM = "wxal_storm";
+const char *NVS_KEY_WEATHER_ALERT_WIND = "wxal_wind";
+const char *NVS_KEY_WEATHER_ALERT_WIND_MS = "wxal_windms";
+const char *NVS_KEY_WX_ICON_STORM = "wxal_ic_s";
+const char *NVS_KEY_WX_ICON_WIND = "wxal_ic_w";
+const char *NVS_KEY_OPENMETEO_URL = "wxal_url";
+const char *DEFAULT_OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast";
 const bool DEFAULT_ENABLE_LED_ALERT = true;
 const int DEFAULT_LED_ALERT_DURATION_MS = 5000;
 const int DEFAULT_LED_ALERT_BLINK_MS = 500;
@@ -1593,6 +1858,57 @@ int ledAlertBlinkMs = DEFAULT_LED_ALERT_BLINK_MS;
 int aprsBeaconTxCount = 0;
 const char *APRS_POSITION_COMMENT = "https://github.com/Tom50505050/esp32-ham-clock";
 bool aprsBeaconEnabled = true;
+
+// ===== TOCALL + blokada znakow + KISS TNC + GPS Neo-6 + Yaesu monitor =====
+// TOCALL beaconu (pole po '>' w ramce AX.25/APRS). Domyslnie "APRS" (standard),
+// ale mozna ustawic np. APZESP/APDW16 - niektore sieci/Digi preferuja wlasny.
+String aprsToCall = "APRS";
+const char *NVS_KEY_APRS_TOCALL = "aprs_tocall";
+// Blokada znakow w alercie APRS (CSV masek). Wpisy z listy NIE wywoluja alertu
+// (uzyteczne, zeby wlasne beaconowanie / lokalne Digi nie spamowalo alarmem).
+// Format tokenow jak lista alertow: CALL, CALL-7, CALL* (dowolny SSID).
+String aprsAlertBlockCsv = "";
+const char *NVS_KEY_APRS_ALERT_BLOCK = "aprs_alrt_blk";
+bool aprsAlertBlockEnabled = true;
+
+// --- KISS TNC (TCPIP) - do uzycia z LoRa / Digi APRS ---
+// Klient TCP laczy sie z TNC-KISS (np. LoRa APRS tracker/Digi, Direwolf, TNC
+// KISS po WiFi). Beacon jest wysylany jako ramka AX.25 w KISS (bez APRS-IS).
+bool aprsKissEnabled = false;
+String aprsKissHost = "";
+int aprsKissPort = 8001;
+String aprsKissPath = "WIDE1-1,WIDE2-1";   // domyslna sciezka RF
+bool aprsKissKissOnSent = false;
+bool aprsKissRestartSent = false;
+unsigned long aprsKissConnectMs = 0;        // kiedy nawiazano polaczenie (sekwencja startowa)
+unsigned long aprsKissLastTxMs = 0;
+unsigned long aprsKissLastRxMs = 0;
+int aprsKissBeaconTxCount = 0;
+const char *NVS_KEY_APRS_KISS_EN = "aprs_kiss_en";
+const char *NVS_KEY_APRS_KISS_HOST = "aprs_kiss_h";
+const char *NVS_KEY_APRS_KISS_PORT = "aprs_kiss_p";
+const char *NVS_KEY_APRS_KISS_PATH = "aprs_kiss_pth";
+// Sekwencja startowa KISS: "KISS ON" po 30 s od polaczenia, "RESTART" 1 s pozniej.
+const unsigned long KISS_START_KISSON_DELAY_MS = 30000UL;
+const unsigned long KISS_START_RESTART_DELAY_MS = 1000UL;
+
+// --- GPS: profil modulu (Neo-6 / NEO-M8N / ATGM336H) + UART2 ---
+// Profil ustawia domyslny baud + polecenia konfiguracyjne UBX/NMEA dla modulu.
+String gpsModuleProfile = "auto";   // auto|neo6|neo6m|neom8n|atgm336h
+const char *NVS_KEY_GPS_PROFILE = "gps_prof";
+bool gpsAutoConfigure = true;       // wysylaj sekwencje startowa do modulu (UBX/NMEA)
+unsigned long gpsConfigureSentMs = 0;
+bool gpsConfigured = false;
+
+// --- Tryb APRS-TNC2 (2-liniowy monitor pakietow w stylu Yaesu) ---
+// Gdy aktywny, odebrane ramki APRS sa prezentowane w 2 liniach: naglowek
+// (FROM>TO,path) + tresc (info), jak w "Packet Monitor" radiotelefonow Yaesu.
+bool aprsTnc2MonitorEnabled = false;
+String aprsTnc2LastHeader = "";
+String aprsTnc2LastInfo = "";
+unsigned long aprsTnc2LastMs = 0;
+const int APRS_TNC2_MONITOR_LINES = 2;
+
 const unsigned long APRS_ALERT_FRAME_PULSE_MS = 500UL;
 const int APRS_ALERT_CLOSE_BTN_X = 449;
 const int APRS_ALERT_CLOSE_BTN_Y = 7;
@@ -1801,6 +2117,7 @@ static int gpsSatStageCount = 0;
 static int gpsSatStageMsgNr = 0;
 uint8_t gpsUsedInFix = 0;  // licznik z GSA (ile satelitow uzytych w fixie)
 uint8_t gpsViewSats = 0;   // z GGA - ile widocznych
+uint8_t gpsIconLastState = 255;  // ostatni narysowany stan ikony GPS (0=brak, 1=szuka, 2=fix)
 // GSA: mapa PRN uzytych w fixie (dopasowanie po numerze satelity).
 static uint8_t gpsGsaUsedPrn[32];
 static int gpsGsaUsedCount = 0;
@@ -1809,6 +2126,7 @@ static int gpsGsaLastMsgNr = 0;
 HardwareSerial gpsSerial(2);
 bool gpsSerialBegun = false;
 int gpsLastBaudApplied = -1, gpsLastRxApplied = -1, gpsLastTxApplied = -1;
+int gpsLastProfileApplied = -1;  // indeks profilu (zmiana wymusza re-konfiguracje)
 // Reczne (z WWW) wartosci pozycji. Gdy "uzywaj GPS" jest wlaczone i jest FIX,
 // userLat/userLon/userLocator sa nadpisywane pozycja GPS dla wszystkich
 // odbiorcow (APRS, PSK, radar). Po wylaczeniu GPS wracamy do tych wartosci.
@@ -1818,6 +2136,7 @@ bool userLatLonValidManual = false;
 bool gpsPositionOverrideActive = false;
 
 int timezoneHours = DEFAULT_TIMEZONE_HOURS;
+bool autoDst = true;  // automatyczna zmiana czasu letni/zimowy (europejska reguła)
 String qrzUsername = "";
 String qrzApiKey = "";   // klucz API QRZ Logbook (wysylka ADIF z WWW/urzadzenia)
 String qrzLogbookLastStatus = "";
@@ -1852,6 +2171,37 @@ uint16_t callsignColor = 65535; // Default white (0xFFFF)
 // Domyslnie zolty (HC_YELLOW) - jak wczesniej. Zmiana: menu jasnosci (suwak
 // "KOLOR ZEGARA"), WWW (Twoja Stacja) albo dlugie przytrzymanie zegara.
 uint16_t clockDigitsColor = 0xFFE0; // Default yellow (0xFFE0)
+
+// Wybor czcionki znaku i duzego zegara (menu czasu, ekran HAM CLOCK).
+// 0 = wbudowana czcionka TFT_eSPI (bez pliku), 1..CLOCK_FONT_COUNT = pliki
+// VLW `data/fonts/clockNN-call.vlw` / `clockNN-time.vlw` generowane przez
+// `tools/make_clock_fonts.py`.
+#define CLOCK_FONT_COUNT 14
+uint8_t clockFontIndex = 0;
+
+struct ClockFontInfo {
+  const char *name;
+  const char *callFile;
+  const char *timeFile;
+};
+static const ClockFontInfo CLOCK_FONTS[CLOCK_FONT_COUNT + 1] = {
+  {"DOMYSLNA",   nullptr, nullptr},
+  {"SANS BOLD",  "/fonts/clock01-call.vlw", "/fonts/clock01-time.vlw"},
+  {"ORBITRON",   "/fonts/clock02-call.vlw", "/fonts/clock02-time.vlw"},
+  {"OXANIUM",    "/fonts/clock03-call.vlw", "/fonts/clock03-time.vlw"},
+  {"MICHROMA",   "/fonts/clock04-call.vlw", "/fonts/clock04-time.vlw"},
+  {"AUDIOWIDE",  "/fonts/clock05-call.vlw", "/fonts/clock05-time.vlw"},
+  {"RUSSO ONE",  "/fonts/clock06-call.vlw", "/fonts/clock06-time.vlw"},
+  {"TECH MONO",  "/fonts/clock07-call.vlw", "/fonts/clock07-time.vlw"},
+  {"QUANTICO",   "/fonts/clock08-call.vlw", "/fonts/clock08-time.vlw"},
+  {"ELECTROLIZE","/fonts/clock09-call.vlw", "/fonts/clock09-time.vlw"},
+  {"BUNGEE",     "/fonts/clock10-call.vlw", "/fonts/clock10-time.vlw"},
+  {"NOVA MONO",  "/fonts/clock11-call.vlw", "/fonts/clock11-time.vlw"},
+  {"ICELAND",    "/fonts/clock12-call.vlw", "/fonts/clock12-time.vlw"},
+  {"SERIF BOLD", "/fonts/clock13-call.vlw", "/fonts/clock13-time.vlw"},
+  {"MONO BOLD",  "/fonts/clock14-call.vlw", "/fonts/clock14-time.vlw"},
+};
+
 bool clockColorMenuActive = false;
 int clockColorMenuHue = 0;    // 0..255
 int clockColorMenuSat = 100;  // 0..100 (%)
@@ -2117,7 +2467,7 @@ bool rgbBlueAprsStateOn = false;
 // - WyjĹ›cie: 4.2V (bateria naĹ‚adowana) lub 5V (zasilanie zewnÄ™trzne)
 // - Pomiar napiÄ™cia przez dzielnik 100k/100k na pin ADC
 
-#define BATTERY_MONITORING_ENABLED  // WĹ‚Ä…cz pomiar napiÄ™cia baterii
+#define BATTERY_MONITORING_ENABLED  // Włącz pomiar napięcia baterii
 #define BATTERY_ADC_PIN 1           // Pin ADC1_CH0 (GPIO1) - pomiar napięcia baterii (ESP32-S3)
 #define BATTERY_ADC_RESOLUTION 12   // RozdzielczoĹ›Ä‡ ADC (12 bit = 0-4095)
 #define BATTERY_VOLTAGE_DIVIDER 2.0f // Dzielnik napiÄ™cia 100k/100k (1:2)
@@ -2536,7 +2886,7 @@ void drawWelcomeScreenYellow() {
 
   tft.fillScreen(TFT_BLACK);
 
-  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2c").
+  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2d").
   // Polskie znaki - wymaga UTF-8 w zrodle (--utf8-source).
   String lines[5];
   lines[0] = "ESP32-HAM-CLOCK v" FIRMWARE_VERSION;
@@ -2846,7 +3196,7 @@ void drawScreen(ScreenType screenNum) {
     lastDrawnScreen = screenNum;
   }
 
-  if (aprsAlertScreenActive) {
+  if (aprsAlertScreenActive || weatherAlertScreenActive) {
     return;
   }
   
@@ -2869,11 +3219,11 @@ void drawScreen(ScreenType screenNum) {
       case SCREEN_HAMALERT_CLUSTER: uiHeader("HAMALERT.org", true); break;
       case SCREEN_APRS_IS:          uiHeader("APRS-IS", true); break;
       case SCREEN_WEATHER_DSP:      uiHeader(tr(TR_WEATHER), true); break;
-      case SCREEN_WEATHER_FORECAST: uiHeader((tftLanguage == TFT_LANG_EN) ? "Weather forecast" : "Prognoza pogody", true); break;
-      case SCREEN_SUN_SPOTS:        uiHeader((tftLanguage == TFT_LANG_EN) ? "PROPAGATION" : "PROPAGACJA", false); break;
+      case SCREEN_WEATHER_FORECAST: uiHeader(trStr("Prognoza pogody","Weather forecast","Wettervorhersage","Previsions meteo","Pronostico","Prognoz pogody"), true); break;
+      case SCREEN_SUN_SPOTS:        uiHeader(trStr("PROPAGACJA","PROPAGATION","AUSBREITUNG","PROPAGATION","PROPAGACION","RASPROSTRANENIE"), false); break;
       case SCREEN_BAND_INFO:        uiHeader("SOLAR PROPAGATION INDEX", false); break;
       case SCREEN_SYSTEM_INFO:      uiHeader("SYSTEM INFO", true); break;
-      case SCREEN_STATION:          uiHeader((tftLanguage == TFT_LANG_EN) ? "STATION INFO" : "STACJA", false); break;
+      case SCREEN_STATION:          uiHeader(trStr("STACJA","STATION INFO","STATION","STATION","ESTACION","STANTSIYA"), false); break;
       case SCREEN_HAM_LOGGER:       uiHeader("ESP32 HAM LOGGER", false); break;
       default: break;
     }
@@ -3149,7 +3499,7 @@ bool getTimeWithTimezone(struct tm *outTm) {
   // Pobierz czas UTC aby sprawdziÄ‡ DST
   struct tm utcTm;
   gmtime_r(&now, &utcTm);
-  int dstOffset = isEuropeanDST(&utcTm) ? 1 : 0;  // +1h w czasie letnim
+  int dstOffset = (autoDst && isEuropeanDST(&utcTm)) ? 1 : 0;  // +1h w czasie letnim
   now += (time_t)(timezoneHours + dstOffset) * 3600;
   gmtime_r(&now, outTm);
   return true;
@@ -3174,7 +3524,7 @@ String formatAprsTimeWithTimezone(String timeStr) {
   }
   int hour = timeStr.substring(0, 2).toInt();
   int minute = timeStr.substring(2, 4).toInt();
-  int hourLocal = hour + timezoneHours;
+  int hourLocal = hour + currentTimezoneOffsetHours();
   while (hourLocal < 0) hourLocal += 24;
   while (hourLocal >= 24) hourLocal -= 24;
   String hh = (hourLocal < 10 ? "0" : "") + String(hourLocal);
@@ -3219,6 +3569,163 @@ String sanitizePolishToAscii(const String &input) {
     // Unknown multibyte - skip
   }
   return out;
+}
+
+
+// Transliteracja/zwijanie UTF-8 do ASCII. Czcionki VLW na ekranach pogody nie
+// maja pelnego zestawu znakow diakrytycznych ani cyrylicy, a ekrany z ukladu
+// Font 2 obsluguja tylko ASCII - dlatego opisy pogody (OpenWeatherMap zwraca je
+// w jezyku interfejsu) sprowadzamy do ASCII. Obejmuje: polskie znaki, znaki
+// lacinskie (ES/DE/FR) oraz cyrylice (RU) -> transliteracja lacinska.
+static const char* latinExtToAscii(uint32_t cp) {
+  switch (cp) {
+    case 0x0100: case 0x0102: case 0x0104: return "A";
+    case 0x0101: case 0x0103: case 0x0105: return "a";
+    case 0x0106: case 0x010C: return "C";
+    case 0x0107: case 0x010D: return "c";
+    case 0x010E: case 0x0110: return "D";
+    case 0x010F: case 0x0111: return "d";
+    case 0x0112: case 0x0118: case 0x011A: case 0x0116: return "E";
+    case 0x0113: case 0x0119: case 0x011B: case 0x0117: return "e";
+    case 0x011E: return "G";
+    case 0x011F: return "g";
+    case 0x012A: case 0x012E: case 0x0130: return "I";
+    case 0x012B: case 0x012F: case 0x0131: return "i";
+    case 0x0139: case 0x013D: case 0x0141: return "L";
+    case 0x013A: case 0x013E: case 0x0142: return "l";
+    case 0x0143: case 0x0147: return "N";
+    case 0x0144: case 0x0148: return "n";
+    case 0x014C: case 0x0150: return "O";
+    case 0x014D: case 0x0151: return "o";
+    case 0x0152: return "OE";
+    case 0x0153: return "oe";
+    case 0x0154: case 0x0158: return "R";
+    case 0x0155: case 0x0159: return "r";
+    case 0x015A: case 0x015E: case 0x0160: return "S";
+    case 0x015B: case 0x015F: case 0x0161: return "s";
+    case 0x0162: case 0x0164: return "T";
+    case 0x0163: case 0x0165: return "t";
+    case 0x016A: case 0x016E: case 0x0170: return "U";
+    case 0x016B: case 0x016F: case 0x0171: return "u";
+    case 0x0178: return "Y";
+    case 0x0179: case 0x017B: case 0x017D: return "Z";
+    case 0x017A: case 0x017C: case 0x017E: return "z";
+    default: return nullptr;
+  }
+}
+
+static const char* cyrillicToLatin(uint32_t cp) {
+  switch (cp) {
+    case 0x0401: return "E";  case 0x0451: return "e";
+    case 0x0404: return "Ye"; case 0x0454: return "ie";
+    case 0x0406: return "I";  case 0x0456: return "i";
+    case 0x0407: return "Yi"; case 0x0457: return "i";
+    case 0x0490: return "G";  case 0x0491: return "g";
+    case 0x0410: return "A";  case 0x0430: return "a";
+    case 0x0411: return "B";  case 0x0431: return "b";
+    case 0x0412: return "V";  case 0x0432: return "v";
+    case 0x0413: return "G";  case 0x0433: return "g";
+    case 0x0414: return "D";  case 0x0434: return "d";
+    case 0x0415: return "E";  case 0x0435: return "e";
+    case 0x0416: return "Zh"; case 0x0436: return "zh";
+    case 0x0417: return "Z";  case 0x0437: return "z";
+    case 0x0418: return "I";  case 0x0438: return "i";
+    case 0x0419: return "Y";  case 0x0439: return "y";
+    case 0x041A: return "K";  case 0x043A: return "k";
+    case 0x041B: return "L";  case 0x043B: return "l";
+    case 0x041C: return "M";  case 0x043C: return "m";
+    case 0x041D: return "N";  case 0x043D: return "n";
+    case 0x041E: return "O";  case 0x043E: return "o";
+    case 0x041F: return "P";  case 0x043F: return "p";
+    case 0x0420: return "R";  case 0x0440: return "r";
+    case 0x0421: return "S";  case 0x0441: return "s";
+    case 0x0422: return "T";  case 0x0442: return "t";
+    case 0x0423: return "U";  case 0x0443: return "u";
+    case 0x0424: return "F";  case 0x0444: return "f";
+    case 0x0425: return "Kh"; case 0x0445: return "kh";
+    case 0x0426: return "Ts"; case 0x0446: return "ts";
+    case 0x0427: return "Ch"; case 0x0447: return "ch";
+    case 0x0428: return "Sh"; case 0x0448: return "sh";
+    case 0x0429: return "Shch"; case 0x0449: return "shch";
+    case 0x042A: return "";   case 0x044A: return "";
+    case 0x042B: return "Y";  case 0x044B: return "y";
+    case 0x042C: return "";   case 0x044C: return "";
+    case 0x042D: return "E";  case 0x044D: return "e";
+    case 0x042E: return "Yu"; case 0x044E: return "yu";
+    case 0x042F: return "Ya"; case 0x044F: return "ya";
+    default: return nullptr;
+  }
+}
+
+String foldToAscii(const String &input) {
+  static const char* const latin1[64] = {
+    "A","A","A","A","A","A","AE","C","E","E","E","E","I","I","I","I",
+    "D","N","O","O","O","O","O","x","O","U","U","U","U","Y","Th","ss",
+    "a","a","a","a","a","a","ae","c","e","e","e","e","i","i","i","i",
+    "d","n","o","o","o","o","o","/","o","u","u","u","u","y","th","y",
+  };
+  String out;
+  out.reserve(input.length());
+  const uint8_t *s = (const uint8_t *)input.c_str();
+  size_t n = input.length();
+  for (size_t i = 0; i < n;) {
+    uint8_t c = s[i];
+    if (c < 0x80) {
+      out += (char)c;
+      i++;
+      continue;
+    }
+    uint32_t cp = 0;
+    int extra = 0;
+    if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; extra = 1; }
+    else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; extra = 2; }
+    else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; extra = 3; }
+    else { i++; continue; }
+    if (i + (size_t)extra >= n) { break; }
+    for (int k = 1; k <= extra; k++) {
+      cp = (cp << 6) | (s[i + k] & 0x3F);
+    }
+    i += (size_t)extra + 1;
+    if (cp >= 0xC0 && cp <= 0xFF) { out += latin1[cp - 0xC0]; continue; }
+    const char *lx = latinExtToAscii(cp);
+    if (lx) { out += lx; continue; }
+    const char *cy = cyrillicToLatin(cp);
+    if (cy && *cy) { out += cy; continue; }
+    // nieznany znak - pomijamy
+  }
+  return out;
+}
+
+static const char *weekdayNameForLang(uint8_t lang, int wday) {
+  static const char* en[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
+  static const char* de[] = {"Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"};
+  static const char* fr[] = {"Dimanche","Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi"};
+  static const char* es[] = {"Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sabado"};
+  static const char* ru[] = {"Voskresenie","Ponedelnik","Vtornik","Sreda","Chetverg","Pyatnitsa","Subbota"};
+  static const char* pl[] = {"Niedziela","Poniedzialek","Wtorek","Sroda","Czwartek","Piatek","Sobota"};
+  if (wday < 0 || wday > 6) wday = 0;
+  switch (lang) {
+    case TFT_LANG_EN: return en[wday];
+    case TFT_LANG_DE: return de[wday];
+    case TFT_LANG_FR: return fr[wday];
+    case TFT_LANG_ES: return es[wday];
+    case TFT_LANG_RU: return ru[wday];
+    default:          return pl[wday];
+  }
+}
+
+// Data z dniem tygodnia w biezacym jezyku (nazwy dni sa ASCII-only).
+static String getLocalizedDateStringFull(bool withTimezone) {
+  struct tm timeinfo;
+  bool ok = withTimezone ? getTimeWithTimezone(&timeinfo) : getLocalTime(&timeinfo, 1);
+  if (!ok) {
+    return (tftLanguage == TFT_LANG_PL) ? "Brak daty" : "No date";
+  }
+  String dateBuf = String(timeinfo.tm_mday < 10 ? "0" : "") + String(timeinfo.tm_mday) +
+                   "." +
+                   String((timeinfo.tm_mon + 1) < 10 ? "0" : "") + String(timeinfo.tm_mon + 1) +
+                   "." + String(1900 + timeinfo.tm_year);
+  return String(weekdayNameForLang(tftLanguage, timeinfo.tm_wday)) + " " + dateBuf;
 }
 
 String getPolishDateStringFull() {
@@ -3545,10 +4052,18 @@ static void drawGpsSatGlyph(int x, int y, uint16_t ink, uint16_t bg) {
 }
 
 // Kolorystyka statusu: zielony = fix, bursztynowy = szuka, szary = brak danych.
+static uint8_t gpsIconState() {
+  if (gpsSentenceCount == 0 || (millis() - gpsLastSentenceMs) > 5000UL) return 0;  // brak modulu
+  if (!gpsFix) return 1;  // widzi satelity, brak fixu
+  return 2;               // fix OK
+}
+
 static uint16_t gpsIconStatusColor() {
-  if (gpsSentenceCount == 0 || (millis() - gpsLastSentenceMs) > 5000UL) return 0x6BF2;  // brak modulu
-  if (!gpsFix) return 0xFE4A;  // widzi satelity, brak fixu
-  return 0x07E0;               // fix OK
+  switch (gpsIconState()) {
+    case 2:  return 0x07E0;  // zielony - fix (ESP32 polaczony z satelitami)
+    case 1:  return 0xFE4A;  // bursztynowy - szuka satelitow
+    default: return 0x6BF2;  // szary - brak danych z modulu
+  }
 }
 
 static void drawGpsIconInHeader(bool classic) {
@@ -3556,6 +4071,19 @@ static void drawGpsIconInHeader(bool classic) {
   uint16_t plate = classic ? 0x18E3 : 0x0000;  // ciemna podkladka dla kontrastu
   tft.fillRoundRect(GPS_ICON_X - 3, GPS_ICON_Y - 2, GPS_ICON_W + 6, GPS_ICON_H + 4, 3, plate);
   drawGpsSatGlyph(GPS_ICON_X, GPS_ICON_Y, gpsIconStatusColor(), plate);
+  gpsIconLastState = gpsIconState();
+}
+
+// Odswieza sama ikone GPS w naglowku po zmianie stanu (szary -> zielony itd.).
+// Ikona satelity jest rysowana tylko na ekranie HAM CLOCK, wiec odswiezamy tez
+// tylko tam - na innych ekranach nie ma jej gdzie podmienic.
+static void refreshGpsIconIfChanged() {
+  if (!tftInitialized || !gpsEnabled) return;
+  if (currentScreen != SCREEN_HAM_CLOCK) return;
+  if (inMenu || brightnessMenuActive || screenSaverMenuActive) return;
+  uint8_t st = gpsIconState();
+  if (st == gpsIconLastState) return;
+  drawGpsIconInHeader(uiStyleClassic());
 }
 
 // Funkcja rysujÄ…ca ikonÄ™ baterii
@@ -3881,11 +4409,272 @@ static void hamClockDrawHands(const struct tm &t) {
   tft.fillCircle(cx, cy, 2, HC_YELLOW);
 }
 
+// ===== Czcionki znaku i zegara (VLW) + cien/poswiata =====
+// Wybrana czcionka (clockFontIndex) jest ladowana z LittleFS do rysowania
+// znaku i duzego zegara. Wspolna funkcja obsluguje oba style ekranu.
+
+static bool clockFontHasFile(uint8_t idx, bool forTime) {
+  if (idx == 0 || idx > CLOCK_FONT_COUNT) return false;
+  const char *p = forTime ? CLOCK_FONTS[idx].timeFile : CLOCK_FONTS[idx].callFile;
+  if (!p || !littleFsReady || !LittleFS.exists(p)) return false;
+  // Metryki czcionki VLW to ~0,5 kB + kilka bajtow na glif (max ~1,7 kB). Prog
+  // 90 kB byl zbyt wysoki: gdy wolna sterta chwilowo spadla ponizej (np. gdy w
+  // loop() obslugiwane bylo zadanie HTTP), zegar na jedna sekunde rysowal sie
+  // czcionka domyslna. Wymagamy tylko realnego zapasu na ten maly przydzial.
+  return ESP.getFreeHeap() > 24000 && ESP.getMaxAllocHeap() > 4096;
+}
+
+// Laduje czcionke VLW i sprawdza, czy metryki faktycznie trafily do RAM.
+// TFT_eSPI::loadFont() nie zwraca bledu - przy braku pamieci ustawia
+// fontLoaded, ale loadMetrics() nie alokuje tablic glifow. Wykrywamy to po
+// gUnicode == nullptr, aby nie rysowac smieci i nie wyciekac metrykami.
+static bool clockLoadFont(const String &name) {
+  tft.loadFont(name, LittleFS);
+  if (tft.fontLoaded && tft.gUnicode != nullptr) return true;
+  if (tft.fontLoaded) tft.unloadFont();
+  return false;
+}
+
+// Szerokosc napisu w komorkach stalej szerokosci (jak clockDrawMonospace).
+// Zaklada, ze czcionka VLW jest zaladowana. Komorka = najszerszy znak wzorcowy.
+static int clockMonospaceWidth(const char *text) {
+  static const char *ref = "0123456789:";
+  int cell = 0;
+  for (const char *p = ref; *p; p++) {
+    uint16_t idx = 0;
+    if (tft.getUnicodeIndex((uint8_t)*p, &idx) && tft.gxAdvance[idx] > cell)
+      cell = tft.gxAdvance[idx];
+  }
+  if (cell <= 0) return tft.textWidth(text);
+  return (int)strlen(text) * cell;
+}
+
+// Generacja pelnego przerysowania ekranu zegara. Kazde pelne przerysowanie
+// (fillScreen) uniewaznia pamiec podreczna komorek ponizej.
+static uint32_t clockMonoGeneration = 0;
+
+// Wymus pelne przerysowanie zegara przy nastepnym rysowaniu (np. gdy chwilowo
+// nie udalo sie zaladowac czcionki VLW i narysowalismy tekst czcionka wbudowana).
+static void clockMonoInvalidate() { clockMonoGeneration++; }
+
+// Rysuje napis czcionka VLW w komorkach o stalej szerokosci (monospace). Kazdy
+// znak zajmuje komorke rowna najszerszemu znakowi wzorcowemu (cyfry + dwukropek),
+// dzieki czemu szerokosc zegara nie zmienia sie, gdy w godzinie pojawi sie waska
+// cyfra ("1" vs "8"). Napis wysrodkowany wzgledem centerX. Zwraca szerokosc.
+// Zaklada, ze czcionka VLW jest juz zaladowana.
+//
+// MIGOTANIE: przy zmianie sekundy zmienia sie zwykle tylko 1-2 cyfry. Gdybysmy
+// czyscili i rysowali wszystkie 8 komorek, na SPI widac bylo wycieranie calego
+// zegara. Dlatego pamietamy poprzednia godzine i dotykamy TYLKO komorki, ktore
+// faktycznie sie zmienily (czyszczenie + rysunek jednej cyfry). useCache=false
+// wymusza pelne rysowanie (podglad w menu, ktory ma wlasne tlo/pozycje).
+static int clockDrawMonospace(const char *text, int centerX, int y, uint16_t bg,
+                              bool useCache = true) {
+  int total = clockMonospaceWidth(text);
+  int n = (int)strlen(text);
+  if (n == 0 || total <= 0) return tft.textWidth(text);
+  int cell = total / n;
+  int cellH = tft.fontHeight();
+  int cx0 = centerX - total / 2;
+
+  static char prevText[16] = "";
+  static int prevFont = -1;
+  static uint32_t prevGen = 0xFFFFFFFFu;
+
+  bool full;
+  if (useCache) {
+    full = (prevGen != clockMonoGeneration) || (prevFont != (int)clockFontIndex) ||
+           (strlen(prevText) != (size_t)n);
+    prevGen = clockMonoGeneration;
+    prevFont = (int)clockFontIndex;
+  } else {
+    full = true;
+  }
+
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextPadding(0);
+  // Przy pelnym rysowaniu (nowy ekran/kroj) wyczysc caly pas zegara, aby nie
+  // zostaly resztki po szerszej czcionce. Tylko dla zegara (wlasne tlo ekranu).
+  if (full && useCache) {
+    tft.fillRect(centerX - 200, y, 400, cellH, bg);
+  }
+
+  int cx = cx0;
+  for (int i = 0; i < n; i++) {
+    char ch = text[i];
+    bool changed = full || prevText[i] != ch;
+    if (changed) {
+      uint16_t idx = 0;
+      int gw = 0;
+      if (tft.getUnicodeIndex((uint8_t)ch, &idx)) gw = tft.gWidth[idx];
+      tft.fillRect(cx, y, cell, cellH, bg);
+      char one[2] = {ch, '\0'};
+      tft.drawString(one, cx + (cell - gw) / 2, y);
+      if (useCache) prevText[i] = ch;
+    }
+    cx += cell;
+  }
+  if (useCache) prevText[n] = '\0';
+  return total;
+}
+
+// Pionowa korekta, ktora nalezy odjac od srodka pasa, aby wysrodkowac FAKTYCZNY
+// atrament glifow (a nie cale pole czcionki). Zaklada, ze czcionka VLW jest juz
+// zaladowana; inaczej zwraca offset dla czcionki wbudowanej. Dla VLW liczymy
+// extenty glifow z podanego zestawu wzorcowego - bez tego napis byl przesuniety
+// w dol, a blad zalezal od kroju (ascent/descent roznia sie miedzy czcionkami).
+static int clockInkOffsetRef(const char *ref, uint8_t fallbackSize) {
+  if (tft.fontLoaded) {
+    int maxAsc = 0, maxDesc = 0;
+    for (const char *p = ref; *p; p++) {
+      uint16_t idx = 0;
+      if (tft.getUnicodeIndex((uint8_t)*p, &idx)) {
+        if (tft.gdY[idx] > maxAsc) maxAsc = tft.gdY[idx];
+        int d = (int)tft.gHeight[idx] - (int)tft.gdY[idx];
+        if (d > maxDesc) maxDesc = d;
+      }
+    }
+    return tft.gFont.ascent + (maxDesc - maxAsc) / 2;
+  }
+  // Wbudowana czcionka: glif ma 8 px * textSize i zaczyna sie od gory kursora.
+  return (fallbackSize * 8) / 2;
+}
+
+static int clockInkOffset(const char *text, uint8_t fallbackSize) {
+  return clockInkOffsetRef(text, fallbackSize);
+}
+
+// Pionowa korekta dla DUZEGO ZEGARA. Liczona ze stalego zestawu wzorcowego
+// ("0123456789:"), a NIE z biezacej godziny - inaczej przy zmianie sekundy
+// inna cyfra wyznaczala gorna/dolna krawedz atramentu i caly zegar drgal
+// pionowo o 1 px (migotanie niektorych cyfr). Staly zestaw daje stala
+// wysokosc niezaleznie od wyswietlanej godziny, dla wszystkich krojow.
+static int clockTimeInkOffset(uint8_t fallbackSize) {
+  return clockInkOffsetRef("0123456789:", fallbackSize);
+}
+
+// Rysuje tekst wybrana czcionka (lub wbudowana, gdy brak pliku), wysrodkowany
+// poziomo (srodek ekranu) i pionowo (srodek atramentu w pasie [bandY, bandY+bandH)).
+// Uzywa drawString() z TC_DATUM - w przeciwienstwie do print() drawString()
+// respektuje setTextDatum i setTextPadding (padding czysci cala szerokosc pasa
+// przy sekundowej aktualizacji zegara). Zwraca szerokosc napisu.
+static int clockDrawCentered(int bandY, int bandH, const char *text, uint16_t fg,
+                             uint16_t bg, uint8_t fallbackSize, bool forTime) {
+  bool useFont = clockFontHasFile(clockFontIndex, forTime);
+
+  tft.setTextDatum(TC_DATUM);
+  tft.setTextPadding(forTime ? 360 : 0);
+
+  if (useFont) {
+    const char *file = forTime ? CLOCK_FONTS[clockFontIndex].timeFile
+                               : CLOCK_FONTS[clockFontIndex].callFile;
+    String name(file);
+    name.remove(name.length() - 4);
+    useFont = clockLoadFont(name);
+  }
+  if (!useFont) {
+    tft.setTextSize(fallbackSize);
+    tft.setTextColor(fg, bg);
+  } else {
+    tft.setTextColor(fg, bg);
+  }
+
+  int w = tft.textWidth(text);
+  int ink = (useFont && forTime) ? clockTimeInkOffset(fallbackSize)
+                                 : clockInkOffset(text, fallbackSize);
+  int cy = bandY + bandH / 2 - ink;
+  // Godzina z czcionka VLW: rysuj w stalych komorkach, aby szerokosc nie zmieniala
+  // sie przy waskich cyfrach ("1") i caly zegar byl rowno wysrodkowany.
+  if (useFont && forTime) {
+    w = clockDrawMonospace(text, 240, cy, bg);
+  } else {
+    // Brak czcionki VLW (np. chwilowy brak pamieci) -> czcionka wbudowana.
+    // Uniewaznij pamiec podreczna, aby powrot do VLW przerysowal caly zegar.
+    if (forTime) clockMonoInvalidate();
+    tft.drawString(text, 240, cy);
+  }
+
+  if (useFont) tft.unloadFont();
+  tft.setTextPadding(0);
+  tft.setTextDatum(TL_DATUM);
+  return w;
+}
+
+// Podglad wybranej czcionki w menu: znak (mniejszy) + godzina (wieksza) obok
+// siebie, wysrodkowane w pasie [x,y,w,h]. Uzywa biezacego clockFontIndex.
+static void clockFontPreviewBand(int x, int y, int w, int h, const char *callText,
+                                 const char *timeText, uint16_t callCol, uint16_t timeCol) {
+  tft.fillRect(x, y, w, h, 0x10A2);
+
+  const bool callFile = clockFontHasFile(clockFontIndex, false);
+  const bool timeFile = clockFontHasFile(clockFontIndex, true);
+  const uint8_t callSize = 3, timeSize = 4;
+  int cw, tw;
+
+  if (callFile) {
+    String n(CLOCK_FONTS[clockFontIndex].callFile);
+    n.remove(n.length() - 4);
+    clockLoadFont(n);
+    cw = tft.textWidth(callText);
+    tft.unloadFont();
+  } else {
+    tft.setTextSize(callSize);
+    cw = tft.textWidth(callText);
+  }
+  if (timeFile) {
+    String n(CLOCK_FONTS[clockFontIndex].timeFile);
+    n.remove(n.length() - 4);
+    clockLoadFont(n);
+    tw = clockMonospaceWidth(timeText);
+    tft.unloadFont();
+  } else {
+    tft.setTextSize(timeSize);
+    tw = tft.textWidth(timeText);
+  }
+
+  const int gap = 14;
+  int total = cw + gap + tw;
+  int sx = x + (w - total) / 2;
+  if (sx < x + 2) sx = x + 2;
+  int cy = y + h / 2;
+
+  // Znak.
+  if (callFile) {
+    String n(CLOCK_FONTS[clockFontIndex].callFile);
+    n.remove(n.length() - 4);
+    clockLoadFont(n);
+    tft.setTextColor(callCol);
+    tft.drawString(callText, sx, cy - clockInkOffset(callText, callSize));
+    tft.unloadFont();
+  } else {
+    tft.setTextSize(callSize);
+    tft.setTextColor(callCol);
+    tft.drawString(callText, sx, cy - clockInkOffset(callText, callSize));
+  }
+
+  // Godzina (w stalych komorkach, jak na ekranie zegara).
+  int tx = sx + cw + gap;
+  if (timeFile) {
+    String n(CLOCK_FONTS[clockFontIndex].timeFile);
+    n.remove(n.length() - 4);
+    clockLoadFont(n);
+    tft.setTextColor(timeCol);
+    clockDrawMonospace(timeText, tx + tw / 2, cy - clockTimeInkOffset(timeSize), 0x10A2, false);
+    tft.unloadFont();
+  } else {
+    tft.setTextSize(timeSize);
+    tft.setTextColor(timeCol);
+    tft.drawString(timeText, tx, cy - clockInkOffset(timeText, timeSize));
+  }
+  tft.setTextDatum(TL_DATUM);
+}
+
 // ================= EKRAN 1: STARSZA WERSJA (v1.4.3) =================
 // Klasyczny uklad: pomaranczowy naglowek z logo/klockiem/WiFi/bateria,
 // ramka ze znakiem + duzy zegar cyfrowy + data + imieniny, adres IP i strzalki.
 void drawHamClockClassic() {
   tft.fillScreen(TFT_BLACK);
+  clockMonoGeneration++;  // nowy ekran -> wymus pelne przerysowanie zegara
   screen1HeaderNeedsRedraw = true;
 
   const int screenW = 480;
@@ -3900,41 +4689,38 @@ void drawHamClockClassic() {
   int clockFrameH = 220;
   tft.drawRoundRect(clockFrameX, clockFrameY, clockFrameW, clockFrameH, 10, TFT_DARKGREY);
 
-  // Znak (callsign) - wysrodkowany w ramce.
-  tft.setTextColor(callsignColor);
-  tft.setTextSize(5);
+  // Znak (callsign) - wysrodkowany w ramce (wybrana czcionka).
   String callsign = (userCallsign.length() > 0) ? userCallsign : String(DEFAULT_CALLSIGN);
   callsign.toUpperCase();
-  int callWidth = tft.textWidth(callsign);
-  int callX = (screenW - callWidth) / 2;
-  int callY = 55;
-  tft.setCursor(max(10, callX), callY);
-  tft.print(callsign);
-  callsignHitX = max(10, callX) - 10;
-  callsignHitY = callY - 5;
+  const int callBandY = 50, callBandH = 44;
+  int callWidth = clockDrawCentered(callBandY, callBandH, callsign.c_str(),
+                                    callsignColor, TFT_BLACK, 5, false);
+  callsignHitX = max(10, (screenW - callWidth) / 2) - 10;
+  callsignHitY = callBandY - 5;
   callsignHitW = callWidth + 20;
-  callsignHitH = 50;
+  callsignHitH = callBandH + 8;
 
   tft.setTextSize(1);
   tft.setTextColor(TFT_RADIO_ORANGE, TFT_BLACK);
   String opText = "OPERATOR STATION";
-  tft.setCursor((screenW - tft.textWidth(opText)) / 2, callY + 40);
+  tft.setCursor((screenW - tft.textWidth(opText)) / 2, callBandY + callBandH + 2);
   tft.print(opText);
 
-  // Duzy zegar cyfrowy.
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(7);
+  // Duzy zegar cyfrowy (wybrana czcionka).
   String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                      ? getTimezoneTimeString("%H:%M:%S", 9)
                      : getUtcTimeString();
-  int timeY = 130;
-  tft.setCursor(max(10, (screenW - tft.textWidth(timeStr)) / 2), timeY);
-  tft.print(timeStr);
+  const int timeY = 126;
+  int timeW = clockDrawCentered(timeY, 52, timeStr.c_str(), TFT_WHITE, TFT_BLACK, 7, true);
+  clockHitX = max(10, (screenW - timeW) / 2) - 10;
+  clockHitY = timeY - 5;
+  clockHitW = timeW + 20;
+  clockHitH = 60;
 
   tft.setTextSize(1);
   const char *timeLabel = "UTC";
   if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
-    timeLabel = (tftLanguage == TFT_LANG_EN) ? "Local Time" : "Czas Lokalny";
+    timeLabel = trStr("Czas Lokalny","Local Time","Ortszeit","Heure locale","Hora local","Mestnoe vremya");
   }
   tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
   tft.setCursor((screenW - tft.textWidth(timeLabel)) / 2, timeY + 66);
@@ -3949,11 +4735,9 @@ void drawHamClockClassic() {
   if (!timeValid || timeinfo.tm_year < 125) {
     dateText = "...";
   } else if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
-    dateText = (tftLanguage == TFT_LANG_EN) ? getEnglishDateStringFullWithTimezone()
-                                            : getPolishDateStringFullWithTimezone();
+    dateText = getLocalizedDateStringFull(true);
   } else {
-    dateText = (tftLanguage == TFT_LANG_EN) ? getEnglishDateStringFull()
-                                            : getPolishDateStringFull();
+    dateText = getLocalizedDateStringFull(false);
   }
 
   int dateY = timeY + 84;
@@ -3972,7 +4756,7 @@ void drawHamClockClassic() {
   }
 
   // Imieniny (tylko PL).
-  if (tftLanguage != TFT_LANG_EN) {
+  if (tftLanguage == TFT_LANG_PL) {
     String nameDayText = getPolishNameDay();
     if (nameDayText.length() > 0) {
       int nameDayY = dateY + 30;
@@ -4025,19 +4809,16 @@ static void updateScreen1ClockClassic() {
   if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
     return;
   }
-  const int screenW = 480;
-  const int timeY = 130;
   String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                      ? getTimezoneTimeString("%H:%M:%S", 9)
                      : getUtcTimeString();
-  int timeX = (screenW - timeStr.length() * 42) / 2;
-  if (timeX < 10) timeX = 10;
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(7);
-  tft.setTextPadding(8 * 42 + 10);
-  tft.setCursor(timeX, timeY);
-  tft.print(timeStr);
-  tft.setTextPadding(0);
+  // Rysuj tylko gdy godzina sie zmienila. Bez tego zegar byl przerysowywany
+  // w kazdej iteracji petli (setki razy na sekunde), co dawalo migotanie
+  // cyfr na SPI. Zmiana tekstu = dokladnie raz na sekunde.
+  static String lastClassicTime;
+  if (timeStr == lastClassicTime) return;
+  lastClassicTime = timeStr;
+  clockDrawCentered(126, 52, timeStr.c_str(), TFT_WHITE, TFT_BLACK, 7, true);
 }
 
 // ================= EKRAN 1: ZEGAR w stylu nowoczesnym =================
@@ -4065,46 +4846,38 @@ static void hamClockModernHeader() {
 }
 
 static void hamClockModernCallsign() {
-  tft.setTextColor(callsignColor);
-  tft.setTextSize(5);
   String callsign = (userCallsign.length() > 0) ? userCallsign : String(DEFAULT_CALLSIGN);
   callsign.toUpperCase();
-  int callWidth = tft.textWidth(callsign);
-  int callX = (480 - callWidth) / 2;
-  int callY = 55;
-  tft.setCursor(max(10, callX), callY);
-  tft.print(callsign);
-  callsignHitX = max(10, callX) - 10;
-  callsignHitY = callY - 5;
+  const int callBandY = 50, callBandH = 44;
+  int callWidth = clockDrawCentered(callBandY, callBandH, callsign.c_str(),
+                                    callsignColor, HC_BG, 5, false);
+  callsignHitX = max(10, (480 - callWidth) / 2) - 10;
+  callsignHitY = callBandY - 5;
   callsignHitW = callWidth + 20;
-  callsignHitH = 50;
+  callsignHitH = callBandH + 8;
 
   tft.setTextSize(1);
   tft.setTextColor(HC_CYAN, HC_BG);
   String opText = "OPERATOR STATION";
-  tft.setCursor((480 - tft.textWidth(opText)) / 2, callY + 40);
+  tft.setCursor((480 - tft.textWidth(opText)) / 2, callBandY + callBandH + 2);
   tft.print(opText);
 }
 
 static void hamClockModernTime() {
-  tft.setTextColor(clockDigitsColor, HC_BG);
-  tft.setTextSize(7);
   String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                      ? getTimezoneTimeString("%H:%M:%S", 9)
                      : getUtcTimeString();
-  int timeY = 130;
-  int timeX = max(10, (480 - tft.textWidth(timeStr)) / 2);
-  tft.setCursor(timeX, timeY);
-  tft.print(timeStr);
-  clockHitX = timeX - 10;
+  const int timeY = 126;
+  int w = clockDrawCentered(timeY, 52, timeStr.c_str(), clockDigitsColor, HC_BG, 7, true);
+  clockHitX = max(10, (480 - w) / 2) - 10;
   clockHitY = timeY - 5;
-  clockHitW = tft.textWidth(timeStr) + 20;
-  clockHitH = 66;
+  clockHitW = w + 20;
+  clockHitH = 60;
 
   tft.setTextSize(1);
   const char *timeLabel = "UTC";
   if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
-    timeLabel = (tftLanguage == TFT_LANG_EN) ? "Local Time" : "Czas Lokalny";
+    timeLabel = trStr("Czas Lokalny","Local Time","Ortszeit","Heure locale","Hora local","Mestnoe vremya");
   }
   tft.setTextColor(HC_TEXT, HC_BG);
   tft.setCursor((480 - tft.textWidth(timeLabel)) / 2, timeY + 66);
@@ -4120,11 +4893,9 @@ static void hamClockModernDate() {
   if (!timeValid || timeinfo.tm_year < 125) {
     dateText = "...";
   } else if (screen1TimeMode == SCREEN1_TIME_LOCAL) {
-    dateText = (tftLanguage == TFT_LANG_EN) ? getEnglishDateStringFullWithTimezone()
-                                            : getPolishDateStringFullWithTimezone();
+    dateText = getLocalizedDateStringFull(true);
   } else {
-    dateText = (tftLanguage == TFT_LANG_EN) ? getEnglishDateStringFull()
-                                            : getPolishDateStringFull();
+    dateText = getLocalizedDateStringFull(false);
   }
 
   int dateY = 130 + 84;
@@ -4144,7 +4915,7 @@ static void hamClockModernDate() {
 }
 
 static void hamClockModernNameDay() {
-  if (tftLanguage == TFT_LANG_EN) return;
+  if (tftLanguage != TFT_LANG_PL) return;
   String nameDayText = getPolishNameDay();
   if (nameDayText.length() == 0) return;
   int nameDayY = 130 + 84 + 30;
@@ -4187,6 +4958,7 @@ static void hamClockModernIpAndArrows() {
 
 static void drawHamClockModern() {
   tft.fillScreen(HC_BG);
+  clockMonoGeneration++;  // nowy ekran -> wymus pelne przerysowanie zegara
 
   hamClockModernHeader();
   screen1HeaderNeedsRedraw = false;
@@ -4209,15 +4981,10 @@ static void updateScreen1ClockModern() {
   if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
     return;
   }
-  tft.setTextColor(clockDigitsColor, HC_BG);
-  tft.setTextSize(7);
   String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                      ? getTimezoneTimeString("%H:%M:%S", 9)
                      : getUtcTimeString();
-  tft.setTextPadding(8 * 42 + 10);
-  tft.setCursor(max(10, (480 - tft.textWidth(timeStr)) / 2), 130);
-  tft.print(timeStr);
-  tft.setTextPadding(0);
+  clockDrawCentered(126, 52, timeStr.c_str(), clockDigitsColor, HC_BG, 7, true);
 }
 
 static void updateScreen1HeaderModern() {
@@ -5774,6 +6541,13 @@ void handleTouchNavigation() {
       return;
     }
 
+    if (weatherAlertScreenActive) {
+      if (isNewTap && isAprsAlertCloseButtonHit(x, y)) {
+        dismissWeatherAlertScreen();
+      }
+      return;
+    }
+
     if (aprsAlertScreenActive) {
       if (isNewTap && isAprsAlertCloseButtonHit(x, y)) {
         dismissAprsAlertScreen();
@@ -7275,26 +8049,54 @@ void drawHamClockTimeMenu() {
   uiMenuHeader("TIME MODE");
 
   const int tileW = 110;
-  const int tileH = 28;
+  const int tileH = 24;
   const int gap = 10;
   const int startX = (480 - (2 * tileW + gap)) / 2;
-  const int tileY = 60;
+  const int tileY = 36;
   drawFilterTile(startX, tileY, tileW, tileH, "UTC", screen1TimeMode == SCREEN1_TIME_UTC);
   drawFilterTile(startX + tileW + gap, tileY, tileW, tileH, "LOCAL", screen1TimeMode == SCREEN1_TIME_LOCAL);
 
   // Wybor wygladu WSZYSTKICH ekranow: nowoczesny / klasyczny.
   tft.setTextColor(TFT_LIGHTGREY);
   tft.setTextSize(1);
-  tft.setCursor(startX, 100);
-  tft.print((tftLanguage == TFT_LANG_EN) ? "SCREEN STYLE (ALL)" : "WYGLAD EKRANOW (WSZYSTKIE)");
-  const int styleY = 114;
-  drawFilterTile(startX, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "MODERN" : "NOWOCZESNY", screen1ClockStyle == 0);
-  drawFilterTile(startX + tileW + gap, styleY, tileW, tileH, (tftLanguage == TFT_LANG_EN) ? "CLASSIC" : "KLASYCZNY", screen1ClockStyle == 1);
+  tft.setCursor(startX, 66);
+  tft.print(trStr("WYGLAD EKRANOW (WSZYSTKIE)","SCREEN STYLE (ALL)","ANZEIGESTIL (ALLE)","STYLE ECRANS (TOUS)","ESTILO PANTALLAS (TODAS)","STIL EKRANOV (VSE)"));
+  const int styleY = 78;
+  drawFilterTile(startX, styleY, tileW, tileH, trStr("NOWOCZESNY","MODERN","MODERN","MODERNE","MODERNO","SOVREMENNYY"), screen1ClockStyle == 0);
+  drawFilterTile(startX + tileW + gap, styleY, tileW, tileH, trStr("KLASYCZNY","CLASSIC","KLASSISCH","CLASSIQUE","CLASICO","KLASSICHESKIY"), screen1ClockStyle == 1);
+
+  // Automatyczna zmiana czasu letni/zimowy (regula europejska).
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setTextSize(1);
+  tft.setCursor(startX, 108);
+  tft.print(trStr("AUTO CZAS LETNI/ZIMOWY","AUTO DST (SUMMER/WINTER)","AUTO SOMMER-/WINTERZEIT","AUTO HEURE ETE/HIVER","AUTO HORA VERANO/INVIERNO","AVTO LETO/ZIMA"));
+  const int dstY = 120;
+  drawFilterTile(startX, dstY, tileW, tileH, "ON", autoDst);
+  drawFilterTile(startX + tileW + gap, dstY, tileW, tileH, "OFF", !autoDst);
+
+  // Wybor czcionki znaku i duzego zegara (15 opcji w siatce 5 x 3).
+  // Podglad na zywo (znak + godzina) jest wysoki, bo najwyzsze kroje maja ~60 px.
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setTextSize(1);
+  tft.setCursor(10, 175);
+  tft.print(sanitizePolishToAscii(String(tr(TR_CLOCK_FONT))));
+  clockFontPreviewBand(150, 146, 326, 62, "SP5ABC", "12:00",
+                       callsignColor ? callsignColor : 0xFFFF,
+                       clockDigitsColor ? clockDigitsColor : 0xFFE0);
+  const int ftW = 90, ftH = 20, fgx = 4, fgy = 3;
+  const int fStartX = (480 - (5 * ftW + 4 * fgx)) / 2;
+  const int fStartY = 214;
+  for (int i = 0; i <= CLOCK_FONT_COUNT; i++) {
+    int col = i % 5;
+    int row = i / 5;
+    drawFilterTile(fStartX + col * (ftW + fgx), fStartY + row * (ftH + fgy),
+                   ftW, ftH, CLOCK_FONTS[i].name, clockFontIndex == (uint8_t)i);
+  }
 
   const int closeW = 100;
   const int closeH = 26;
   const int closeX = (480 - closeW) / 2;
-  const int closeY = 210;
+  const int closeY = 286;
   drawFilterTile(closeX, closeY, closeW, closeH, "CLOSE", false);
 }
 
@@ -7359,10 +8161,10 @@ void handleScreen5MenuTouch(uint16_t x, uint16_t y) {
 
 void handleScreen1MenuTouch(uint16_t x, uint16_t y) {
   const int tileW = 110;
-  const int tileH = 28;
+  const int tileH = 24;
   const int gap = 10;
   const int startX = (480 - (2 * tileW + gap)) / 2;
-  const int tileY = 60;
+  const int tileY = 36;
 
   if (isPointInRect(x, y, startX, tileY, tileW, tileH)) {
     screen1TimeMode = SCREEN1_TIME_UTC;
@@ -7379,7 +8181,7 @@ void handleScreen1MenuTouch(uint16_t x, uint16_t y) {
 
   // Wybor wygladu WSZYSTKICH ekranow (nowoczesny / klasyczny). Klikniecie
   // zapisuje od razu - wszystkie ekrany i menu przelaczaja sie natychmiast.
-  const int styleY = 114;
+  const int styleY = 78;
   if (isPointInRect(x, y, startX, styleY, tileW, tileH)) {
     if (screen1ClockStyle != 0) {
       screen1ClockStyle = 0;
@@ -7399,10 +8201,48 @@ void handleScreen1MenuTouch(uint16_t x, uint16_t y) {
     return;
   }
 
+  // Automatyczna zmiana czasu letni/zimowy: ON / OFF.
+  const int dstY = 120;
+  if (isPointInRect(x, y, startX, dstY, tileW, tileH)) {
+    if (!autoDst) {
+      autoDst = true;
+      savePreferences();
+    }
+    drawHamClockTimeMenu();
+    return;
+  }
+  if (isPointInRect(x, y, startX + tileW + gap, dstY, tileW, tileH)) {
+    if (autoDst) {
+      autoDst = false;
+      savePreferences();
+    }
+    drawHamClockTimeMenu();
+    return;
+  }
+
+  // Wybor czcionki znaku i duzego zegara.
+  const int ftW = 90, ftH = 20, fgx = 4, fgy = 3;
+  const int fStartX = (480 - (5 * ftW + 4 * fgx)) / 2;
+  const int fStartY = 214;
+  for (int i = 0; i <= CLOCK_FONT_COUNT; i++) {
+    int col = i % 5;
+    int row = i / 5;
+    int rx = fStartX + col * (ftW + fgx);
+    int ry = fStartY + row * (ftH + fgy);
+    if (isPointInRect(x, y, rx, ry, ftW, ftH)) {
+      if (clockFontIndex != (uint8_t)i) {
+        clockFontIndex = (uint8_t)i;
+        savePreferences();
+      }
+      drawHamClockTimeMenu();
+      return;
+    }
+  }
+
   const int closeW = 100;
   const int closeH = 26;
   const int closeX = (480 - closeW) / 2;
-  const int closeY = 210;
+  const int closeY = 286;
   if (isPointInRect(x, y, closeX, closeY, closeW, closeH)) {
     inMenu = false;
     drawScreen(SCREEN_HAM_CLOCK);
@@ -7528,19 +8368,22 @@ void drawBrightnessMenu() {
   drawBrightnessSlider();
   drawThemeSlider();
 
-  const int langLabelY = 150;
+  const int langLabelY = 208;
   const int langTileW = 70;
   const int langTileH = 22;
   const int langGap = 10;
-  const int langStartX = (480 - (2 * langTileW + langGap)) / 2;
-  const int langY = 240;
+  const int langStartX = (480 - (6 * langTileW + 5 * langGap)) / 2;
+  const int langY = 228;
 
   tft.setTextColor(TFT_LIGHTGREY);
   tft.setTextSize(1);
   tft.setCursor(10, langLabelY);
   tft.print(sanitizePolishToAscii(String(tr(TR_LANGUAGE))));
-  drawFilterTile(langStartX, langY, langTileW, langTileH, "PL", tftLanguage == TFT_LANG_PL);
-  drawFilterTile(langStartX + langTileW + langGap, langY, langTileW, langTileH, "EN", tftLanguage == TFT_LANG_EN);
+  static const char* langCodes[6] = {"PL", "EN", "DE", "FR", "ES", "RU"};
+  for (int i = 0; i < 6; i++) {
+    drawFilterTile(langStartX + i * (langTileW + langGap), langY, langTileW, langTileH,
+                   langCodes[i], tftLanguage == (uint8_t)i);
+  }
 
   const int btnW = 90;
   const int btnH = 26;
@@ -7825,8 +8668,8 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   const int langTileW = 70;
   const int langTileH = 22;
   const int langGap = 10;
-  const int langStartX = (480 - (2 * langTileW + langGap)) / 2;
-  const int langY = 240;
+  const int langStartX = (480 - (6 * langTileW + 5 * langGap)) / 2;
+  const int langY = 228;
 
   // ObsĹ‚uga sliderĂłw
   if (y >= sliderY - 6 && y <= sliderY + sliderH + 6) {
@@ -7837,33 +8680,21 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   }
 
   if (isNewTap) {
-    if (isPointInRect(x, y, langStartX, langY, langTileW, langTileH)) {
-      tftLanguage = TFT_LANG_PL;
-      // WymuĹ› odĹ›wieĹĽenie opisĂłw pogody po zmianie jÄ™zyka
-      lastWeatherFetchMs = 0;
-      weatherData.valid = false;
-      weatherData.forecast3hValid = false;
-      weatherData.forecastNextDayValid = false;
-      for (uint8_t i = 0; i < WeatherData::DETAIL_COLS; i++) {
-        weatherData.detailValid[i] = false;
+    for (int i = 0; i < 6; i++) {
+      if (isPointInRect(x, y, langStartX + i * (langTileW + langGap), langY, langTileW, langTileH)) {
+        tftLanguage = (uint8_t)i;
+        // Wymus odswiezenie opisow pogody po zmianie jezyka
+        lastWeatherFetchMs = 0;
+        weatherData.valid = false;
+        weatherData.forecast3hValid = false;
+        weatherData.forecastNextDayValid = false;
+        for (uint8_t k = 0; k < WeatherData::DETAIL_COLS; k++) {
+          weatherData.detailValid[k] = false;
+        }
+        savePreferences();
+        drawBrightnessMenu();
+        return;
       }
-      savePreferences();
-      drawBrightnessMenu();
-      return;
-    }
-    if (isPointInRect(x, y, langStartX + langTileW + langGap, langY, langTileW, langTileH)) {
-      tftLanguage = TFT_LANG_EN;
-      // WymuĹ› odĹ›wieĹĽenie opisĂłw pogody po zmianie jÄ™zyka
-      lastWeatherFetchMs = 0;
-      weatherData.valid = false;
-      weatherData.forecast3hValid = false;
-      weatherData.forecastNextDayValid = false;
-      for (uint8_t i = 0; i < WeatherData::DETAIL_COLS; i++) {
-        weatherData.detailValid[i] = false;
-      }
-      savePreferences();
-      drawBrightnessMenu();
-      return;
     }
   }
 
@@ -8612,9 +9443,73 @@ void updateScreen6Data() {
   drawSwitchScreenFooter();
 }
 
+// 2-liniowy monitor pakietow APRS w stylu Yaesu Packet Monitor (APRS-TNC2).
+// Linia 1: naglowek TNC2 (FROM>TO,path). Linia 2: tresc info pakietu.
+void drawAprsTnc2Monitor() {
+  // Naglowek ekranu zalezy od tego, czy dane przyszly z TNC-KISS czy APRS-IS.
+  const char *srcLabel = aprsKissEnabled ? "APRS-TNC2 (TNC-KISS)" : "APRS-TNC2 (APRS-IS)";
+  uiHeader(srcLabel, true);
+
+  int y = 44;
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_FAINT);
+  tft.setCursor(6, y);
+  tft.print("PACKET MONITOR - 2 LINE (Yaesu format)");
+  y += 14;
+
+  bool havePacket = (aprsTnc2LastMs != 0) && (millis() - aprsTnc2LastMs < 120000UL);
+  if (!havePacket) {
+    tft.setTextColor(UI_COL_WARN);
+    tft.setTextSize(2);
+    tft.setCursor(40, 130);
+    tft.print("WAITING FOR PACKETS...");
+    return;
+  }
+
+  // Linia 1: naglowek AX.25/TNC2 (FROM>TO,path)
+  tft.fillRect(0, y, 480, 22, TFT_TABLE_ALT_ROW_COLOR);
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_CYAN);
+  tft.setCursor(6, y + 3);
+  String hdr = aprsTnc2LastHeader;
+  if (hdr.length() > 39) hdr = hdr.substring(0, 39);
+  tft.print(hdr);
+  y += 26;
+
+  // Linia 2: tresc info pakietu (zawija sie do 2 linii)
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(6, y + 3);
+  String info = aprsTnc2LastInfo;
+  const int perLine = 39;
+  if (info.length() > perLine) {
+    tft.print(info.substring(0, perLine));
+    y += 24;
+    tft.setCursor(6, y + 3);
+    tft.print(info.substring(perLine, min((int)info.length(), perLine * 2)));
+  } else {
+    tft.print(info);
+  }
+
+  // Stopka: zrodlo danych i licznik stacji.
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_FAINT);
+  tft.setCursor(6, 300);
+  tft.print("Zrodlo: ");
+  tft.print(aprsKissEnabled ? "TNC-KISS (LoRa/Digi)" : "APRS-IS");
+  tft.print("  Stacji: ");
+  tft.print(aprsStationCount);
+}
+
 void drawAprsIs() {
   screen6ViewMode = APRS_VIEW_LIST;
   // ekran czysci drawScreen (wspolny styl ISS)
+
+  // Tryb APRS-TNC2: 2-liniowy monitor pakietow w stylu Yaesu (naglowek + info).
+  if (aprsTnc2MonitorEnabled) {
+    drawAprsTnc2Monitor();
+    return;
+  }
 
   // 1. NAGĂ„Ä…Ă‚ÂĂ„â€šĂ˘â‚¬Ĺ›WEK: Belka z menu, nazwÄ‚â€žĂ˘â‚¬Â¦ serwera i czasem UTC
 
@@ -8812,7 +9707,7 @@ static String convertPropagationTimeToLocal(const String &utcTime) {
   if (now > 100000) {
     struct tm utcTm;
     gmtime_r(&now, &utcTm);
-    dstOffset = isEuropeanDST(&utcTm) ? 1 : 0;
+    dstOffset = (autoDst && isEuropeanDST(&utcTm)) ? 1 : 0;
   }
   int localHour = hour + timezoneHours + dstOffset;
   
@@ -9359,7 +10254,7 @@ bool fetchWeatherData() {
     static WiFiClientSecure client;
     client.setInsecure();
 
-    String langParam = (tftLanguage == TFT_LANG_EN) ? "en" : "pl";
+    String langParam = tftLangToCode(tftLanguage);
     String url = "https://api.openweathermap.org/data/2.5/weather?lat=" +
                  String(lat, 4) + "&lon=" + String(lon, 4) +
                  "&appid=" + weatherApiKey + "&units=metric&lang=" + langParam;
@@ -9466,7 +10361,7 @@ bool fetchWeatherForecast(double lat, double lon) {
   static WiFiClientSecure client;
   client.setInsecure();
 
-  String langParam = (tftLanguage == TFT_LANG_EN) ? "en" : "pl";
+  String langParam = tftLangToCode(tftLanguage);
   String url = "https://api.openweathermap.org/data/2.5/forecast?lat=" +
                String(lat, 4) + "&lon=" + String(lon, 4) +
                "&appid=" + weatherApiKey + "&units=metric&lang=" + langParam + "&cnt=40";
@@ -9528,7 +10423,7 @@ bool fetchWeatherForecast(double lat, double lon) {
   struct tm utcTm;
   time_t nowTimeT = (time_t)nowUnix;
   gmtime_r(&nowTimeT, &utcTm);
-  int dstOffset = isEuropeanDST(&utcTm) ? 1 : 0;
+  int dstOffset = (autoDst && isEuropeanDST(&utcTm)) ? 1 : 0;
   const long timezoneOffsetSec = (long)(timezoneHours + dstOffset) * 3600L;
   
   const long nowLocalUnix = nowUnix + timezoneOffsetSec;
@@ -10023,7 +10918,7 @@ void drawWeatherBody() {
     fontLoaded = true;
     tft.setTextColor(TFT_LIGHTGREY);
     tft.setTextDatum(MC_DATUM);
-    tft.drawString(weatherData.description, descX, descY);
+    tft.drawString(foldToAscii(weatherData.description), descX, descY);
     tft.setCursor(20, 120);
     tft.print(tr(TR_HUMIDITY));  // Font VLW obsĹ‚uguje polskie znaki
     tft.setCursor(20, 144);
@@ -10034,7 +10929,7 @@ void drawWeatherBody() {
   } else {
     tft.setTextSize(1);
     tft.setTextColor(TFT_LIGHTGREY);
-    String descAscii = sanitizePolishToAscii(weatherData.description);
+    String descAscii = foldToAscii(weatherData.description);
     int fallbackX = descX - (descAscii.length() * 3);
     tft.setCursor(fallbackX, descY);
     tft.print(descAscii);
@@ -10124,14 +11019,26 @@ static void drawWeatherDetailIconCell(int x, int y, int weatherId, const String 
 }
 
 static void buildWeatherDetailHeaders(String headers[WEATHER_DETAIL_COLS]) {
-  headers[0] = (tftLanguage == TFT_LANG_EN) ? "+3h" : "+3godz";
-  headers[1] = (tftLanguage == TFT_LANG_EN) ? "+6h" : "+6godz";
+  headers[0] = trStr("+3godz","+3h","+3Std","+3h","+3h","+3ch");
+  headers[1] = trStr("+6godz","+6h","+6Std","+6h","+6h","+6ch");
 
   struct tm timeinfo;
   if (getTimeWithTimezone(&timeinfo)) {
     static const char *daysPl[7] = {"Nd", "Pn", "Wt", "Sr", "Czw", "Pt", "Sob"};
     static const char *daysEn[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    const char **days = (tftLanguage == TFT_LANG_EN) ? daysEn : daysPl;
+    static const char *daysDe[7] = {"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+    static const char *daysFr[7] = {"Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"};
+    static const char *daysEs[7] = {"Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"};
+    static const char *daysRu[7] = {"Vos", "Pon", "Vto", "Sre", "Che", "Pya", "Sub"};
+    const char **days = daysPl;
+    switch (tftLanguage) {
+      case TFT_LANG_EN: days = daysEn; break;
+      case TFT_LANG_DE: days = daysDe; break;
+      case TFT_LANG_FR: days = daysFr; break;
+      case TFT_LANG_ES: days = daysEs; break;
+      case TFT_LANG_RU: days = daysRu; break;
+      default: break;
+    }
 
     for (uint8_t i = 0; i < 3; i++) {
       int dayIdx = (timeinfo.tm_wday + 1 + i) % 7;
@@ -10289,9 +11196,7 @@ static void drawWeatherFooterArea(ScreenType screenId) {
   }
   cityLabel = sanitizePolishToAscii(cityLabel);
 
-  const String prefix = (tftLanguage == TFT_LANG_EN)
-                        ? "Weather for location: "
-                        : "Pogoda dla lokalizacji: ";
+  const String prefix = trStr("Pogoda dla lokalizacji: ","Weather for location: ","Wetter fuer Ort: ","Meteo pour lieu: ","Tiempo para lugar: ","Pogoda dlya: ");
   const int maxChars = 52;
   int maxCityChars = maxChars - (int)prefix.length();
   if (maxCityChars < 3) {
@@ -12194,6 +13099,390 @@ void ALERT_Screen(const APRSStation &station) {
   tft.print(iconDesc);
 }
 
+
+// ================== ALERTY POGODOWE / BURZOWE (open-meteo) ==================
+// Kody WMO 95-99 to burza (w tym z gradem). 96/99 = grad.
+static bool isWmoThunderCode(int c) {
+  return (c >= 95 && c <= 99);
+}
+
+// Wbudowane ikony wektorowe - uzywane tylko awaryjnie, gdy brak pliku grafiki.
+static void drawWeatherAlertStormIcon(int cx, int cy) {
+  tft.fillCircle(cx, cy - 22, 30, TFT_LIGHTGREY);
+  tft.fillCircle(cx - 34, cy - 6, 22, TFT_LIGHTGREY);
+  tft.fillCircle(cx + 34, cy - 6, 22, TFT_LIGHTGREY);
+  tft.fillRect(cx - 34, cy - 12, 68, 28, TFT_LIGHTGREY);
+  const uint16_t bolt = TFT_YELLOW;
+  int x = cx;
+  tft.fillTriangle(x + 14, cy + 0, x - 12, cy + 0, x + 2, cy + 30, bolt);
+  tft.fillTriangle(x + 2, cy + 30, x - 8, cy + 62, x + 14, cy + 26, bolt);
+}
+
+static void drawWeatherAlertWindIcon(int cx, int cy) {
+  const uint16_t c = TFT_CYAN;
+  tft.fillRect(cx - 45, cy - 26, 66, 4, c);
+  tft.fillRect(cx - 55, cy - 2, 88, 4, c);
+  tft.fillRect(cx - 42, cy + 22, 70, 4, c);
+  tft.fillCircle(cx + 23, cy - 24, 6, c);
+  tft.fillCircle(cx + 35, cy, 7, c);
+  tft.fillCircle(cx + 30, cy + 24, 6, c);
+}
+
+// Docelowy rozmiar grafiki alertu (burza/wiatr) na TFT 480x320. Lewy panel
+// ekranu alertu ma dokladnie 408x320 px, wiec grafika wypelnia go bez skalowania
+// w gore i bez przycinania (obrazy <=408x320 sa powiekszane proporcjonalnie).
+#define WX_ICON_TARGET_W 408
+#define WX_ICON_TARGET_H 320
+
+// Skalowany bufor docelowy grafiki alertu (~261 kB) trzymamy w PSRAM - na
+// wewnetrznej stercie nie ma na niego miejsca i powodowalby OOM. Alokujemy raz.
+static uint16_t* wx_icon_canvas = nullptr;
+
+static bool wxIconCanvasEnsure() {
+  if (wx_icon_canvas) return true;
+  wx_icon_canvas = (uint16_t*)heap_caps_malloc(
+      sizeof(uint16_t) * WX_ICON_TARGET_W * WX_ICON_TARGET_H,
+      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return wx_icon_canvas != nullptr;
+}
+
+static uint16_t wxRgb565(uint8_t r, uint8_t g, uint8_t b) {
+  return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
+
+// Rysuje grafike alertu wypelniajaca caly panel 408x320: skaluje proporcjonalnie
+// (nearest, fit=contain) i centruje, tlo czarne. Zwraca false, gdy brak pliku,
+// pamieci lub format jest nieobslugiwany (wtedy rysowana jest ikona wektorowa).
+static bool drawWeatherAlertIconFile(const String &path) {
+  if (!littleFsReady || !LittleFS.exists(path) || !wxIconCanvasEnsure()) return false;
+
+  String lower = path;
+  lower.toLowerCase();
+
+  int16_t iw = 0, ih = 0;
+  bool bmp16 = false, bmp24 = false;
+
+  if (lower.endsWith(".bmp")) {
+    fs::File f = LittleFS.open(path, "r");
+    if (f) {
+      if (readBmp16(f) == 0x4D42) {
+        readBmp32(f); readBmp32(f); readBmp32(f); readBmp32(f);
+        iw = (int16_t)readBmp32(f);
+        ih = (int16_t)readBmp32(f);
+        readBmp16(f);                 // planes
+        uint16_t bpp = readBmp16(f);  // bit depth
+        bmp16 = (bpp == 16);
+        bmp24 = (bpp == 24);
+      }
+      f.close();
+    }
+  } else {
+    // PNG/JPG: pobierz wymiary z naglowka (bez pelnego dekodowania).
+    fs::File f = LittleFS.open(path, "r");
+    if (f) {
+      uint8_t head[26] = {0};
+      size_t got = f.read(head, sizeof(head));
+      f.close();
+      if (got >= 24 && head[0] == 0x89 && head[1] == 'P') {
+        iw = (head[16] << 24) | (head[17] << 16) | (head[18] << 8) | head[19];
+        ih = (head[20] << 24) | (head[21] << 16) | (head[22] << 8) | head[23];
+      } else if (got >= 4 && head[0] == 0xFF && head[1] == 0xD8) {
+        fs::File jf = LittleFS.open(path, "r");
+        if (jf) {
+          while (jf.available()) {
+            if (jf.read() != 0xFF) continue;
+            uint8_t marker = jf.read();
+            while (marker == 0xFF && jf.available()) marker = jf.read();
+            if (marker >= 0xC0 && marker <= 0xCF &&
+                marker != 0xC4 && marker != 0xC8 && marker != 0xCC) {
+              uint8_t len[2]; jf.read(len, 2);
+              uint8_t sof[5]; jf.read(sof, 5);
+              ih = (sof[1] << 8) | sof[2];
+              iw = (sof[3] << 8) | sof[4];
+              break;
+            }
+            uint8_t l[2];
+            if (jf.read(l, 2) != 2) break;
+            int segLen = (l[0] << 8) | l[1];
+            jf.seek(jf.position() + segLen - 2);
+          }
+          jf.close();
+        }
+      }
+    }
+  }
+  if (iw <= 0 || ih <= 0) return false;
+
+  // Fit=contain w oknie 408x320 (mnoznik calkowity w gore, gdy obraz mniejszy).
+  int sNum = WX_ICON_TARGET_W, sDen = iw;
+  if ((int32_t)ih * sNum > (int32_t)WX_ICON_TARGET_H * sDen) { sNum = WX_ICON_TARGET_H; sDen = ih; }
+  if (sDen <= 0) return false;
+  int dw = (int)((int32_t)iw * sNum / sDen);
+  int dh = (int)((int32_t)ih * sNum / sDen);
+  if (dw < 1) dw = 1;
+  if (dh < 1) dh = 1;
+  if (dw > WX_ICON_TARGET_W) dw = WX_ICON_TARGET_W;
+  if (dh > WX_ICON_TARGET_H) dh = WX_ICON_TARGET_H;
+
+  const int dxOff = (WX_ICON_TARGET_W - dw) / 2;
+  const int dyOff = (WX_ICON_TARGET_H - dh) / 2;
+
+  // Szybka sciezka: obraz <= panel i tozsamy wymiar - BMP rysujemy bezposrednio.
+  if (dw == iw && dh == ih && bmp24) {
+    if (drawBmpFromFS(path, dxOff, dyOff)) return true;
+  } else if (dw == iw && dh == ih && bmp16) {
+    if (drawBmp16FromFS(path, dxOff, dyOff)) return true;
+  }
+
+  uint16_t *canvas = wx_icon_canvas;
+  memset(canvas, 0, sizeof(uint16_t) * WX_ICON_TARGET_W * WX_ICON_TARGET_H);
+
+  bool ok = false;
+  if (bmp16 || bmp24) {
+    fs::File f = LittleFS.open(path, "r");
+    if (f) {
+      readBmp16(f); readBmp32(f);
+      uint32_t off = readBmp32(f);
+      readBmp32(f);
+      int16_t bw = (int16_t)readBmp32(f);
+      int16_t bh = (int16_t)readBmp32(f);
+      uint16_t planes = readBmp16(f), bpp = readBmp16(f);
+      if (planes == 1 && bh > 0 && bw > 0 && (bpp == 16 || bpp == 24)) {
+        int bmpRow = ((bpp == 24 ? bw * 3 : bw * 2) + 3) & ~3;
+        uint8_t *src = (uint8_t*)malloc(bmpRow);
+        if (src) {
+          // Iterujemy po pikselach DOCELOWYCH i probkujemy zrodlo (nearest).
+          // Bezpieczne dla powiekszenia i pomniejszenia - nigdy nie wyjdziemy
+          // poza bufor docelowy dw x dh.
+          for (int y = 0; y < dh; y++) {
+            int sy = (int)((int32_t)y * bh / dh);
+            if (sy < 0) sy = 0;
+            if (sy >= bh) sy = bh - 1;
+            f.seek(off + (uint32_t)(bh - 1 - sy) * bmpRow);
+            f.read(src, bmpRow);
+            uint16_t *dstRow = canvas + (uint32_t)(dyOff + y) * WX_ICON_TARGET_W + dxOff;
+            for (int x = 0; x < dw; x++) {
+              int sx = (int)((int32_t)x * bw / dw);
+              if (sx < 0) sx = 0;
+              if (sx >= bw) sx = bw - 1;
+              if (bpp == 16) {
+                dstRow[x] = ((uint16_t*)src)[sx];
+              } else {
+                uint8_t b = src[sx * 3], g = src[sx * 3 + 1], r = src[sx * 3 + 2];
+                dstRow[x] = wxRgb565(r, g, b);
+              }
+            }
+          }
+          ok = true;
+          free(src);
+        }
+      }
+      f.close();
+    }
+  }
+
+  if (ok) {
+    tft.setSwapBytes(true);
+    tft.pushImage(0, 0, WX_ICON_TARGET_W, WX_ICON_TARGET_H, canvas);
+    tft.setSwapBytes(false);
+  }
+  return ok;
+}
+
+
+void drawWeatherAlertScreen() {
+  if (!tftInitialized) {
+    return;
+  }
+  weatherAlertScreenActive = true;
+  weatherAlertScreenUntilMs = millis() + WEATHER_ALERT_DISPLAY_MS;
+
+  const bool storm = weatherAlertInfo.storm;
+  const uint16_t accent = storm ? TFT_RED : TFT_ORANGE;
+
+  tft.fillScreen(TFT_BLACK);
+
+  // Grafika burzy/wiatru wypelnia caly lewy panel 408x320 (bez skalowania w gore
+  // ani przycinania). Prawy pasek (408..479) zostaje czarny - tam jest przycisk X.
+  const String iconPath = storm ? weatherIconStormPath : weatherIconWindPath;
+  if (!drawWeatherAlertIconFile(iconPath)) {
+    if (storm) {
+      drawWeatherAlertStormIcon(WX_ICON_TARGET_W / 2, WX_ICON_TARGET_H / 2);
+    } else {
+      drawWeatherAlertWindIcon(WX_ICON_TARGET_W / 2, WX_ICON_TARGET_H / 2);
+    }
+  }
+
+  // Napis alertu - czerwony, wysrodkowany na srodku ekranu, bez czarnego tla
+  // (tylko ramka akcentu + napisy). Wiersze: nazwa zjawiska, poryw, czas.
+  const int line1Y = 118, line2Y = 164, line3Y = 202;
+  const int cxc = 240;
+  String title = String(storm ? tr(TR_WX_STORM) : tr(TR_WX_WIND));
+  String gust;
+  if (weatherAlertInfo.gustMs > 0.1f) {
+    gust = String((int)(weatherAlertInfo.gustMs + 0.5f)) + " m/s";
+  }
+  String in6h = String(tr(TR_WX_IN_6H));
+
+  tft.setTextSize(4);
+  int w1 = tft.textWidth(title);
+  tft.setTextSize(3);
+  int w2 = gust.length() ? tft.textWidth(gust) : 0;
+  tft.setTextSize(2);
+  int w3 = tft.textWidth(in6h);
+  int boxW = w1 > w2 ? w1 : w2;
+  if (w3 > boxW) boxW = w3;
+  boxW += 28;
+  const int boxH = 128;
+  int boxX = cxc - boxW / 2;
+  int boxY = line1Y - 14;
+  if (boxX < 4) boxX = 4;
+  if (boxX + boxW > WX_ICON_TARGET_W - 4) boxW = WX_ICON_TARGET_W - 4 - boxX;
+  tft.drawRect(boxX, boxY, boxW, boxH, accent);
+
+  tft.setTextDatum(TC_DATUM);
+  // Napisy czerwone na przezroczystym tle - widac grafike, zadnego czarnego tla.
+  tft.setTextColor(TFT_RED);
+  tft.setTextSize(4);
+  tft.drawString(title, cxc, line1Y);
+
+  if (gust.length()) {
+    tft.setTextColor(TFT_RED);
+    tft.setTextSize(3);
+    tft.drawString(gust, cxc, line2Y);
+  }
+
+  tft.setTextColor(TFT_RED);
+  tft.setTextSize(2);
+  tft.drawString(in6h, cxc, line3Y);
+  tft.setTextDatum(TL_DATUM);
+
+  // Przycisk zamkniecia w prawym gornym rogu (na czarnym pasku).
+  drawAprsAlertCloseButton();
+}
+
+void dismissWeatherAlertScreen() {
+  if (!weatherAlertScreenActive) {
+    return;
+  }
+  weatherAlertScreenActive = false;
+  drawScreen(currentScreen);
+}
+
+// Pobiera prognoze open-meteo (bez klucza API) i klasyfikuje zagrozenie
+// burzowe/wiatrowe dla najblizszych 6 godzin.
+bool fetchOpenMeteoAlerts() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  double lat = 0.0;
+  double lon = 0.0;
+  if (userLatLonValid) {
+    lat = userLat;
+    lon = userLon;
+  } else if (userLocator.length() >= 4) {
+    locatorToLatLon(userLocator, lat, lon);
+  } else {
+    return false;
+  }
+
+  static WiFiClientSecure client;
+  client.setInsecure();
+
+  String base = openMeteoUrl.length() ? openMeteoUrl : String(DEFAULT_OPENMETEO_URL);
+  String sep = base.indexOf('?') >= 0 ? "&" : "?";
+  String url = base + sep + "latitude=" + String(lat, 4) +
+               "&longitude=" + String(lon, 4) +
+               "&hourly=weather_code,wind_gusts_10m,wind_speed_10m,cape" +
+               "&forecast_days=2&timezone=UTC";
+
+  HTTPClient http;
+  http.setTimeout(4000);
+  if (!http.begin(client, url)) {
+    return false;
+  }
+  int httpCode = http.GET();
+  if (httpCode != HTTP_CODE_OK) {
+    http.end();
+    return false;
+  }
+
+  WiFiClient *stream = http.getStreamPtr();
+  DynamicJsonDocument filter(512);
+  filter["hourly"]["time"][0] = true;
+  filter["hourly"]["weather_code"][0] = true;
+  filter["hourly"]["wind_gusts_10m"][0] = true;
+  filter["hourly"]["wind_speed_10m"][0] = true;
+  filter["hourly"]["cape"][0] = true;
+
+  DynamicJsonDocument doc(8192);
+  DeserializationError err = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
+  http.end();
+  if (err) {
+    return false;
+  }
+
+  JsonArray times = doc["hourly"]["time"].as<JsonArray>();
+  JsonArray wCodes = doc["hourly"]["weather_code"].as<JsonArray>();
+  JsonArray gusts = doc["hourly"]["wind_gusts_10m"].as<JsonArray>();
+  JsonArray winds = doc["hourly"]["wind_speed_10m"].as<JsonArray>();
+  JsonArray capes = doc["hourly"]["cape"].as<JsonArray>();
+  if (times.isNull() || times.size() == 0) {
+    return false;
+  }
+
+  // Znajdz indeks biezacej godziny (porownanie ISO w UTC).
+  char nowBuf[20];
+  time_t nowT = time(nullptr);
+  struct tm g;
+  gmtime_r(&nowT, &g);
+  strftime(nowBuf, sizeof(nowBuf), "%Y-%m-%dT%H:00", &g);
+
+  int startIdx = 0;
+  for (int i = 0; i < (int)times.size(); i++) {
+    const char *ts = times[i];
+    if (ts && strcmp(ts, nowBuf) >= 0) {
+      startIdx = i;
+      break;
+    }
+  }
+
+  bool stormDetected = false;
+  float maxGust = 0.0f;
+  float maxWind = 0.0f;
+  int worstCode = -1;
+
+  for (int k = 0; k < 6; k++) {
+    int i = startIdx + k;
+    if (i >= (int)times.size()) {
+      break;
+    }
+    int wcode = wCodes[i] | -1;
+    float gust = gusts[i] | 0.0f;
+    float wind = winds[i] | 0.0f;
+    float cape = capes[i] | 0.0f;
+    if (gust > maxGust) maxGust = gust;
+    if (wind > maxWind) maxWind = wind;
+    if (wcode > worstCode) worstCode = wcode;
+    if (isWmoThunderCode(wcode) || cape >= 2000.0f) {
+      stormDetected = true;
+    }
+  }
+
+  const bool windAlert = weatherAlertWindEnabled &&
+                         (maxWind >= weatherAlertWindThresholdMs || maxGust >= weatherAlertWindThresholdMs);
+  const bool stormAlert = weatherAlertStormEnabled && stormDetected;
+
+  weatherAlertInfo.storm = stormAlert;
+  weatherAlertInfo.wind = windAlert;
+  weatherAlertInfo.gustMs = maxGust;
+  weatherAlertInfo.weatherCode = worstCode;
+  weatherAlertInfo.updatedMs = millis();
+  weatherAlertInfo.active = (stormAlert || windAlert);
+  return true;
+}
+
 void updateAlertScreenTimeout() {
   if (!aprsAlertScreenActive) {
     return;
@@ -12775,6 +14064,74 @@ static void gpsApplyTime() {
   }
 }
 
+// Indeks profilu modulu GPS: 0=auto, 1=neo6/neo6m, 2=neom8n, 3=atgm336h.
+static int gpsProfileIndex(const String &p) {
+  if (p == "neo6" || p == "neo6m" || p == "neo-6m") return 1;
+  if (p == "neom8n" || p == "neo-m8n" || p == "m8n") return 2;
+  if (p == "atgm336h" || p == "atgm") return 3;
+  return 0;
+}
+
+// Wysyla sekwencje konfiguracyjna do modulu GPS (UBX + NMEA) - ustawia 1 Hz,
+// wylacza niepotrzebne komunikaty, wymusza NMEA 0183. Rozne moduly (NEO-6M,
+// NEO-M8N, ATGM336H) akceptuja rozne podzbiory, dlatego sekwencja jest lagodna
+// i wysylana po nawiazaniu UART2.
+static void gpsSendConfigureSequence() {
+  if (!gpsSerialBegun) return;
+  int profile = gpsProfileIndex(gpsModuleProfile);
+
+  // UBX CFG-PRT: UART1 9600 8N1, tylko NMEA out.
+  static const uint8_t ubxCfgPrt[] = {
+    0xB5, 0x62, 0x06, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0xD0, 0x08, 0x00, 0x00, 0x80, 0x25, 0x00, 0x00, 0x07, 0x00,
+    0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8A, 0x61
+  };
+  // UBX CFG-RATE: 1 Hz (1000 ms).
+  static const uint8_t ubxCfgRate[] = {
+    0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0xE8, 0x03, 0x01, 0x00,
+    0x01, 0x00, 0x01, 0x39
+  };
+  // UBX CFG-GNSS: GPS+SBAS (NEO-6) - bezpieczne dla starszych ukladow.
+  static const uint8_t ubxCfgGnss6[] = {
+    0xB5, 0x62, 0x06, 0x3E, 0x24, 0x00, 0x00, 0x00, 0x20, 0x00,
+    0x07, 0x00, 0x08, 0x10, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+  };
+
+  // NMEA: wylacz GLL/VTG/ZDA/GSV (mniej ruchu), zostaw GGA/RMC/GSA (parser uzywa tych).
+  static const char *nmeaOff[] = {
+    "$PUBX,40,GLL,0,0,0,0,0,0*5C\r\n",
+    "$PUBX,40,VTG,0,0,0,0,0,0*5E\r\n",
+    "$PUBX,40,ZDA,0,0,0,0,0,0*44\r\n",
+    "$PUBX,40,GSA,1,1,1,1,0,0*4E\r\n",
+    "$PUBX,40,GGA,1,1,1,1,0,0*5A\r\n",
+    "$PUBX,40,RMC,1,1,1,1,0,0*47\r\n"
+  };
+
+  Serial.printf("[GPS] Konfiguracja modulu, profil=%s\n", gpsModuleProfile.c_str());
+
+  if (profile == 0 || profile == 1 || profile == 2) {
+    gpsSerial.write(ubxCfgPrt, sizeof(ubxCfgPrt));
+    delay(80);
+    gpsSerial.write(ubxCfgRate, sizeof(ubxCfgRate));
+    delay(80);
+  }
+  if (profile == 0 || profile == 1) {
+    gpsSerial.write(ubxCfgGnss6, sizeof(ubxCfgGnss6));
+    delay(80);
+  }
+  for (size_t i = 0; i < sizeof(nmeaOff) / sizeof(nmeaOff[0]); i++) {
+    gpsSerial.print(nmeaOff[i]);
+    delay(50);
+  }
+  gpsSerial.flush();
+  Serial.println("[GPS] Sekwencja konfiguracyjna wyslana");
+}
+
 // (Re)inicjalizacja UART2 dla modulu GPS. Idempotentna - wywolywana po zmianie
 // ustawien w WWW bez restartu.
 void gpsApplyConfig() {
@@ -12791,7 +14148,18 @@ void gpsApplyConfig() {
       gpsSentenceCount = 0;
       gpsHasPosition = false;
       gpsFix = false;
+      gpsConfigured = false;
+      gpsConfigureSentMs = 0;
       Serial.printf("[GPS] UART2 start: baud=%d RX=%d TX=%d\n", gpsBaud, gpsRxPin, gpsTxPin);
+    }
+    // Konfiguracja modulu (UBX/NMEA) po starcie UART2 lub zmianie profilu.
+    if (gpsAutoConfigure && !gpsConfigured &&
+        gpsProfileIndex(gpsModuleProfile) != gpsLastProfileApplied) {
+      delay(300);  // modul potrzebuje chwili po wlaczeniu UART
+      gpsSendConfigureSequence();
+      gpsConfigured = true;
+      gpsLastProfileApplied = gpsProfileIndex(gpsModuleProfile);
+      gpsConfigureSentMs = millis();
     }
   } else if (gpsSerialBegun) {
     gpsSerial.end();
@@ -14645,6 +16013,47 @@ struct PskHttpBodySink : public Stream {
   char* data() { return (char*)buf; }
 };
 
+// Zamien prefiks ISO z pola locationDesc API POTA (np. "US-TX", "ES-M",
+// "DE-BW", "GB-ENG") na nazwe kraju. Mapa obejmuje kraje, ktore najczesciej
+// pojawiaja sie w spotach POTA; nieznany prefiks zwraca pusty String.
+String potaCountryFromLocationDesc(const String &desc) {
+  String d = desc;
+  d.trim();
+  d.toUpperCase();
+  int dash = d.indexOf('-');
+  String cc = (dash > 0) ? d.substring(0, dash) : d;
+  if (cc.length() == 0) return "";
+  static const struct { const char *cc; const char *name; } MAP[] = {
+    {"US", "USA"}, {"CA", "CANADA"}, {"MX", "MEXICO"},
+    {"GB", "ENGLAND"}, {"IE", "IRELAND"}, {"FR", "FRANCE"},
+    {"DE", "GERMANY"}, {"AT", "AUSTRIA"}, {"CH", "SWITZERLAND"},
+    {"IT", "ITALY"}, {"ES", "SPAIN"}, {"PT", "PORTUGAL"},
+    {"NL", "NETHERLANDS"}, {"BE", "BELGIUM"}, {"LU", "LUXEMBOURG"},
+    {"DK", "DENMARK"}, {"SE", "SWEDEN"}, {"NO", "NORWAY"},
+    {"FI", "FINLAND"}, {"IS", "ICELAND"}, {"PL", "POLAND"},
+    {"CZ", "CZECHIA"}, {"SK", "SLOVAKIA"}, {"HU", "HUNGARY"},
+    {"RO", "ROMANIA"}, {"BG", "BULGARIA"}, {"GR", "GREECE"},
+    {"HR", "CROATIA"}, {"SI", "SLOVENIA"}, {"RS", "SERBIA"},
+    {"BA", "BOSNIA"}, {"ME", "MONTENEGRO"}, {"MK", "N.MACEDONIA"},
+    {"AL", "ALBANIA"}, {"UA", "UKRAINE"}, {"BY", "BELARUS"},
+    {"LT", "LITHUANIA"}, {"LV", "LATVIA"}, {"EE", "ESTONIA"},
+    {"RU", "RUSSIA"}, {"TR", "TURKEY"}, {"CY", "CYPRUS"},
+    {"MT", "MALTA"}, {"AU", "AUSTRALIA"}, {"NZ", "NEW ZEALAND"},
+    {"JP", "JAPAN"}, {"KR", "KOREA"}, {"CN", "CHINA"},
+    {"IN", "INDIA"}, {"ID", "INDONESIA"}, {"ZA", "SOUTH AFRICA"},
+    {"AR", "ARGENTINA"}, {"BR", "BRAZIL"}, {"CL", "CHILE"},
+    {"UY", "URUGUAY"}, {"PY", "PARAGUAY"}, {"BO", "BOLIVIA"},
+    {"PE", "PERU"}, {"CO", "COLOMBIA"}, {"VE", "VENEZUELA"},
+    {"EC", "ECUADOR"}, {"CR", "COSTA RICA"}, {"PA", "PANAMA"},
+    {"BM", "BERMUDA"}, {"PR", "PUERTO RICO"}, {"IL", "ISRAEL"},
+    {"KZ", "KAZAKHSTAN"}, {"MA", "MOROCCO"},
+  };
+  for (const auto &e : MAP) {
+    if (cc == e.cc) return String(e.name);
+  }
+  return "";
+}
+
 // Pobierz spoty POTA z publicznego API i uzupeĹ‚nij bufor + kolejkÄ™ QRZ
 bool fetchPotaApi() {
   if (!wifiConnected) return false;
@@ -14686,13 +16095,48 @@ bool fetchPotaApi() {
         s.mode = getMode(spot["comments"] | "");
       }
       s.country = spot["country"] | "";
+      // API POTA nie ma pola "country" - kraj wynika z prefiksu ISO w
+      // locationDesc (np. "ES-M" -> SPAIN). Dzieki temu kolumna Country dziala
+      // od razu, bez czekania na (wolne) zapytanie QRZ.
+      if (s.country.length() == 0) {
+        s.country = potaCountryFromLocationDesc(spot["locationDesc"] | "");
+      }
       s.spotter = spot["spotter"] | "";
       s.comment = spot["comments"] | "";
       s.distance = 0;
       s.hasLatLon = false;
+      s.lat = 0.0f;
+      s.lon = 0.0f;
+      // Pozycja aktywatora z API (lat/lon, a gdy brak - kwadrat grid6/grid4)
+      // pozwala policzyc odleglosc od stacji bez odpytywania QRZ.
+      JsonVariant vLat = spot["latitude"];
+      JsonVariant vLon = spot["longitude"];
+      bool latNum = vLat.is<float>() || vLat.is<double>() || vLat.is<int>() || vLat.is<long>();
+      bool lonNum = vLon.is<float>() || vLon.is<double>() || vLon.is<int>() || vLon.is<long>();
+      if (latNum && lonNum) {
+        float la = vLat.as<float>();
+        float lo = vLon.as<float>();
+        if ((la != 0.0f || lo != 0.0f) && la >= -90.0f && la <= 90.0f && lo >= -180.0f && lo <= 180.0f) {
+          s.lat = la;
+          s.lon = lo;
+          s.hasLatLon = true;
+        }
+      }
+      if (!s.hasLatLon) {
+        String grid = spot["grid6"] | "";
+        if (grid.length() < 4) grid = spot["grid4"] | "";
+        if (grid.length() >= 4) {
+          double gla = 0.0, glo = 0.0;
+          locatorToLatLon(grid, gla, glo);
+          s.lat = (float)gla;
+          s.lon = (float)glo;
+          s.hasLatLon = true;
+        }
+      }
       applyQrzCacheToSpot(s, QRZ_CACHE_TTL_MS);
       compactDxSpotStrings(s);
       potaSpots[potaSpotCount++] = s;
+      // QRZ dopytujemy tylko o brakujacy kraj (dystans liczymy lokalnie).
       if (s.country.length() == 0 && s.callsign.length() > 0) {
         enqueueQrzLookup(s.callsign);
       }
@@ -14725,7 +16169,8 @@ bool fetchPotaApi() {
   Serial.println(" (may be -1 if chunked)");
 
   WiFiClient *stream = http.getStreamPtr();
-  DynamicJsonDocument filter(512);
+  // Filtr ma teraz 16 kluczy - zwiekszamy pule, by nie zabraklo miejsca.
+  DynamicJsonDocument filter(768);
   JsonObject filterRootArray = filter[0].to<JsonObject>();
   filterRootArray["activatorLastSpotTime"] = true;
   filterRootArray["spotTime"] = true;
@@ -14737,6 +16182,14 @@ bool fetchPotaApi() {
   filterRootArray["country"] = true;
   filterRootArray["spotter"] = true;
   filterRootArray["comments"] = true;
+  // Pola pozwalajace wyliczyc kraj i odleglosc bez odpytywania QRZ:
+  // API POTA podaje lokalizacje aktywatora (locationDesc = prefiks ISO,
+  // latitude/longitude oraz kwadraty grid4/grid6).
+  filterRootArray["locationDesc"] = true;
+  filterRootArray["latitude"] = true;
+  filterRootArray["longitude"] = true;
+  filterRootArray["grid4"] = true;
+  filterRootArray["grid6"] = true;
 
   // Bufory w PSRAM. API POTA zwraca teraz cala liste aktywnych spotow
   // (obserwowane ~240 spotow = ~150 KB surowego JSON-a, ~73 KB po filtrze),
@@ -15893,6 +17346,32 @@ static bool isAprsCallsignOnAlertList(const String &incomingCallsign) {
   return false;
 }
 
+// Blokada znakow w alercie APRS: jesli znak pasuje do ktoregos tokenu listy
+// blokad (te same reguly co lista alertow), NIE wywolujemy alertu.
+static bool isAprsCallsignBlockedForAlert(const String &incomingCallsign) {
+  if (!aprsAlertBlockEnabled) return false;
+  String src = aprsAlertBlockCsv;
+  src.trim();
+  if (src.length() == 0) return false;
+
+  int start = 0;
+  while (start <= src.length()) {
+    int comma = src.indexOf(',', start);
+    int end = (comma >= 0) ? comma : src.length();
+    String token = src.substring(start, end);
+    token.trim();
+
+    if (isAprsAlertCallMatch(token, incomingCallsign)) {
+      return true;
+    }
+
+    if (comma < 0) break;
+    start = comma + 1;
+  }
+
+  return false;
+}
+
 static bool isAprsMobileSsid7or9(const String &incomingCallsign) {
   String normalized = sanitizeAprsCallsignToken(incomingCallsign);
   if (normalized.length() == 0) {
@@ -15917,6 +17396,11 @@ static void resetAprsAlertCooldownState() {
 }
 
 static bool shouldTriggerAprsAlert(const APRSStation &station) {
+  // Blokada znakow: jesli znak jest na liscie blokad, nigdy nie alarmuj.
+  if (isAprsCallsignBlockedForAlert(station.callsign)) {
+    return false;
+  }
+
   bool watchListMatched = isAprsCallsignOnAlertList(station.callsign);
 
   bool nearbyMobileMatched = false;
@@ -15987,6 +17471,84 @@ bool isAprsTxCallValid(const String &call) {
   return c.length() > 0 && c != "NOCALL";
 }
 
+// Walidacja masek filtrow APRS po uruchomieniu (i po zapisie z WWW). Sprawdza,
+// czy tokeny listy alertow/blokad sa poprawne; usuwa puste i loguje odrzucone.
+static void validateAprsFilterMasks() {
+  auto validateList = [](const String &csv, String &out, const char *label) {
+    out = "";
+    String src = csv;
+    src.trim();
+    if (src.length() == 0) return;
+    int start = 0;
+    int rejected = 0;
+    int accepted = 0;
+    while (start <= (int)src.length()) {
+      int comma = src.indexOf(',', start);
+      int end = (comma >= 0) ? comma : src.length();
+      String token = src.substring(start, end);
+      token.trim();
+      if (token.length() > 0) {
+        String cleaned = sanitizeAprsAlertWatchToken(token);
+        // Poprawny token musi miec min. 1 znak (litery/cyfry, opcjonalnie '-' i '*').
+        bool ok = cleaned.length() > 0 && cleaned != "-" && cleaned != "*";
+        if (ok) {
+          if (out.length()) out += ",";
+          out += cleaned;
+          accepted++;
+        } else {
+          rejected++;
+          Serial.printf("[APRS] Walidacja masek (%s): odrzucono '%s'\n", label, token.c_str());
+        }
+      }
+      if (comma < 0) break;
+      start = comma + 1;
+    }
+    Serial.printf("[APRS] Walidacja masek (%s): OK, %d tokenow, %d odrzuconych\n",
+                  label, accepted, rejected);
+  };
+
+  String newAlert = "";
+  validateList(aprsAlertCsv, newAlert, "alert");
+  aprsAlertCsv = newAlert;
+
+  String newBlock = "";
+  validateList(aprsAlertBlockCsv, newBlock, "blokada");
+  aprsAlertBlockCsv = newBlock;
+}
+
+// Sanityzuje TOCALL (pole po '>' w ramce APRS). Standardowo "APRS"; dopuszczamy
+// litery/cyfry, 3-9 znakow, wielkie litery (niektore sieci uzywaja APZESP, APDW16).
+static String sanitizeAprsToCall(const String &raw) {
+  String t = raw;
+  t.trim();
+  t.toUpperCase();
+  String out = "";
+  for (size_t i = 0; i < t.length(); i++) {
+    char c = t.charAt(i);
+    if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) out += c;
+  }
+  if (out.length() < 3) out = "APRS";
+  if (out.length() > 9) out = out.substring(0, 9);
+  return out;
+}
+
+// Buduje string informacyjny (po ':') beaconu pozycji APRS - wspolny dla
+// APRS-IS i TNC-KISS, zeby oba kanaly wysylaly identyczna tresc.
+static String buildAprsPositionInfo() {
+  String latStr = formatAprsCoordinate(userLat, true);
+  String lonStr = formatAprsCoordinate(userLon, false);
+  String info = "!";
+  info += latStr;
+  info += aprsSymbolTable;
+  info += lonStr;
+  info += aprsSymbolCode;
+  info += " ";
+  bool useProjectComment = (((aprsBeaconTxCount + 1) % 5) == 0); // co piaty beacon
+  info += useProjectComment ? String(APRS_POSITION_COMMENT)
+                            : sanitizeAprsComment(aprsUserComment);
+  return info;
+}
+
 void sendAprsPosition() {
   if (!aprsBeaconEnabled || !aprsConnected || !aprsClient.connected() || !aprsLoginSent) {
     return;
@@ -16004,21 +17566,11 @@ void sendAprsPosition() {
   }
   txCallsign.toUpperCase();
 
-  String latStr = formatAprsCoordinate(userLat, true);
-  String lonStr = formatAprsCoordinate(userLon, false);
-
   String frame = txCallsign;
-  frame += ">APRS,TCPIP*:";
-  frame += "!";
-  frame += latStr;
-  frame += aprsSymbolTable;
-  frame += lonStr;
-  frame += aprsSymbolCode;
-  frame += " ";
-  bool useProjectComment = (((aprsBeaconTxCount + 1) % 5) == 0); // co piÄ…ty beacon
-  String comment = useProjectComment ? String(APRS_POSITION_COMMENT)
-                                     : sanitizeAprsComment(aprsUserComment);
-  frame += comment;
+  frame += ">";
+  frame += aprsToCall;          // TOCALL (domyslnie APRS)
+  frame += ",TCPIP*:";
+  frame += buildAprsPositionInfo();
 
   aprsClient.println(frame);
   lastAPRSPositionTxMs = millis();
@@ -16026,6 +17578,258 @@ void sendAprsPosition() {
 
   Serial.print("[APRS] WysĹ‚ano pozycjÄ™: ");
   Serial.println(frame);
+}
+
+// ===================== TNC-KISS (TCPIP) =====================
+// Klient TCP do TNC-KISS (LoRa APRS / Digi / Direwolf). Beacon leci jako ramka
+// AX.25 opakowana w KISS (bez APRS-IS). Sekwencja startowa wg zyczenia:
+// "KISS ON" po 30 s od polaczenia, nastepnie "RESTART" po 1 s.
+
+// Wysyla komende tekstowa jako ramke KISS (command byte 0x00), z escapowaniem
+// znakow specjalnych 0xC0 (FEND) i 0xDB (FESC).
+static void kissSendCommand(const String &cmd) {
+  if (!aprsKissClient.connected()) return;
+  uint8_t fend = 0xC0, fesc = 0xDB, tfend = 0xDC, tfesc = 0xDD;
+  aprsKissClient.write(&fend, 1);
+  uint8_t cmdByte = 0x00;  // KISS command frame (port 0)
+  aprsKissClient.write(&cmdByte, 1);
+  for (size_t i = 0; i < cmd.length(); i++) {
+    uint8_t c = (uint8_t)cmd.charAt(i);
+    if (c == 0xC0) { aprsKissClient.write(&fesc, 1); aprsKissClient.write(&tfend, 1); }
+    else if (c == 0xDB) { aprsKissClient.write(&fesc, 1); aprsKissClient.write(&tfesc, 1); }
+    else aprsKissClient.write(&c, 1);
+  }
+  aprsKissClient.write(&fend, 1);
+  Serial.printf("[KISS] TX komenda: %s\n", cmd.c_str());
+}
+
+// Wysyla dowolna ramke danych (np. AX.25) w KISS, escapujac FEND/FESC.
+static void kissSendDataFrame(const uint8_t *data, size_t len) {
+  if (!aprsKissClient.connected() || len == 0) return;
+  uint8_t fend = 0xC0, fesc = 0xDB, tfend = 0xDC, tfesc = 0xDD;
+  aprsKissClient.write(&fend, 1);
+  uint8_t typeByte = 0x00;  // port 0, data frame
+  aprsKissClient.write(&typeByte, 1);
+  for (size_t i = 0; i < len; i++) {
+    uint8_t c = data[i];
+    if (c == 0xC0) { aprsKissClient.write(&fesc, 1); aprsKissClient.write(&tfend, 1); }
+    else if (c == 0xDB) { aprsKissClient.write(&fesc, 1); aprsKissClient.write(&tfesc, 1); }
+    else aprsKissClient.write(&c, 1);
+  }
+  aprsKissClient.write(&fend, 1);
+}
+
+// Buduje pole adresu AX.25: 6 znakow przesunietych o 1 bit + bajt SSID.
+static void ax25AppendAddress(uint8_t *buf, size_t &pos, const String &callRaw,
+                              int ssid, bool last) {
+  String call = callRaw;
+  call.trim();
+  call.toUpperCase();
+  for (int i = 0; i < 6; i++) {
+    char c = (i < (int)call.length()) ? call.charAt(i) : ' ';
+    buf[pos++] = ((uint8_t)c) << 1;
+  }
+  uint8_t ssidByte = 0x60 | ((ssid & 0x0F) << 1) | (last ? 0x01 : 0x00);
+  buf[pos++] = ssidByte;
+}
+
+// Buduje pelna ramke AX.25 beaconu pozycji: dest=TOCALL, src=moj znak,
+// digipeatery z aprsKissPath (domyslnie WIDE1-1,WIDE2-1), info=pozycja APRS.
+static size_t buildAx25BeaconFrame(uint8_t *buf, size_t bufMax) {
+  String srcCall = getAprsBaseCallsign();
+  if (!isAprsTxCallValid(srcCall)) return 0;
+
+  // Parsuj sciezke digipeaterow "WIDE1-1,WIDE2-1"
+  String pathParts[8];
+  int pathCount = 0;
+  String path = aprsKissPath;
+  path.trim();
+  int start = 0;
+  while (start <= (int)path.length() && pathCount < 8) {
+    int comma = path.indexOf(',', start);
+    int end = (comma >= 0) ? comma : path.length();
+    String seg = path.substring(start, end);
+    seg.trim();
+    if (seg.length() > 0) pathParts[pathCount++] = seg;
+    if (comma < 0) break;
+    start = comma + 1;
+  }
+
+  size_t pos = 0;
+  // Adresy AX.25: dest (TOCALL), src, [digi...]
+  ax25AppendAddress(buf, pos, aprsToCall, 0, false);         // destination = TOCALL
+  ax25AppendAddress(buf, pos, srcCall, aprsSsid, pathCount == 0);  // source
+  for (int i = 0; i < pathCount; i++) {
+    String seg = pathParts[i];
+    int ssid = 0;
+    int dash = seg.indexOf('-');
+    if (dash > 0) { ssid = seg.substring(dash + 1).toInt(); seg = seg.substring(0, dash); }
+    if (ssid < 0) ssid = 0; if (ssid > 15) ssid = 15;
+    ax25AppendAddress(buf, pos, seg, ssid, (i == pathCount - 1));
+  }
+  // Control 0x03 (UI), PID 0xF0 (no layer 3)
+  buf[pos++] = 0x03;
+  buf[pos++] = 0xF0;
+  // Info = tresc APRS (pozycja). Bez prefiksu '>' - w AX.25 info to payload.
+  String info = buildAprsPositionInfo();
+  for (size_t i = 0; i < info.length() && pos < bufMax - 1; i++) {
+    buf[pos++] = (uint8_t)info.charAt(i);
+  }
+  return pos;
+}
+
+void kissSendBeacon() {
+  if (!aprsKissEnabled || !aprsKissClient.connected()) return;
+  if (!userLatLonValid) {
+    Serial.println("[KISS] Pomijam TX beaconu - brak poprawnych wspolrzednych");
+    return;
+  }
+  uint8_t frame[340];
+  size_t len = buildAx25BeaconFrame(frame, sizeof(frame));
+  if (len == 0) {
+    Serial.println("[KISS] Pomijam TX beaconu - nieprawidlowy znak");
+    return;
+  }
+  kissSendDataFrame(frame, len);
+  aprsKissLastTxMs = millis();
+  aprsKissBeaconTxCount++;
+  Serial.printf("[KISS] TX beacon AX.25 (%u B), path=%s\n", (unsigned)len, aprsKissPath.c_str());
+}
+
+// Sekwencja startowa KISS: KISS ON po 30 s od polaczenia, RESTART 1 s pozniej.
+void kissHandleStartupSequence() {
+  if (!aprsKissEnabled || !aprsKissClient.connected() || aprsKissConnectMs == 0) return;
+  unsigned long elapsed = millis() - aprsKissConnectMs;
+  if (!aprsKissKissOnSent && elapsed >= KISS_START_KISSON_DELAY_MS) {
+    kissSendCommand("KISS ON");
+    aprsKissKissOnSent = true;
+    aprsKissLastTxMs = millis();
+    Serial.println("[KISS] Sekwencja startowa: KISS ON");
+  } else if (aprsKissKissOnSent && !aprsKissRestartSent &&
+             elapsed >= (KISS_START_KISSON_DELAY_MS + KISS_START_RESTART_DELAY_MS)) {
+    kissSendCommand("RESTART");
+    aprsKissRestartSent = true;
+    aprsKissLastTxMs = millis();
+    Serial.println("[KISS] Sekwencja startowa: RESTART");
+  }
+}
+
+void kissDisconnect() {
+  if (aprsKissClient.connected()) aprsKissClient.stop();
+  aprsKissKissOnSent = false;
+  aprsKissRestartSent = false;
+  aprsKissConnectMs = 0;
+}
+
+void connectToKiss() {
+  if (!aprsKissEnabled) return;
+  if (aprsKissHost.length() == 0) return;
+  if (aprsKissClient.connected()) return;
+
+  unsigned long now = millis();
+  static unsigned long lastKissAttempt = 0;
+  if (now - lastKissAttempt < 5000) return;
+  lastKissAttempt = now;
+
+  Serial.printf("[KISS] Laczenie z TNC-KISS %s:%d\n", aprsKissHost.c_str(), aprsKissPort);
+  aprsKissClient.setTimeout(2500);
+  if (aprsKissClient.connect(aprsKissHost.c_str(), aprsKissPort)) {
+    aprsKissConnectMs = millis();
+    aprsKissKissOnSent = false;
+    aprsKissRestartSent = false;
+    aprsKissLastRxMs = millis();
+    Serial.println("[KISS] Polaczono z TNC-KISS");
+  } else {
+    Serial.println("[KISS] Blad polaczenia z TNC-KISS");
+  }
+}
+
+// Odbiera ramki KISS z TNC (AX.25) - dekoduje naglowek + info do monitora TNC2
+// oraz sprawdza liste alertow APRS (i blokady). Bufor z escapowaniem KISS.
+static uint8_t kissRxBuf[512];
+static size_t kissRxLen = 0;
+static bool kissRxInFrame = false;
+static bool kissRxEscape = false;
+
+static void kissDecodeAx25Frame(const uint8_t *frame, size_t len) {
+  if (len < 16) return;
+  // Pomijamy pierwszy bajt typu KISS (0x00), jesli obecny - ale tu juz dane AX.25.
+  // Adresy: 7 bajtow kazdy, ostatni ma bit 0x01.
+  size_t pos = 0;
+  String addrs[10];
+  int addrCount = 0;
+  while (pos + 7 <= len && addrCount < 10) {
+    String call = "";
+    for (int i = 0; i < 6; i++) {
+      char c = (char)(frame[pos + i] >> 1);
+      if (c != ' ') call += c;
+    }
+    uint8_t ssidByte = frame[pos + 6];
+    int ssid = (ssidByte >> 1) & 0x0F;
+    String full = call;
+    if (ssid > 0) full += "-" + String(ssid);
+    addrs[addrCount++] = full;
+    pos += 7;
+    if (ssidByte & 0x01) break;  // ostatni adres
+  }
+  if (addrCount < 2) return;
+  if (pos + 2 > len) return;
+  pos += 2;  // control + PID
+  String info = "";
+  for (size_t i = pos; i < len; i++) info += (char)frame[i];
+
+  // Naglowek w stylu TNC2 (2-liniowy monitor Yaesu): FROM>TO,path
+  String header = addrs[1] + ">" + addrs[0];
+  for (int i = 2; i < addrCount; i++) header += (i == 2 ? "," : ",") + addrs[i];
+  aprsTnc2LastHeader = header;
+  aprsTnc2LastInfo = info;
+  aprsTnc2LastMs = millis();
+
+  Serial.printf("[KISS RX] %s:%s\n", header.c_str(), info.c_str());
+
+  // Alert APRS takze na ramkach z TNC (te same reguly co APRS-IS).
+  String tnc2Line = header + ":" + info;
+  APRSStation station;
+  if (parseAPRSFrame(tnc2Line, station)) {
+    addAPRSStation(station);
+    if (aprsAlertEnabled && shouldTriggerAprsAlert(station)) {
+      triggerAprsRgbLedAlert();
+#ifdef ENABLE_TFT_DISPLAY
+      portENTER_CRITICAL(&aprsAlertPendingMux);
+      aprsAlertPendingStation = station;
+      aprsAlertDrawPending = true;
+      portEXIT_CRITICAL(&aprsAlertPendingMux);
+#endif
+    }
+  }
+}
+
+void handleKissData() {
+  if (!aprsKissEnabled || !aprsKissClient.connected()) return;
+  while (aprsKissClient.available()) {
+    uint8_t c = (uint8_t)aprsKissClient.read();
+    aprsKissLastRxMs = millis();
+    if (c == 0xC0) {  // FEND
+      if (kissRxInFrame && kissRxLen > 0) {
+        // Pierwszy bajt to typ KISS (0x00 = data). Dekoduj AX.25.
+        if (kissRxBuf[0] == 0x00 && kissRxLen > 1) {
+          kissDecodeAx25Frame(kissRxBuf + 1, kissRxLen - 1);
+        }
+      }
+      kissRxLen = 0;
+      kissRxInFrame = true;
+      kissRxEscape = false;
+      continue;
+    }
+    if (!kissRxInFrame) continue;
+    if (c == 0xDB) { kissRxEscape = true; continue; }
+    if (kissRxEscape) {
+      if (c == 0xDC) c = 0xC0;
+      else if (c == 0xDD) c = 0xDB;
+      kissRxEscape = false;
+    }
+    if (kissRxLen < sizeof(kissRxBuf)) kissRxBuf[kissRxLen++] = c;
+  }
 }
 
 // Parsuj ramkÄ‚â€žĂ˘â€žË APRS
@@ -19195,9 +20999,16 @@ void loadPreferences() {
   yield();
   gpsTxPin = preferences->getInt("gps_tx", 17);
   yield();
+  gpsModuleProfile = preferences->getString(NVS_KEY_GPS_PROFILE, "auto");
+  gpsModuleProfile.toLowerCase();
+  yield();
+  gpsAutoConfigure = preferences->getBool("gps_autocfg", true);
+  yield();
   timezoneHours = preferences->getInt("timezone", DEFAULT_TIMEZONE_HOURS);
   if (timezoneHours < -12) timezoneHours = -12;
   if (timezoneHours > 14) timezoneHours = 14;
+  yield();
+  autoDst = preferences->getBool("dst_auto", true);
   yield();
   userLat = preferences->getFloat("user_lat", 0.0f);
   yield();
@@ -19250,7 +21061,7 @@ void loadPreferences() {
   if (tftNightDimmingPercent > 100) tftNightDimmingPercent = 100;
   tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", tftInvertColors));
   tftLanguage = preferences->getUChar("tft_lang", TFT_LANG_PL);
-  if (tftLanguage > TFT_LANG_EN) tftLanguage = TFT_LANG_PL;
+  if (tftLanguage >= TFT_LANG_COUNT) tftLanguage = TFT_LANG_PL;
   dxTableSizeMode = preferences->getUChar("tft_tbl_size", DX_TABLE_SIZE_NORMAL);
   if (dxTableSizeMode > DX_TABLE_SIZE_ENLARGED) dxTableSizeMode = DX_TABLE_SIZE_NORMAL;
   int savedMenuHue = preferences->getInt("menu_hue", DEFAULT_MENU_THEME_HUE);
@@ -19267,6 +21078,8 @@ void loadPreferences() {
   if (callsignColor == 0) callsignColor = 65535;
   clockDigitsColor = preferences->getUInt("clock_color", 0xFFE0); // Default yellow
   if (clockDigitsColor == 0) clockDigitsColor = 0xFFE0;  // czarny = niewidoczny
+  clockFontIndex = (uint8_t)preferences->getInt("clock_font", 0);
+  if (clockFontIndex > CLOCK_FONT_COUNT) clockFontIndex = 0;
   touchXMin = preferences->getInt("touch_xmin", TOUCH_X_MIN);
   touchXMax = preferences->getInt("touch_xmax", TOUCH_X_MAX);
   touchYMin = preferences->getInt("touch_ymin", TOUCH_Y_MIN);
@@ -19375,6 +21188,29 @@ void loadPreferences() {
   applyAprsAlertScreenSeconds(preferences->getInt(NVS_KEY_APRS_ALERT_SCREEN_SEC, DEFAULT_APRS_ALERT_SCREEN_SEC));
   aprsAlertNearbyEnabled = preferences->getBool("aprs_alert_near", true);
   aprsAlertWxEnabled = preferences->getBool(NVS_KEY_APRS_ALERT_WX_ENABLED, false);
+  // TOCALL + blokada znakow + KISS TNC + monitor TNC2
+  aprsToCall = sanitizeAprsToCall(preferences->getString(NVS_KEY_APRS_TOCALL, "APRS"));
+  aprsAlertBlockCsv = sanitizeAprsAlertList(preferences->getString(NVS_KEY_APRS_ALERT_BLOCK, ""));
+  aprsAlertBlockEnabled = preferences->getBool("aprs_alrt_blk_en", true);
+  aprsKissEnabled = preferences->getBool(NVS_KEY_APRS_KISS_EN, false);
+  aprsKissHost = preferences->getString(NVS_KEY_APRS_KISS_HOST, "");
+  aprsKissPort = preferences->getInt(NVS_KEY_APRS_KISS_PORT, 8001);
+  if (aprsKissPort < 1 || aprsKissPort > 65535) aprsKissPort = 8001;
+  aprsKissPath = preferences->getString(NVS_KEY_APRS_KISS_PATH, "WIDE1-1,WIDE2-1");
+  aprsTnc2MonitorEnabled = preferences->getBool("aprs_tnc2_mon", false);
+  // Walidacja masek filtrow po uruchomieniu.
+  validateAprsFilterMasks();
+  weatherAlertStormEnabled = preferences->getBool(NVS_KEY_WEATHER_ALERT_STORM, false);
+  weatherAlertWindEnabled = preferences->getBool(NVS_KEY_WEATHER_ALERT_WIND, false);
+  weatherAlertWindThresholdMs = preferences->getFloat(NVS_KEY_WEATHER_ALERT_WIND_MS, DEFAULT_WEATHER_ALERT_WIND_THRESHOLD_MS);
+  openMeteoUrl = preferences->getString(NVS_KEY_OPENMETEO_URL, DEFAULT_OPENMETEO_URL);
+  if (openMeteoUrl.length() == 0) openMeteoUrl = DEFAULT_OPENMETEO_URL;
+  weatherIconStormPath = preferences->getString(NVS_KEY_WX_ICON_STORM, "/icon50/burza.bmp");
+  weatherIconWindPath = preferences->getString(NVS_KEY_WX_ICON_WIND, "/icon50/wiatr.bmp");
+  if (weatherIconStormPath.length() == 0) weatherIconStormPath = "/icon50/burza.bmp";
+  if (weatherIconWindPath.length() == 0) weatherIconWindPath = "/icon50/wiatr.bmp";
+  if (weatherAlertWindThresholdMs < 1.0f) weatherAlertWindThresholdMs = 1.0f;
+  if (weatherAlertWindThresholdMs > 60.0f) weatherAlertWindThresholdMs = 60.0f;
   applyAprsAlertDistanceKm(preferences->getFloat(NVS_KEY_APRS_ALERT_DISTANCE_KM, DEFAULT_APRS_ALERT_DISTANCE_KM));
   enableLedAlert = preferences->getBool(NVS_KEY_ENABLE_LED_ALERT, DEFAULT_ENABLE_LED_ALERT);
   applyLedAlertDurationMs(preferences->getInt(NVS_KEY_LED_ALERT_DURATION_MS, DEFAULT_LED_ALERT_DURATION_MS));
@@ -19431,6 +21267,7 @@ void savePreferences() {
   // Zapisujemy reczna pozycje (gdy GPS ja nadpisuje, userLocator to lokator GPS).
   preferences->putString("user_locator", gpsPositionOverrideActive ? userLocatorManual : userLocator);
   preferences->putInt("timezone", timezoneHours);
+  preferences->putBool("dst_auto", autoDst);
   preferences->putBool("gps_en", gpsEnabled);
   preferences->putString("uart2_mod", uart2ConnectedModule);
   preferences->putBool("gps_use", gpsUseForPosition);
@@ -19470,6 +21307,7 @@ void savePreferences() {
   preferences->putBool("tft_autosw", tftAutoSwitchEnabled);
   preferences->putUInt("callsign_color", callsignColor);
   preferences->putUInt("clock_color", clockDigitsColor);
+  preferences->putInt("clock_font", clockFontIndex);
   preferences->putInt("tft_sw_sec", tftAutoSwitchTimeSec);
   preferences->putInt("touch_xmin", touchXMin);
   preferences->putInt("touch_xmax", touchXMax);
@@ -19518,6 +21356,22 @@ void savePreferences() {
   preferences->putInt(NVS_KEY_APRS_ALERT_SCREEN_SEC, aprsAlertScreenSeconds);
   preferences->putBool("aprs_alert_near", aprsAlertNearbyEnabled);
   preferences->putBool(NVS_KEY_APRS_ALERT_WX_ENABLED, aprsAlertWxEnabled);
+  preferences->putString(NVS_KEY_APRS_TOCALL, aprsToCall);
+  preferences->putString(NVS_KEY_APRS_ALERT_BLOCK, aprsAlertBlockCsv);
+  preferences->putBool("aprs_alrt_blk_en", aprsAlertBlockEnabled);
+  preferences->putBool(NVS_KEY_APRS_KISS_EN, aprsKissEnabled);
+  preferences->putString(NVS_KEY_APRS_KISS_HOST, aprsKissHost);
+  preferences->putInt(NVS_KEY_APRS_KISS_PORT, aprsKissPort);
+  preferences->putString(NVS_KEY_APRS_KISS_PATH, aprsKissPath);
+  preferences->putBool("aprs_tnc2_mon", aprsTnc2MonitorEnabled);
+  preferences->putString(NVS_KEY_GPS_PROFILE, gpsModuleProfile);
+  preferences->putBool("gps_autocfg", gpsAutoConfigure);
+  preferences->putBool(NVS_KEY_WEATHER_ALERT_STORM, weatherAlertStormEnabled);
+  preferences->putBool(NVS_KEY_WEATHER_ALERT_WIND, weatherAlertWindEnabled);
+  preferences->putFloat(NVS_KEY_WEATHER_ALERT_WIND_MS, weatherAlertWindThresholdMs);
+  preferences->putString(NVS_KEY_OPENMETEO_URL, openMeteoUrl);
+  preferences->putString(NVS_KEY_WX_ICON_STORM, weatherIconStormPath);
+  preferences->putString(NVS_KEY_WX_ICON_WIND, weatherIconWindPath);
   preferences->putFloat(NVS_KEY_APRS_ALERT_DISTANCE_KM, aprsAlertDistanceKm);
   preferences->putBool(NVS_KEY_ENABLE_LED_ALERT, enableLedAlert);
   preferences->putInt(NVS_KEY_LED_ALERT_DURATION_MS, ledAlertDurationMs);
@@ -19588,7 +21442,7 @@ static bool streamLittleFsFile(const char *path, const char *contentType) {
 
 String getManualPL() {
   return String(
-    "ESP32-HAM-CLOCK v1.2c (18.10.2026)\n"
+    "ESP32-HAM-CLOCK v1.2d (23.10.2026)\n"
     "Autor oprogramowania: Tomasz SP9TNV\n"
     "Na podstawie projektu: Konrad Wisniewski SP3KON (z uĹĽyciem AI)\n"
     "Kontakt: SP9TNV@gmail.com\n\n"
@@ -19626,6 +21480,7 @@ String getManualPL() {
 //  WWW wysyla plik jako surowe cialo z naglowkami X-Filename i X-Upload-Target.
 // ============================================================================
 static String rawUploadPath = "";       // sciezka docelowa w LittleFS
+static String rawUploadTarget = "";     // "splash"/"welcome"/"mapa"/"wxicon_*"
 static bool   rawUploadIsSplash = false;
 static bool   rawUploadActive = false;
 static File   rawUploadFile;            // trzymany otwarty przez caly upload
@@ -19644,7 +21499,20 @@ static String resolveUploadTarget(const String &target, const String &fname) {
   if (ext != ".bmp" && ext != ".png" && ext != ".jpg" && ext != ".jpeg") return "";
   if (target == "mapa") return String(PSK_MAP_BMP_PATH);
   if (target == "welcome") return "/welcome" + ext;
+  if (target == "wxicon_storm") return String("/wxicon_storm") + ext;
+  if (target == "wxicon_wind") return String("/wxicon_wind") + ext;
   return "/splash" + ext;
+}
+
+// Usuwa stare warianty ikony alertu pogodowego (rozne rozszerzenia), zeby
+// firmware nie wczytal starego pliku. Nowa sciezka trafia do NVS pozniej.
+static void removeOldWxIconVariants(bool storm) {
+  static const char *exts[] = {".bmp", ".png", ".jpg", ".jpeg"};
+  const char *base = storm ? "/wxicon_storm" : "/wxicon_wind";
+  for (const char *e : exts) {
+    String p = String(base) + e;
+    if (LittleFS.exists(p)) LittleFS.remove(p);
+  }
 }
 
 // Usuwa stare warianty ekranu startowego (rozne nazwy/rozszerzenia), zeby
@@ -19672,6 +21540,7 @@ static void removeOldWelcomeVariants() {
 static void rawUploadReset() {
   if (rawUploadFile) rawUploadFile.close();
   rawUploadPath = "";
+  rawUploadTarget = "";
   rawUploadIsSplash = false;
   rawUploadActive = false;
 }
@@ -19684,6 +21553,14 @@ static void rawUploadFinish() {
   File f = LittleFS.open(rawUploadPath);
   if (f) { sz = f.size(); f.close(); }
   Serial.printf("[UPLOAD] Zakonczono: %s (%d B)\n", rawUploadPath.c_str(), (int)sz);
+  // Ikona alertu pogodowego: zapisz nowa sciezke w NVS, zeby przetrwala restart.
+  if (sz > 0 && rawUploadTarget == "wxicon_storm") {
+    weatherIconStormPath = rawUploadPath;
+    if (preferences) preferences->putString(NVS_KEY_WX_ICON_STORM, weatherIconStormPath);
+  } else if (sz > 0 && rawUploadTarget == "wxicon_wind") {
+    weatherIconWindPath = rawUploadPath;
+    if (preferences) preferences->putString(NVS_KEY_WX_ICON_WIND, weatherIconWindPath);
+  }
   // Nie odswiezamy tu ekranu startowego - WWW po uploadzie robi redirect (GET /),
   // ktory i tak rysuje splash. Odswiezanie tutaj powodowalo miganie ekranu.
   if (currentScreen == SCREEN_PSK_MAP) drawPskMap();
@@ -19718,6 +21595,8 @@ static void handleUpload(const String &targetForced) {
       String path = resolveUploadTarget(target, upload.filename);
       if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format"); return; }
       if (target == "welcome") removeOldWelcomeVariants();
+      else if (target == "wxicon_storm") removeOldWxIconVariants(true);
+      else if (target == "wxicon_wind") removeOldWxIconVariants(false);
       else if (target != "mapa") removeOldSplashVariants();
       if (target == "mapa") pskMapBgInvalidate();  // nowa mapa - przebuduj tlo w PSRAM
       LittleFS.remove(path);
@@ -19758,12 +21637,15 @@ static void handleUpload(const String &targetForced) {
     String path = resolveUploadTarget(target, fname);
     if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format (RAW)"); return; }
     if (target == "welcome") removeOldWelcomeVariants();
+    else if (target == "wxicon_storm") removeOldWxIconVariants(true);
+    else if (target == "wxicon_wind") removeOldWxIconVariants(false);
     else if (target != "mapa") removeOldSplashVariants();
     if (target == "mapa") pskMapBgInvalidate();  // nowa mapa - przebuduj tlo w PSRAM
     LittleFS.remove(path);
     rawUploadFile = LittleFS.open(path, "w");
     if (!rawUploadFile) { Serial.println("[UPLOAD] Nie moge otworzyc pliku (RAW)"); return; }
     rawUploadPath = path;
+    rawUploadTarget = target;
     rawUploadIsSplash = (target != "mapa");
     rawUploadActive = true;
     Serial.printf("[UPLOAD] RAW: %s -> %s\n", fname.c_str(), path.c_str());
@@ -20177,6 +22059,28 @@ void setupWebServer() {
     }
   });
 
+  // Strony jezykowe (DE/FR/ES/RU) - jesli LittleFS ma odpowiedni plik.
+  server->on("/indexDE.html", HTTP_GET, []() {
+    if (!streamLittleFsFile("/indexDE.html", "text/html; charset=utf-8")) {
+      server->send(200, "text/html; charset=utf-8", getMainHTML());
+    }
+  });
+  server->on("/indexFR.html", HTTP_GET, []() {
+    if (!streamLittleFsFile("/indexFR.html", "text/html; charset=utf-8")) {
+      server->send(200, "text/html; charset=utf-8", getMainHTML());
+    }
+  });
+  server->on("/indexES.html", HTTP_GET, []() {
+    if (!streamLittleFsFile("/indexES.html", "text/html; charset=utf-8")) {
+      server->send(200, "text/html; charset=utf-8", getMainHTML());
+    }
+  });
+  server->on("/indexRU.html", HTTP_GET, []() {
+    if (!streamLittleFsFile("/indexRU.html", "text/html; charset=utf-8")) {
+      server->send(200, "text/html; charset=utf-8", getMainHTML());
+    }
+  });
+
   // Instrukcja (PL) - zwykly tekst dla zakladki "Instrukcja" w WWW.
   // UWAGA: wczesniej bylo tu HTTP 301 z przekierowaniem w <meta refresh>,
   // ale BEZ naglowka Location - fetch() nie podaza za meta-refresh, a 301
@@ -20198,6 +22102,26 @@ void setupWebServer() {
       server->send(404, "text/plain", "manual.txt missing in LittleFS");
     }
   });
+
+  // Manual w pozostalych jezykach (DE/FR/ES/RU) - plik z LittleFS, a gdy go
+  // brak, zwracamy angielski, zeby zakladka "Instrukcja" nigdy nie byla pusta.
+  const char *manualFiles[] = {"/manualDE.txt", "/manualFR.txt", "/manualES.txt", "/manualRU.txt"};
+  for (const char *mf : manualFiles) {
+    String path = String(mf);
+    server->on(path, HTTP_GET, [path]() {
+      if (littleFsReady && LittleFS.exists(path)) {
+        File f = LittleFS.open(path, "r");
+        server->streamFile(f, "text/plain; charset=utf-8");
+        f.close();
+      } else if (littleFsReady && LittleFS.exists("/manual.txt")) {
+        File f = LittleFS.open("/manual.txt", "r");
+        server->streamFile(f, "text/plain; charset=utf-8");
+        f.close();
+      } else {
+        server->send(404, "text/plain", "manual missing in LittleFS");
+      }
+    });
+  }
 
   // ===== ESP32 HAM LOGGER: eksport ADIF + wysylka do QRZ Logbook =====
   server->on("/qso.adi", HTTP_GET, []() {
@@ -20411,7 +22335,7 @@ void setupWebServer() {
     html += "ESP32-S3                XPT2046 (dotyk, wspólne SPI)\n";
     html += "====================================================\n";
     html += "GPIO 15  ----->  T_CS\n";
-    html += "GPIO 16  ----->  T_IRQ\n";
+    html += "GPIO 16  ----->  T_IRQ   (opcjonalnie - dotyk dziala bez T_IRQ)\n";
     html += "GPIO 11  ----->  T_DIN   (wspólne z MOSI)\n";
     html += "GPIO 14  ----->  T_DO    (wspólne z MISO; potwierdzone testem)\n";
     html += "GPIO 12  ----->  T_CLK   (wspólne ze SCK)\n";
@@ -20470,14 +22394,14 @@ void setupWebServer() {
 
     html += "<div class='warning'><strong>Brak obrazu na TFT</strong><br>Sprawdź SPI: SCK (GPIO 12), MOSI (GPIO 11), CS (GPIO 10), DC (GPIO 9) i wspólne GND.</div>";
 
-    html += "<div class='note'><strong>Nie działa touch (XPT2046)</strong><br>Sprawdź: T_CLK (GPIO 12), T_CS (GPIO 15), T_DIN (GPIO 11), T_DO (GPIO 14), T_IRQ (GPIO 16).</div>";
+    html += "<div class='note'><strong>Nie działa touch (XPT2046)</strong><br>Sprawdź: T_CLK (GPIO 12), T_CS (GPIO 15), T_DIN (GPIO 11), T_DO (GPIO 14). T_IRQ (GPIO 16) jest opcjonalny - dotyk działa bez niego (tryb odpytywania).</div>";
 
     html += "<div class='note'><strong>Odwrócone kolory</strong><br>Panel ILI9488 IPS wymaga inwersji (TFT_INVERSION_ON). Można też przełączyć w panelu konfiguracji.</div>";
 
     // Stopka
     html += "<hr style='margin:40px 0;'>";
     html += "<p style='text-align:center;color:#666;'>";
-    html += "<strong>ESP32-HAM-CLOCK v1.2c</strong> | Autor oprogramowania: Tomasz SP9TNV<br>";
+    html += "<strong>ESP32-HAM-CLOCK v1.2d</strong> | Autor oprogramowania: Tomasz SP9TNV<br>";
     html += "Na podstawie projektu Konrad WiĹ›niewski SP3KON | Licencja: MIT<br>";
     html += "<a href='mailto:SP9TNV@gmail.com'>SP9TNV@gmail.com</a>";
     html += "</p>";
@@ -20797,6 +22721,11 @@ void setupWebServer() {
         if (mod.length() == 0) mod = "none";
         uart2ConnectedModule = mod;
         if (mod == "gps") gpsEnabled = true;
+        // Wybor modulu APRS_TNC-KISS = wlacz tryb TNC-KISS (beacon do TNC zamiast APRS-IS).
+        if (mod == "aprs_tnc_kiss") {
+          aprsKissEnabled = true;
+          kissDisconnect();
+        }
       } else if (doc.containsKey("uart2_mode")) {
         String mode = doc["uart2_mode"].as<String>();
         mode.toLowerCase();
@@ -20817,6 +22746,7 @@ void setupWebServer() {
         if (timezoneHours < -12) timezoneHours = -12;
         if (timezoneHours > 14) timezoneHours = 14;
       }
+      if (doc["dst_auto"].is<bool>()) autoDst = doc["dst_auto"].as<bool>();
       
       // WspĂ„â€šĹ‚Ă„Ä…Ă˘â‚¬ĹˇrzÄ‚â€žĂ˘â€žËdne geograficzne (LAT/LON)
       bool latProvided = false;
@@ -20926,7 +22856,7 @@ void setupWebServer() {
         tftLanguage = tftLangFromCode(doc["tft_lang"].as<String>());
       } else if (doc["tft_lang"].is<int>()) {
         int lang = doc["tft_lang"].as<int>();
-        tftLanguage = (lang == TFT_LANG_EN) ? TFT_LANG_EN : TFT_LANG_PL;
+        tftLanguage = (lang >= 0 && lang < (int)TFT_LANG_COUNT) ? (uint8_t)lang : TFT_LANG_PL;
       }
       if (doc["table_size"].is<String>()) {
         dxTableSizeMode = dxTableSizeFromCode(doc["table_size"].as<String>());
@@ -20948,6 +22878,10 @@ void setupWebServer() {
       if (doc["clock_color"].is<int>()) {
         clockDigitsColor = doc["clock_color"].as<int>();
         if (clockDigitsColor == 0) clockDigitsColor = 0xFFE0;  // 0 = czarny -> zolty
+      }
+      if (doc["clock_font"].is<int>()) {
+        clockFontIndex = (uint8_t)doc["clock_font"].as<int>();
+        if (clockFontIndex > CLOCK_FONT_COUNT) clockFontIndex = 0;
       }
       
       // Konfiguracja filtrĂ„â€šĹ‚w CC-Cluster
@@ -20992,11 +22926,58 @@ void setupWebServer() {
       if (doc["aprs_comment"].is<String>()) {
         aprsUserComment = sanitizeAprsComment(doc["aprs_comment"].as<String>());
       }
+      if (doc["aprs_tocall"].is<String>()) {
+        aprsToCall = sanitizeAprsToCall(doc["aprs_tocall"].as<String>());
+      }
+      if (doc["aprs_alert_block"].is<String>()) {
+        aprsAlertBlockCsv = sanitizeAprsAlertList(doc["aprs_alert_block"].as<String>());
+      }
+      if (doc["aprs_alert_block_enabled"].is<bool>()) {
+        aprsAlertBlockEnabled = doc["aprs_alert_block_enabled"].as<bool>();
+      }
+      if (doc["aprs_kiss_enabled"].is<bool>()) {
+        bool newKiss = doc["aprs_kiss_enabled"].as<bool>();
+        if (newKiss != aprsKissEnabled) kissDisconnect();
+        aprsKissEnabled = newKiss;
+      }
+      if (doc["aprs_kiss_host"].is<String>()) {
+        String kh = doc["aprs_kiss_host"].as<String>();
+        kh.trim();
+        aprsKissHost = kh;
+      }
+      if (doc["aprs_kiss_port"].is<int>()) {
+        int kp = doc["aprs_kiss_port"].as<int>();
+        if (kp < 1 || kp > 65535) kp = 8001;
+        aprsKissPort = kp;
+      }
+      if (doc["aprs_kiss_path"].is<String>()) {
+        String kpath = doc["aprs_kiss_path"].as<String>();
+        kpath.trim();
+        aprsKissPath = kpath.length() ? kpath : String("WIDE1-1,WIDE2-1");
+      }
+      if (doc["aprs_tnc2_monitor"].is<bool>()) {
+        aprsTnc2MonitorEnabled = doc["aprs_tnc2_monitor"].as<bool>();
+      }
+      if (doc["gps_module_profile"].is<String>()) {
+        String prof = doc["gps_module_profile"].as<String>();
+        prof.toLowerCase();
+        prof.trim();
+        gpsModuleProfile = prof.length() ? prof : String("auto");
+        gpsConfigured = false;  // wymus ponowna konfiguracje modulu
+        gpsConfigureSentMs = 0;
+      }
+      if (doc["gps_auto_configure"].is<bool>()) {
+        gpsAutoConfigure = doc["gps_auto_configure"].as<bool>();
+        gpsConfigured = false;
+        gpsConfigureSentMs = 0;
+      }
+      // Walidacja masek filtrow po zmianie z WWW.
       bool aprsAlertConfigChanged = false;
       if (doc["aprs_alert"].is<String>()) {
         aprsAlertCsv = sanitizeAprsAlertList(doc["aprs_alert"].as<String>());
         aprsAlertConfigChanged = true;
       }
+      validateAprsFilterMasks();
       if (doc["aprs_alert_enabled"].is<bool>()) {
         aprsAlertEnabled = doc["aprs_alert_enabled"].as<bool>();
       }
@@ -21006,6 +22987,38 @@ void setupWebServer() {
       if (doc["aprs_alert_wx_enabled"].is<bool>()) {
         aprsAlertWxEnabled = doc["aprs_alert_wx_enabled"].as<bool>();
         aprsAlertConfigChanged = true;
+      }
+      if (doc["weather_alert_storm_enabled"].is<bool>()) {
+        weatherAlertStormEnabled = doc["weather_alert_storm_enabled"].as<bool>();
+        lastWeatherAlertFetchMs = 0;
+      }
+      if (doc["weather_alert_wind_enabled"].is<bool>()) {
+        weatherAlertWindEnabled = doc["weather_alert_wind_enabled"].as<bool>();
+        lastWeatherAlertFetchMs = 0;
+      }
+      if (doc.containsKey("weather_alert_wind_threshold_ms")) {
+        float wThr = doc["weather_alert_wind_threshold_ms"].as<float>();
+        if (wThr < 1.0f) wThr = 1.0f;
+        if (wThr > 60.0f) wThr = 60.0f;
+        weatherAlertWindThresholdMs = wThr;
+        lastWeatherAlertFetchMs = 0;
+      }
+      if (doc["openmeteo_url"].is<String>()) {
+        String omUrl = doc["openmeteo_url"].as<String>();
+        omUrl.trim();
+        openMeteoUrl = omUrl.length() ? omUrl : String(DEFAULT_OPENMETEO_URL);
+        lastWeatherAlertFetchMs = 0;
+      }
+      // Sciezki ikon alertu pogodowego (zmieniane przez upload WWW).
+      if (doc["weather_icon_storm"].is<String>()) {
+        String p = doc["weather_icon_storm"].as<String>();
+        p.trim();
+        if (p.length()) weatherIconStormPath = p;
+      }
+      if (doc["weather_icon_wind"].is<String>()) {
+        String p = doc["weather_icon_wind"].as<String>();
+        p.trim();
+        if (p.length()) weatherIconWindPath = p;
       }
       if (doc.containsKey("aprs_alert_min_sec")) {
         int alertMinSecCandidate = aprsAlertMinSeconds;
@@ -21538,6 +23551,7 @@ void setupWebServer() {
     doc["user_callsign"] = userCallsign;
     doc["user_locator"] = userLocator;
     doc["timezone"] = timezoneHours;
+    doc["dst_auto"] = autoDst;
     doc["user_lat"] = userLat;
     doc["user_lon"] = userLon;
     doc["user_lat_lon_valid"] = userLatLonValid;
@@ -21592,6 +23606,7 @@ void setupWebServer() {
     doc["menu_hue"] = menuThemeHue;
     doc["callsign_color"] = callsignColor;
     doc["clock_color"] = clockDigitsColor;
+    doc["clock_font"] = clockFontIndex;
     doc["qrz_status"] = qrzStatus;
     doc["cluster_noann"] = clusterNoAnnouncements;
     doc["cluster_nowwv"] = clusterNoWWV;
@@ -21607,10 +23622,26 @@ void setupWebServer() {
     doc["aprs_beacon"] = aprsBeaconEnabled;
     doc["aprs_symbol"] = aprsSymbolTwoChar;
     doc["aprs_comment"] = aprsUserComment;
+    doc["aprs_tocall"] = aprsToCall;
     doc["aprs_alert"] = aprsAlertCsv;
+    doc["aprs_alert_block"] = aprsAlertBlockCsv;
+    doc["aprs_alert_block_enabled"] = aprsAlertBlockEnabled;
+    doc["aprs_kiss_enabled"] = aprsKissEnabled;
+    doc["aprs_kiss_host"] = aprsKissHost;
+    doc["aprs_kiss_port"] = aprsKissPort;
+    doc["aprs_kiss_path"] = aprsKissPath;
+    doc["aprs_tnc2_monitor"] = aprsTnc2MonitorEnabled;
+    doc["gps_module_profile"] = gpsModuleProfile;
+    doc["gps_auto_configure"] = gpsAutoConfigure;
     doc["aprs_alert_enabled"] = aprsAlertEnabled;
     doc["aprs_alert_nearby_enabled"] = aprsAlertNearbyEnabled;
     doc["aprs_alert_wx_enabled"] = aprsAlertWxEnabled;
+    doc["weather_alert_storm_enabled"] = weatherAlertStormEnabled;
+    doc["weather_alert_wind_enabled"] = weatherAlertWindEnabled;
+    doc["weather_alert_wind_threshold_ms"] = weatherAlertWindThresholdMs;
+    doc["openmeteo_url"] = openMeteoUrl;
+    doc["weather_icon_storm"] = weatherIconStormPath;
+    doc["weather_icon_wind"] = weatherIconWindPath;
     doc["aprs_alert_min_sec"] = aprsAlertMinSeconds;
     doc["aprs_alert_screen_sec"] = aprsAlertScreenSeconds;
     doc["aprs_alert_distance_km"] = aprsAlertDistanceKm;
@@ -21850,6 +23881,47 @@ void setupWebServer() {
     }
   }, []() {
     handleUpload("welcome");
+  });
+
+  // Upload ikony alertu pogodowego (burza/wiatr). Zapisuje /wxicon_storm.<ext>
+  // albo /wxicon_wind.<ext> i aktualizuje sciezke w NVS.
+  server->on("/upload_wxicon_storm", HTTP_POST, []() {
+    server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"uploaded\"}");
+  }, []() {
+    handleUpload("wxicon_storm");
+  });
+  server->on("/upload_wxicon_wind", HTTP_POST, []() {
+    server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"uploaded\"}");
+  }, []() {
+    handleUpload("wxicon_wind");
+  });
+
+  // Podglad ikony alertu pogodowego (WWW). type=storm|wind.
+  server->on("/wxicon_preview", HTTP_GET, []() {
+    String type = server->arg("type");
+    String path = (type == "wind") ? weatherIconWindPath : weatherIconStormPath;
+    if (LittleFS.exists(path)) {
+      String lc = path;
+      lc.toLowerCase();
+      const char *ct = lc.endsWith(".png") ? "image/png"
+                     : lc.endsWith(".bmp") ? "image/bmp" : "image/jpeg";
+      if (streamLittleFsFile(path.c_str(), ct)) return;
+    }
+    server->send(404, "text/plain", "no icon");
+  });
+
+  // Przywraca domyslna ikone alertu pogodowego (usuwa wgrana grafike).
+  server->on("/wxicon_reset", HTTP_POST, []() {
+    bool storm = (server->arg("type") != "wind");
+    removeOldWxIconVariants(storm);
+    if (storm) {
+      weatherIconStormPath = "/icon50/burza.bmp";
+      if (preferences) preferences->putString(NVS_KEY_WX_ICON_STORM, weatherIconStormPath);
+    } else {
+      weatherIconWindPath = "/icon50/wiatr.bmp";
+      if (preferences) preferences->putString(NVS_KEY_WX_ICON_WIND, weatherIconWindPath);
+    }
+    server->send(200, "application/json", "{\"status\":\"ok\"}");
   });
 
   // Podglad wgranej grafiki ekranu powitalnego (dla WWW - zakladka TFT).
@@ -22133,9 +24205,19 @@ String getMainHTML() {
     <div class="panel">
       <h2>DX Cluster</h2>
       <div class="row">
+        <div class="field"><label>Preset</label><select id="cluster_preset" onchange="applyClusterPreset()">
+          <option value="">-- wybierz --</option>
+          <option value="dxspots.com|7300">dxspots.com (7300)</option>
+          <option value="dxfun.com|8000">dxfun.com (8000)</option>
+          <option value="cluster.dxzone.com|7300">cluster.dxzone.com (7300)</option>
+          <option value="dxc.ve7cc.net|23">dxc.ve7cc.net (23)</option>
+          <option value="rk3dwa.ru|8000">rk3dwa.ru (8000)</option>
+        </select></div>
         <div class="field"><label>Host</label><input id="cluster_host" type="text"></div>
         <div class="field"><label>Port</label><input id="cluster_port" type="number"></div>
       </div>
+      <p class="hint">Preset wypelnia host i port. Obslugiwane sa serwery telnet DX Cluster
+      (dxspots.com, dxfun.com i inne). Mozesz wpisac wlasny host/port recznie.</p>
       <div class="section">
         <div class="row">
           <div class="field"><label>Filtry (max 3)</label><input id="cluster_filters" type="text" placeholder="f/spotter/..."></div>
@@ -22181,11 +24263,32 @@ String getMainHTML() {
         <div class="field"><label>Promien (km, 1-50)</label><input id="aprs_radius" type="number" min="1" max="50"></div>
         <div class="field"><label>Symbol (np. /-)</label><input id="aprs_symbol" type="text" maxlength="2"></div>
         <div class="field"><label>Komentarz</label><input id="aprs_comment" type="text"></div>
+        <div class="field"><label>TOCALL beaconu</label><input id="aprs_tocall" type="text" maxlength="9" placeholder="APRS"></div>
         <div class="field"><label>Interwal beacona (min)</label><input id="aprs_interval_min" type="number" min="1" max="60"></div>
       </div>
       <div class="section">
-        <label class="check"><input id="aprs_beacon" type="checkbox"> Beacon APRS wlaczony</label>
+        <label class="check"><input id="aprs_beacon" type="checkbox"> Beacon APRS-IS/TNC-KISS wlaczony</label>
+        <p class="hint">TOCALL to pole po znaku &gt; w ramce (domyslnie <b>APRS</b>; mozna np. APZESP/APDW16).
+        Beacon trafia do APRS-IS, a w trybie TNC-KISS jako ramka AX.25/KISS (bez APRS-IS).</p>
       </div>
+      <div class="section">
+        <label class="check"><input id="aprs_tnc2_monitor" type="checkbox"> Monitor APRS-TNC2 (2-liniowy, format Yaesu)</label>
+        <p class="hint">Pokazuje odebrane pakiety w 2 liniach: naglowek AX.25 (FROM&gt;TO,path) + tresc info.</p>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>TCPIP TNC-KISS (LoRa / Digi APRS)</h2>
+      <div class="row">
+        <label class="check"><input id="aprs_kiss_enabled" type="checkbox"> Wysylaj beacon do TNC-KISS (bez APRS-IS)</label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="field"><label>Host TNC-KISS</label><input id="aprs_kiss_host" type="text" placeholder="np. 192.168.1.50 lub lora-aprs.local"></div>
+        <div class="field"><label>Port</label><input id="aprs_kiss_port" type="number" min="1" max="65535" placeholder="8001"></div>
+        <div class="field"><label>Sciezka RF (digi path)</label><input id="aprs_kiss_path" type="text" placeholder="WIDE1-1,WIDE2-1"></div>
+      </div>
+      <p class="hint">Beacon jest budowany jako ramka AX.25 (UI) i wysylany w KISS do TNC
+      (LoRa APRS / Digi / Direwolf). Sekwencja startowa: <b>KISS ON</b> po 30 s od polaczenia,
+      nastepnie <b>RESTART</b> po 1 s. Domyslna sciezka RF: <b>WIDE1-1,WIDE2-1</b>.</p>
     </div>
     <div class="panel">
       <h2>Alerty APRS</h2>
@@ -22198,9 +24301,28 @@ String getMainHTML() {
         <label class="check"><input id="aprs_alert_wx_enabled" type="checkbox"> Alert WX (pogoda)</label>
       </div>
       <div class="row" style="margin-top:8px">
+        <div class="field"><label>Blokada znakow w alercie (CSV)</label><input id="aprs_alert_block" type="text" placeholder="SP3KON-7,WIDE1*"></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label class="check"><input id="aprs_alert_block_enabled" type="checkbox"> Blokada znakow wlaczona</label>
+        <p class="hint">Znaki z listy blokad <b>nie wywoluja</b> alertu (np. wlasny beacon lub lokalne Digi).
+        Tokeny: CALL, CALL-7, CALL* (dowolny SSID). Maski filtrow sa walidowane po uruchomieniu i po zapisie.</p>
+      </div>
+      <div class="row" style="margin-top:8px">
         <div class="field"><label>Min. odstep czasowy (sek)</label><input id="aprs_alert_min_sec" type="number" min="0" max="3600"></div>
         <div class="field"><label>Czas wyswietlania ekranu (sek)</label><input id="aprs_alert_screen_sec" type="number" min="3" max="300"></div>
         <div class="field"><label>Max dystans alertu (km)</label><input id="aprs_alert_distance_km" type="number" min="1" max="5000"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Alert pogodowy (open-meteo)</h2>
+      <div class="row" style="margin-top:8px">
+        <label class="check"><input id="weather_alert_storm_enabled" type="checkbox"> Alert o mozliwych burzach</label>
+        <label class="check"><input id="weather_alert_wind_enabled" type="checkbox"> Alert o silnym wiatrze</label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="field"><label>Prog wiatru (m/s)</label><input id="weather_alert_wind_threshold_ms" type="number" min="1" max="60" step="0.1"></div>
+        <div class="field"><label>Endpoint open-meteo (URL)</label><input id="openmeteo_url" type="text" placeholder="https://api.open-meteo.com/v1/forecast"></div>
       </div>
     </div>
     <div class="panel">
@@ -22265,7 +24387,7 @@ String getMainHTML() {
           <select id="tft_rotation"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
         </div>
         <div class="field"><label>Jezyk</label>
-          <select id="tft_lang"><option value="pl">Polski</option><option value="en">English</option></select>
+          <select id="tft_lang"><option value="pl">Polski</option><option value="en">English</option><option value="de">Deutsch</option><option value="fr">Francais</option><option value="es">Espanol</option><option value="ru">Russkiy</option></select>
         </div>
         <div class="field"><label>Rozmiar tabeli</label>
           <select id="table_size"><option value="normal">Normalny</option><option value="enlarged">Powkszony</option></select>
@@ -22273,6 +24395,7 @@ String getMainHTML() {
         <div class="field"><label>Odcien menu (0-255)</label><input id="menu_hue" type="number" min="0" max="255"></div>
         <div class="field"><label>Kolor callsign (HEX lub int)</label><input id="callsign_color" type="number" min="0" max="65535"></div>
         <div class="field"><label>Kolor zegara (HEX lub int)</label><input id="clock_color" type="number" min="0" max="65535"></div>
+        <div class="field"><label>Czcionka zegara (0-14)</label><input id="clock_font" type="number" min="0" max="14"></div>
       </div>
       <div class="row" style="margin-top:8px">
         <label class="check"><input id="tft_invert" type="checkbox"> Odwrocone kolory TFT</label>
@@ -22404,6 +24527,13 @@ const chk=(id,v)=>{ $(id).checked=!!v; };
 const gint=(id,d)=>{const v=parseInt($(id).value,10);return isNaN(v)?d:v;};
 const gstr=(id,d='')=>$(id).value??d;
 
+function applyClusterPreset(){
+  const sel=$('cluster_preset'); if(!sel||!sel.value) return;
+  const parts=String(sel.value).split('|'); if(parts.length!==2) return;
+  $('cluster_host').value=parts[0];
+  $('cluster_port').value=parts[1];
+}
+
 function showTab(name){
   document.querySelectorAll('.tabcontent').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -22430,6 +24560,10 @@ function fillForm(cfg){
   val('user_lat',cfg.user_lat); val('user_lon',cfg.user_lon);
   val('timezone',cfg.timezone); val('openwebrx_url',cfg.openwebrx_url);
   val('weather_key',cfg.weather_key); val('n2yo_key',cfg.n2yo_key);
+  chk('weather_alert_storm_enabled',cfg.weather_alert_storm_enabled);
+  chk('weather_alert_wind_enabled',cfg.weather_alert_wind_enabled);
+  val('weather_alert_wind_threshold_ms',cfg.weather_alert_wind_threshold_ms);
+  val('openmeteo_url',cfg.openmeteo_url||'https://api.open-meteo.com/v1/forecast');
   val('qrz_user',cfg.qrz_user); val('qrz_pass',cfg.qrz_pass);
   if($('qrzStatus')) $('qrzStatus').textContent=cfg.qrz_status?('Status: '+cfg.qrz_status):'';
   // DX Cluster
@@ -22449,9 +24583,17 @@ function fillForm(cfg){
   val('aprs_ssid',cfg.aprs_ssid); val('aprs_radius',cfg.aprs_radius);
   val('aprs_symbol',cfg.aprs_symbol); val('aprs_comment',cfg.aprs_comment);
   val('aprs_interval_min',cfg.aprs_interval_min);
+  val('aprs_tocall',cfg.aprs_tocall||'APRS');
+  chk('aprs_tnc2_monitor',cfg.aprs_tnc2_monitor);
+  chk('aprs_kiss_enabled',cfg.aprs_kiss_enabled);
+  val('aprs_kiss_host',cfg.aprs_kiss_host);
+  val('aprs_kiss_port',cfg.aprs_kiss_port||8001);
+  val('aprs_kiss_path',cfg.aprs_kiss_path||'WIDE1-1,WIDE2-1');
   chk('aprs_beacon',cfg.aprs_beacon);
   // APRS Alerts
   val('aprs_alert',cfg.aprs_alert);
+  val('aprs_alert_block',cfg.aprs_alert_block);
+  chk('aprs_alert_block_enabled',cfg.aprs_alert_block_enabled!==false);
   chk('aprs_alert_enabled',cfg.aprs_alert_enabled);
   chk('aprs_alert_nearby_enabled',cfg.aprs_alert_nearby_enabled);
   chk('aprs_alert_wx_enabled',cfg.aprs_alert_wx_enabled);
@@ -22480,6 +24622,7 @@ function fillForm(cfg){
   chk('tft_invert',cfg.tft_invert); val('menu_hue',cfg.menu_hue);
   val('callsign_color',cfg.callsign_color);
   val('clock_color',cfg.clock_color);
+  val('clock_font',cfg.clock_font);
   chk('tft_auto_switch',cfg.tft_auto_switch); val('tft_switch_time_sec',cfg.tft_switch_time_sec);
   chk('screen_saver_enabled',cfg.screen_saver_enabled); val('screen_saver_timeout_min',cfg.screen_saver_timeout_min);
   // Screen order
@@ -22543,11 +24686,23 @@ function buildFromForm(){
     aprs_ssid:gint('aprs_ssid',0), aprs_radius:gint('aprs_radius',50),
     aprs_symbol:gstr('aprs_symbol','/-'), aprs_comment:gstr('aprs_comment'),
     aprs_interval_min:gint('aprs_interval_min',5),
+    aprs_tocall:gstr('aprs_tocall','APRS'),
+    aprs_tnc2_monitor:$('aprs_tnc2_monitor').checked,
+    aprs_kiss_enabled:$('aprs_kiss_enabled').checked,
+    aprs_kiss_host:gstr('aprs_kiss_host'),
+    aprs_kiss_port:gint('aprs_kiss_port',8001),
+    aprs_kiss_path:gstr('aprs_kiss_path','WIDE1-1,WIDE2-1'),
     aprs_beacon:$('aprs_beacon').checked,
     aprs_alert:gstr('aprs_alert'),
+    aprs_alert_block:gstr('aprs_alert_block'),
+    aprs_alert_block_enabled:$('aprs_alert_block_enabled').checked,
     aprs_alert_enabled:$('aprs_alert_enabled').checked,
     aprs_alert_nearby_enabled:$('aprs_alert_nearby_enabled').checked,
     aprs_alert_wx_enabled:$('aprs_alert_wx_enabled').checked,
+    weather_alert_storm_enabled:$('weather_alert_storm_enabled').checked,
+    weather_alert_wind_enabled:$('weather_alert_wind_enabled').checked,
+    weather_alert_wind_threshold_ms:(parseFloat(gstr('weather_alert_wind_threshold_ms'))||12.0),
+    openmeteo_url:(gstr('openmeteo_url')||'https://api.open-meteo.com/v1/forecast'),
     aprs_alert_min_sec:gint('aprs_alert_min_sec',60),
     aprs_alert_screen_sec:gint('aprs_alert_screen_sec',30),
     aprs_alert_distance_km:parseFloat(gstr('aprs_alert_distance_km'))||100,
@@ -22568,6 +24723,7 @@ function buildFromForm(){
     tft_invert:$('tft_invert').checked, menu_hue:gint('menu_hue',128),
     callsign_color:gint('callsign_color',65535),
     clock_color:gint('clock_color',65530),
+    clock_font:gint('clock_font',0),
     tft_auto_switch:$('tft_auto_switch').checked,
     tft_switch_time_sec:gint('tft_switch_time_sec',30),
     screen_saver_enabled:$('screen_saver_enabled').checked,
@@ -22808,6 +24964,15 @@ void uiTaskLoop(void *parameter) {
         aprsAlertDrawPending = false;
         portEXIT_CRITICAL(&aprsAlertPendingMux);
         ALERT_Screen(pendingStation);
+      }
+      if (!aprsAlertScreenActive && !weatherAlertScreenActive && tftInitialized &&
+          weatherAlertInfo.active && !inMenu && !gpsScreenActive && !qrzPopupActive && !touchCalActive &&
+          (weatherAlertLastTriggerMs == 0 || millis() - weatherAlertLastTriggerMs >= WEATHER_ALERT_REPEAT_MS)) {
+        weatherAlertLastTriggerMs = millis();
+        drawWeatherAlertScreen();
+      }
+      if (weatherAlertScreenActive && (long)(millis() - weatherAlertScreenUntilMs) >= 0) {
+        dismissWeatherAlertScreen();
       }
       updateAlertScreenTimeout();
       updateGpsScreen();
@@ -25037,7 +27202,7 @@ String lookupIssCountryFromCoords(double lat, double lng) {
   client.setInsecure();
 
   HTTPClient http;
-  String langParam = (tftLanguage == TFT_LANG_EN) ? "en" : "pl";
+  String langParam = tftLangToCode(tftLanguage);
   String url = "https://nominatim.openstreetmap.org/reverse?format=json&lat=" +
                String(lat, 4) + "&lon=" + String(lng, 4) +
                "&zoom=3&accept-language=" + langParam;
@@ -25584,7 +27749,7 @@ static void issDrawFrameFromState() {
                  passCount, passAos, passLos, passMaxEl,
                  passVisStart, passVisEnd, passDur, passMag,
                  passValid, wasVisible, curLos,
-                 getCachedTimezoneOffset());
+                 currentTimezoneOffsetHours());
 }
 
 void drawIssPassTracking() {
@@ -26394,14 +28559,15 @@ void loop() {
       handleAPRSData();
       unsigned long nowAprs = millis();
 
-      if (aprsBeaconEnabled && aprsLoginSent && userLatLonValid) {
+      if (aprsBeaconEnabled && userLatLonValid && !aprsKissEnabled &&
+          aprsLoginSent) {
         if (nextAPRSPositionDueMs == 0) {
           nextAPRSPositionDueMs = nowAprs + APRS_POSITION_FIRST_DELAY_MS;
         } else if ((long)(nowAprs - nextAPRSPositionDueMs) >= 0) {
           sendAprsPosition();
           nextAPRSPositionDueMs = nowAprs + aprsPositionIntervalMs;
         }
-      } else {
+      } else if (!aprsKissEnabled) {
         nextAPRSPositionDueMs = 0; // Reset harmonogramu gdy beacon jest wyĹ‚Ä…czony lub brak loginu/koordynat
         aprsBeaconTxCount = 0;
       }
@@ -26416,6 +28582,32 @@ void loop() {
         aprsConnected = false;
         aprsLoginSent = false;
         // connectToAPRS() odpali siÄ‚â€žĂ˘â€žË w kolejnych iteracjach
+      }
+    }
+
+    // Obsluga TNC-KISS (LoRa / Digi APRS) - niezaleznie od APRS-IS.
+    if (aprsKissEnabled) {
+      if (!aprsKissClient.connected()) {
+        connectToKiss();
+      } else {
+        handleKissData();
+        kissHandleStartupSequence();
+        unsigned long nowKiss = millis();
+        if (aprsBeaconEnabled && userLatLonValid) {
+          if (nextAPRSPositionDueMs == 0) {
+            nextAPRSPositionDueMs = nowKiss + APRS_POSITION_FIRST_DELAY_MS;
+          } else if ((long)(nowKiss - nextAPRSPositionDueMs) >= 0) {
+            kissSendBeacon();
+            nextAPRSPositionDueMs = nowKiss + aprsPositionIntervalMs;
+          }
+        } else {
+          nextAPRSPositionDueMs = 0;
+        }
+        // Watchdog KISS: brak RX przez dluzszy czas -> reconnect.
+        if (nowKiss - aprsKissLastRxMs > APRS_INACTIVITY_RECONNECT_MS) {
+          Serial.println("[KISS] Watchdog: brak danych -> reconnect TNC-KISS");
+          kissDisconnect();
+        }
       }
     }
   }
@@ -26476,6 +28668,16 @@ void loop() {
       lastWeatherFetchOk = fetchWeatherData();
       lastWeatherFetchMs = now;
 
+    }
+
+    // Alerty pogodowe/burzowe (open-meteo) - tylko gdy ktorykolwiek alert wlaczony.
+    if (weatherAlertStormEnabled || weatherAlertWindEnabled) {
+      if (lastWeatherAlertFetchMs == 0 || now - lastWeatherAlertFetchMs > WEATHER_ALERT_FETCH_INTERVAL_MS) {
+        lastWeatherAlertFetchOk = fetchOpenMeteoAlerts();
+        lastWeatherAlertFetchMs = now;
+      }
+    } else {
+      weatherAlertInfo.active = false;
     }
   }
 
@@ -26693,12 +28895,14 @@ void loop() {
   }
 #endif
   
+  // Odswiez ikone satelity w naglowku po zmianie stanu GPS (szary/szukanie/zielony).
+  refreshGpsIconIfChanged();
+
   // Aktualizacja pomiaru baterii (TP4056 + 18650)
 #ifdef BATTERY_MONITORING_ENABLED
   if (updateBatteryStatus()) {
     // Szybka aktualizacja ikony baterii (bez odĹ›wieĹĽania caĹ‚ego nagĹ‚Ăłwka)
     drawBatteryQuickUpdate(true);
-    
     // Debug co 30 sekund - stan baterii
     static unsigned long lastBatteryLogMs = 0;
     if (millis() - lastBatteryLogMs >= 30000) {

@@ -59,9 +59,15 @@ Otwórz `tft_setup.h` i zmień wartości w blokach `#ifndef`:
 #define TFT_BL   21
 #define TOUCH_CS 15
 #define TOUCH_IRQ 16
+// T_IRQ jest opcjonalny. Domyślnie dotyk działa w trybie odpytywania (bez T_IRQ).
+// Ustaw 1 tylko gdy T_IRQ jest fizycznie podłączony do GPIO 16.
+#define TOUCH_USE_IRQ 0
 ```
 
 Zmiany samego dotyku bez ruszania TFT — wystarczy `TFT_MISO` (T_DO) oraz `TOUCH_CS`.
+`T_IRQ` nie jest wymagany: biblioteka XPT2046 wykrywa dotyk mierząc Z w `touched()`,
+więc przy odłączonym T_IRQ nic nie trzeba zmieniać. `TOUCH_USE_IRQ=1` przydaje się
+tylko wtedy, gdy T_IRQ jest naprawdę podłączony (mniejsze zużycie SPI w spoczynku).
 
 ### Sposób B — `platformio.ini` (bez edycji plików, np. nowy wariant)
 Dopisz do `build_flags` (nadpisuje `tft_setup.h`, bo main.cpp/tft_setup.h mają `#ifndef`):

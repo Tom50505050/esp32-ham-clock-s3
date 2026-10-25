@@ -20,7 +20,7 @@ z zewnętrznym wyświetlaczem **ILI9488 na 3.5" i 4" 480×320** po SPI i dotykie
 | Dotyk DO | **14** | T_DO (wspólne z MISO) |
 | Dotyk CLK | 12 | T_CLK (wspólne ze SCK) |
 | RGB LED R/G/B | 4 / 5 / 6 | statusowy LED (opcjonalnie) |
-| Bateria ADC | 1 | dzielnik 100k/100k |
+| Bateria ADC | 7 | dzielnik 100k/100k |
 
 **Zasilanie:** VCC modułu → 3.3V (lub 5V, jeśli moduł ma własny regulator), GND wspólne.
 

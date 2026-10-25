@@ -1,6 +1,6 @@
 # ESP32-HAM-CLOCK — informacje o wydaniach
 
-Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b** i **v1.2c** dla platformy
+Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b**, **v1.2c** i **v1.2d** dla platformy
 **ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM) z wyświetlaczem
 **ILI9488 na 3.5" i 4" 480×320** po SPI i panelem dotykowym XPT2046.
 
@@ -10,6 +10,116 @@ Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b** i **v1.2c** dla platfor
 > W wydaniach dostępne są **tylko te dwa pliki** — osobne obrazy `firmware.bin`,
 > `littlefs.bin`, `bootloader.bin`, `boot_app0.bin` i `partitions.bin` zostały
 > usunięte ze wszystkich wydań.
+
+---
+
+# ESP32-HAM-CLOCK v1.2d — czcionki zegara, alert pogodowy, migotanie i pin baterii
+
+Wydanie **v1.2d** (23.10.2026) dla platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB
+PSRAM) + **ILI9488 na 3.5" i 4" 480×320** + XPT2046. Zakres wydania:
+- **wybór czcionki** znaku (callsign) i dużego zegara — 14 krojów + wbudowana,
+- **własne grafiki alertu pogodowego** (burza / wiatr) z podglądem całego ekranu,
+- **naprawa migotania cyfr zegara** dla wszystkich czcionek,
+- **pin dzielnika napięcia baterii GPIO7 → GPIO1** (ADC1_CH0).
+
+## Wybór czcionki znaku i zegara
+### Menu czasu — wybór czcionki (15 opcji)
+- W menu **TIME MODE** (ekran HAM CLOCK) doszedł wybór czcionki w siatce 5×3:
+  **DOMYSLNA** (wbudowana TFT_eSPI) oraz 14 krojów: Sans Bold, Orbitron,
+  Oxanium, Michroma, Audiowide, Russo One, Tech Mono, Quantico, Electrolize,
+  Bungee, Nova Mono, Iceland, Serif Bold, Mono Bold.
+- Nad siatką jest **podglad na żywo**: znak (`SP5ABC`) i godzina (`12:00`)
+  rysowane aktualnie wybraną czcionką, więc efekt widać przed zamknięciem menu.
+- Wybór działa **natychmiast** i jest zapisywany w NVS (`clock_font`).
+  Ten sam numer można ustawić z panelu WWW (pole **Czcionka zegara (0-14)**).
+- Nowe czcionki to pliki **VLW** (TFT_eSPI Smooth Font) w `data/fonts/`
+  (`clockNN-call.vlw` dla znaku, `clockNN-time.vlw` dla zegara) — łącznie ~0,85 MB,
+  mieści się w partycji LittleFS.
+
+### Generator czcionek
+- Nowe narzędzie `tools/make_clock_fonts.py` pobiera kroje (Google Fonts, licencja
+  OFL) i generuje oba pliki VLW dla każdej opcji, dobierając rozmiar tak, aby
+  `00:00:00` oraz długi znak zmieściły się w 480 px.
+- Nowe narzędzie `tools/render_clock_fonts_preview.py` renderuje planszę poglądową
+  wszystkich czcionek (kontrola QA bez sprzętu) — wynik: `clock_fonts_preview.png`.
+
+### Rysowanie znaku i zegara
+- Znak i godzina rysowane są wybraną czcionką, wyśrodkowane poziomo i pionowo w
+  swoim pasie; duży zegar używa `setTextPadding`, więc aktualizacja co sekundę
+  nie zostawia „duchów" po zmianie cyfr.
+- **Poprawka pozycjonowania (22.10.2026)**: zamiast `print()` używane jest
+  `drawString()` z `TC_DATUM`. `print()` **ignoruje** `setTextDatum`, więc znak i
+  godzina były przesunięte w prawo o połowę szerokości (nie wyśrodkowane), a
+  kursor startował od góry pola czcionki (napis zjeżdżał w dół pasa).
+  `drawString()` honoruje `TC_DATUM` (poziome wyśrodkowanie) i `setTextPadding`.
+- Pion liczony jest od **rzeczywistego atramentu** glifów (`clockInkOffset`), a nie
+  od całego pola czcionki — dzięki temu każdy krój jest wyśrodkowany tak samo, bo
+  `ascent`/`descent` różnią się między czcionkami. Zweryfikowano dla wszystkich
+  15 opcji: znak w pasie 50–94 px, zegar w pasie 126–178 px, bez przycięć.
+- Pasek podglądu w menu czasu ma teraz pełną wysokość 62 px (najwyższe kroje mają
+  ~60 px) i własny, poprawiony układ — wcześniej 20 px ucinało podgląd.
+
+---
+
+## Alert pogodowy — własne grafiki (burza / wiatr)
+### Panel WWW — zakładka „ALERT POGODOWY” (6 języków)
+- Nowa sekcja **Grafiki alertu (burza / wiatr)** z dwoma polami wyboru pliku
+  (JPG / PNG / BMP / GIF / WEBP), przyciskami **Wgraj** i **Domyślna** oraz
+  miniaturami aktualnych ikon.
+- **Podgląd całego ekranu alertu** na kanwie 480×320 — dokładnie tak, jak pokaże
+  to TFT (pasek nagłówka, przycisk zamknięcia, ramka, ikona i opis).
+- Dowolny obraz jest skalowany do **170×170** (dopasowanie z zachowaniem
+  proporcji, czarne tło) i konwertowany w przeglądarce do **BMP 16-bit RGB565**
+  przed wysłaniem na urządzenie — bez potrzeby ręcznej konwersji plików.
+
+### Firmware
+- Ikony alertu pochodzą teraz z plików w LittleFS. Ścieżki trzymane są w NVS
+  (`wxal_ic_s`, `wxal_ic_w`) i eksponowane w `GET/POST /api/config` jako
+  `weather_icon_storm` / `weather_icon_wind`.
+- **Domyślnie:** `/icon50/burza.bmp` (burza) i `/icon50/wiatr.bmp` (wiatr).
+  Wgranie własnej grafiki zapisuje `/wxicon_storm.<ext>` / `/wxicon_wind.<ext>`;
+  przycisk „Domyślna” przywraca ikony z `data/icon50`.
+- Nowe trasy: `/upload_wxicon_storm`, `/upload_wxicon_wind` (RAW POST),
+  `/wxicon_preview` (podgląd) i `/wxicon_reset` (powrót do domyślnej).
+- Gdy pliku ikony brak, ekran alertu rysuje wbudowaną ikonę wektorową (jak dotąd).
+
+### Nowe narzędzia
+- `tools/make_weather_icons.py` — generuje domyślne `data/icon50/burza.bmp`
+  i `data/icon50/wiatr.bmp` (24-bit BMP 50×50, czarne tło).
+- `tools/render_weather_alert_preview.py` — renderuje podgląd QA ekranu alertu
+  (burza + wiatr) do pliku PNG.
+
+---
+
+## Naprawa migotania cyfr zegara (wszystkie czcionki)
+Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczyny:
+- **Przerysowanie całego zegara co sekundę.** `clockDrawMonospace()` czyścił i
+  rysował wszystkie 8 komórek przy każdym odświeżeniu. Teraz pamięta poprzednią
+  godzinę (`prevText`) i dotyka **tylko komórek, które się zmieniły** (zwykle 1
+  zamiast 8, ~67% mniej pikseli na SPI). `useCache=false` (podgląd w menu) wymusza
+  pełne rysowanie; pamięć unieważniana przy `fillScreen` (`clockMonoGeneration`)
+  i gdy chwilowo brak czcionki VLW (`clockMonoInvalidate()`).
+- **Pionowe drganie 1 px.** Korekta pionowa liczona z bieżącej godziny
+  (`clockInkOffset(text)`) — różne cyfry mają różną wysokość atramentu (BUNGEE
+  `clock10`, MONO BOLD `clock14`: „1" i „8" różnią się o 1 px). Teraz
+  `clockTimeInkOffset()` liczy offset ze stałego zestawu `"0123456789:"`.
+- `updateScreen1ClockClassic()` rysuje tylko gdy tekst godziny się zmienił
+  (wcześniej przerysowywał w każdej iteracji `loop()`).
+- Podgląd QA: `tools/render_clock_flicker_preview.py`.
+
+## Pin dzielnika napięcia baterii: GPIO7 → GPIO1
+- `BATTERY_ADC_PIN 7` → **`BATTERY_ADC_PIN 1`** (GPIO1 = ADC1_CH0).
+- Schemat na stronie WWW (`getMainHTML`) oraz `PINOUT.md` zaktualizowane
+  (GPIO1 → zajęty, GPIO7 → wolny).
+
+## Porządki: usunięcie eksportu rozmów (czatu)
+- Usunięte `tools/export_conversation.py` i katalog `conversations/` (skrócone
+  zapisy `*-dialog.md`). Funkcja eksportu dziennika rozmowy nie jest już częścią
+  projektu; wyczyszczone reguły `.gitignore` i wzmianki w dokumentacji.
+
+## Wersja
+- `FIRMWARE_VERSION`: `1.2c` → **`1.2d`**. Zaktualizowane też `data/index*.html`
+  (PL/EN/DE/FR/ES/RU), `tools/lang_pages.json` i `platformio.ini`.
 
 ---
 
@@ -48,10 +158,24 @@ narzędzia podglądu nagłówka. Pozostałe ekrany, zależności i układ partyc
   (410/420, `screenW-120`), zsynchronizowane z firmware (**398 / 408 /
   `screenW-82`**); usunięty nieistniejący tekst „%” w podglądzie quick-update.
 
+### Instrukcja w 6 językach + ikona satelity + opis ekranów
+- **Ikona satelity GPS** przy zmianie stanu zmienia kolor: **zielona**
+  (`0x07E0`) po uzyskaniu fixu (ESP32 połączony z satelitami), bursztynowa gdy
+  szuka, szara bez modułu. Odświeżana na bieżąco (`refreshGpsIconIfChanged`).
+- **Manual w językach PL / EN / DE / FR / ES / RU** — dodano
+  `data/manualDE.txt`, `manualFR.txt`, `manualES.txt`, `manualRU.txt`
+  (pełne tłumaczenia) oraz trasy `/manualDE.txt` … `/manualRU.txt`.
+  Zakładka „Instrukcja” wczytuje manual w języku wybranym w WWW.
+- **Opis funkcji wszystkich ekranów** (14 ekranów TFT) + lista ikon nagłówka
+  w sekcji 4 każdego manuala; liczba slotów 11 → **14**.
+- **Pin dzielnika napięcia baterii: GPIO 1 → GPIO 7.** `BATTERY_ADC_PIN`
+  zmieniony z **1** (ADC1_CH0) na **7** (ADC1_CH6) w `main.cpp`; zaktualizowany
+  schemat dzielnika na stronie WWW (`getMainHTML`), `PINOUT.md` (tabela + listy
+  pinów) i `README_S3.md`.
+
 ### Wersja
-- `FIRMWARE_VERSION`: `1.2b` → **`1.2c`** (banner startowy, ADIF `PROGRAMVERSION`,
-  stopka WWW, instrukcja). Zaktualizowane także `data/index.html` /
-  `data/indexEN.html` (LittleFS) oraz `tools/make_qsl_splash.py`.
+- `FIRMWARE_VERSION`: pozostaje **`1.2c`** (ZIP 594 wpisy, w tym 4 nowe manuale;
+  `merged-flash*.bin` przebudowane z nowym LittleFS).
 
 ### Kompatybilność
 - Bez zmian zależności i układu partycji. Zmienione pliki firmware i ZIP.
@@ -212,6 +336,36 @@ z UI WWW oraz narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
   w wewnętrznym RAM kończyły się błędem **`NoMemory`** i spoty ginęły. Poprawki:
   bufory w **PSRAM** — **96 KB** (filtr) / **256 KB** (fallback), przez nowy
   `struct PskPsramAllocator` + `BasicJsonDocument`.
+- **POTA Cluster (kraj = `-`, brak odległości).** API `api.pota.app` **nie
+  zwraca pola `country`** — kod czytał nieistniejący klucz, więc kolumna
+  COUNTRY pokazywała `-`, a dane pojawiały się dopiero po wolnym zapytaniu QRZ.
+  Kraj jest w **`locationDesc`** (prefiks ISO, np. `US-TX`, `ES-M`, `GB-ENG`),
+  a pozycja aktywatora w `latitude`/`longitude` oraz `grid4`/`grid6`. Poprawki:
+  filtr JSON rozszerzony o te pola (pula 512 → 768 B), nowa funkcja
+  `potaCountryFromLocationDesc()` mapuje prefiks ISO na nazwę kraju (COUNTRY
+  działa od razu), a lat/lon (lub kwadrat) trafiają do `DXSpot`, więc odległość
+  liczy się lokalnie. QRZ dopytujemy już tylko o brakujący kraj.
+
+### Automatyczna zmiana czasu letni/zimowy
+- Nowy przełącznik **`autoDst`** (domyślnie włączony) dodaje +1 h w czasie
+  letnim według reguły europejskiej: od **ostatniej niedzieli marca 01:00 UTC**
+  do **ostatniej niedzieli października 01:00 UTC**.
+- Offset lokalny liczony jest **na bieżąco z UTC** przez
+  `currentTimezoneOffsetHours()` — usunięto stary 60-sekundowy cache, który po
+  zmianie roku trzymał nieaktualny offset. Zmiana czasu działa od razu, bez restartu.
+- Wszystkie ścieżki czasu lokalnego (zegar, APRS, dobowe obliczenia pogody,
+  przejścia ISS) respektują przełącznik.
+- **WWW:** checkbox „Automatyczna zmiana czasu letni/zimowy (Europa)” obok pola
+  strefy czasowej; podgląd czasu lokalnego spotów APRS uwzględnia DST w JS.
+- **TFT:** w menu TIME MODE (przytrzymanie zegara) nowy wiersz **`AUTO DST`**
+  z kaflami **ON / OFF** — zapis do NVS natychmiast.
+
+### T_IRQ opcjonalny (dotyk bez przerwania)
+- Dotyk XPT2046 działa teraz **bez podłączonego T_IRQ**: biblioteka pracuje
+  w trybie odpytywania (`tirq=255`), a dotyk wykrywany jest pomiarem Z.
+- Nowe makro **`TOUCH_USE_IRQ`** (domyślnie `0`). Ustaw `-DTOUCH_USE_IRQ=1`
+  (env `esp32-s3-n16r8-touchirq`) tylko, gdy T_IRQ jest fizycznie podłączony.
+- Zaktualizowano `PINOUT.md` oraz wbudowany manual WWW (T_IRQ opisany jako opcjonalny).
 
 ### Kompatybilność
 - Bez zmian zależności i układu partycji. Zmienione pliki firmware i ZIP.
@@ -322,8 +476,7 @@ oraz narzędzia projektu. Pozostałe ekrany i zależności bez zmian.
 - **Przycisk RESET** — `resetPskMapSpots()` zeruje spoty i bufor MQTT.
 
 ### Narzędzia i dokumentacja
-- `tools/export_conversation.py` — eksport rozmowy do Markdown z redakcją sekretów.
-- `conversations/`, `STAN_PRAC.md`, aktualizacje `AGENTS.md`.
+- `STAN_PRAC.md`, aktualizacje `AGENTS.md`.
 
 ### Wersja
 - `FIRMWARE_VERSION`: `1.2.1` → **`1.2a`**.

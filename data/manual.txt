@@ -128,7 +128,7 @@ Below is a short description of each tab:
   TFT Screen
   ----------
   TFT display settings: backlight brightness, screen language (PL/EN),
-  table size, screen slot order and content (1-11),
+  table size, screen slot order and content (1-14),
   auto-switch mode, rotation, and touch calibration.
 
   Settings
@@ -143,24 +143,72 @@ Below is a short description of each tab:
 4. TFT SCREENS
 ==============
 
-There are 11 TFT screen slots available on the display. You can assign each slot
-to one of the screens below (or disable it - OFF):
-
-  HAM CLOCK           - UTC and local clock, date, device status
-  DX CLUSTER          - DX spot table with MODE / BAND filter
-  APRS-IS             - list of received APRS stations
-  APRS RADAR          - radar view of APRS stations around your position
-  BAND INFO           - information about HF band conditions
-  SUN SPOTS           - propagation data (solar activity)
-  WEATHER             - current weather for your location
-  WEATHER FORECAST    - hourly/daily weather forecast + PM2.5/PM10
-  POTA                - POTA spots
-  HAMALERT            - HamAlert spots and alerts
-  MATRIX              - Matrix-style visual clock
-
+There are 14 TFT screen slots available on the display. You can assign each slot
+to one of the screens below (or disable it - OFF).
 Touching the screen changes the currently displayed view. Holding touch for ~3 s
 in the center of the screen opens the brightness menu (LIVE slider)
 and TFT language switch.
+
+Description of all screen functions:
+
+  HAM CLOCK
+    UTC and local clock with date, analog dial, globe and 20 m waterfall
+    panels, and the status icons in the header (see the icon list below).
+    Holding touch opens the TIME MODE menu (clock style, AUTO DST on/off).
+
+  DX CLUSTER
+    Live DX Cluster spot table. MODE filter (ALL/CW/SSB/FT8/FT4) and
+    BAND filter (160 m - 10 m). Touching a row shows details.
+
+  APRS-IS
+    List of stations received from APRS-IS within the set radius: time,
+    callsign, symbol, distance and the station comment.
+
+  APRS RADAR
+    Radar view of APRS stations around your position with distance rings.
+
+  BAND INFO
+    HF band conditions (day / night) - which bands are open.
+
+  SUN SPOTS
+    Propagation data: Solar Flux Index, K-index, A-index, MUF, sunspot number.
+
+  WEATHER
+    Current weather for your location (OpenWeather): temperature, wind,
+    humidity, pressure, icon, and an optional storm/wind alert panel.
+
+  WEATHER FORECAST
+    Hourly and daily forecast with PM2.5/PM10 air quality.
+
+  POTA
+    POTA spots (Parks on the Air) - park activations by amateur operators.
+
+  HAMALERT
+    Spots and alerts from the HamAlert service (Telnet).
+
+  MATRIX
+    Matrix-style visual clock.
+
+  PSK MAP
+    World map with PSK Reporter spots (MQTT) and your position marker.
+
+  SYSTEM INFO
+    System information: IP address, WiFi signal, RAM/heap, uptime,
+    firmware version and battery status.
+
+  ISS
+    ISS pass tracking: sky map, next passes and current position.
+
+  STATION
+    Callsign lookup: enter a callsign, the device loads data from QRZ.
+
+  LOGGER
+    ESP32 HAM LOGGER: QSO entry form + ADIF log table.
+
+Status icons in the header (top of the screen):
+  - GPS satellite icon: gray = no GPS module, amber = searching for satellites,
+    GREEN = position fixed (ESP32 connected to satellites).
+  - WiFi bars and battery icon.
 
 
 5. SETTINGS TAB - DETAILED DESCRIPTION
@@ -371,6 +419,38 @@ via Internet) connection settings and optional position beacon transmission.
     Range: 1-180 minutes. Recommended value: 29 minutes (APRS guidelines).
 
 
+5.9b TCPIP TNC-KISS (APRS over LoRa / Digi)
+-------------------------------------------
+Optional mode that sends the APRS beacon directly to a TNC-KISS
+(e.g. LoRa APRS iGate/Digi or Direwolf) instead of APRS-IS.
+
+  Send beacon to TNC-KISS
+    When checked, the beacon is built as an AX.25 (UI) frame
+    and sent in KISS format over TCP to the TNC. The APRS-IS
+    beacon is then disabled (single TX source).
+
+  TNC-KISS Host
+    IP address or hostname of the KISS server (e.g. 192.168.1.50).
+
+  TNC-KISS Port
+    TCP port of the KISS server. Typically 8001 for LoRa APRS,
+    8001 or 6700 for Direwolf.
+
+  RF path (digi path)
+    Default digipeater path in the AX.25 beacon.
+    Example: WIDE1-1,WIDE2-1.
+
+  Beacon TOCALL
+    TOCALL marker in the frame (field after >). Default APRS.
+
+  Startup sequence
+    After connecting, the device sends the KISS ON command after 30 s,
+    then RESTART after 1 s.
+
+  APRS-TNC2 monitor
+    When enabled, the APRS screen shows received packets in two lines:
+    AX.25 header (FROM>TO,path) and the info payload (Yaesu format).
+
 5.10 "TFT Screen" Tab - Display Settings
 -----------------------------------------
 (Available in separate "TFT Screen" tab in main menu)
@@ -396,11 +476,12 @@ via Internet) connection settings and optional position beacon transmission.
     Time between automatic screen switches.
     Range: 1-3600 seconds. Default: 30 seconds.
 
-  Screen Order (Pages 1-11)
+  Screen Order (Pages 1-14)
     Each "Page" is one slot in TFT screen rotation.
     For each slot choose one screen:
       HAM CLOCK, DX CLUSTER, APRS-IS, APRS RADAR, BAND INFO,
-      SUN SPOTS, WEATHER, WEATHER FORECAST, POTA, HAMALERT, MATRIX
+      SUN SPOTS, WEATHER, WEATHER FORECAST, POTA, HAMALERT, MATRIX,
+      PSK MAP, SYSTEM INFO, STATION, LOGGER, ISS
     or set OFF to disable that slot (skipped in rotation).
     Page 1 is shown first after power-on.
 

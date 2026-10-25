@@ -11,6 +11,7 @@ ROOT_FILES = [
     "flash_touch_test.bat", "platformio.ini", "flash_touch_test.sh", "AGENTS.md",
     "partitions.csv", ".gitignore", "main.cpp", "flash.bat", "tft_setup.h",
     "iss_worldmask.h", "flash.sh", "README_S3.md", "PINOUT.md", "INSTRUKCJA.md",
+    "RELEASE_NOTES.md", "README.md",
 ]
 # Do paczki trafiaja tylko scalone obrazy (merged-flash*.bin) - zawieraja
 # bootloader, partycje, aplikacje i LittleFS w jednym pliku (flash pod 0x0).
@@ -24,6 +25,7 @@ files = [f for f in ROOT_FILES if os.path.isfile(f)]
 files += [f for f in glob.glob("data/**", recursive=True) if os.path.isfile(f)]
 files += [f for f in glob.glob("tools/touch_test/**", recursive=True) if os.path.isfile(f)]
 files += [f for f in glob.glob("tools/*.py") if os.path.isfile(f)]
+files += [f for f in glob.glob("tools/*.json") if os.path.isfile(f)]
 files += [os.path.join("dist", b) for b in DIST_BINS if os.path.isfile(os.path.join("dist", b))]
 
 with zipfile.ZipFile("esp32-ham-clock-s3.zip", "w", zipfile.ZIP_DEFLATED) as z:

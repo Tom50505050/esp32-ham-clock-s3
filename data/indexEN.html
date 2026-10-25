@@ -4,14 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32-HAM-CLOCK v1.2c</title>
+    <title>ESP32-HAM-CLOCK v1.2d</title>
     <link rel="stylesheet" href="style.base.css?v=1.2">
     <link rel="stylesheet" href="style.desktop.css?v=1.2" media="(min-width: 901px)">
     <link rel="stylesheet" href="style.mobile.css?v=1.2" media="(max-width: 900px)">
     <link rel="stylesheet" href="style.modern.css?v=1.2">
 </head>
 <body>
-    <div class="app-title">ESP32-HAM-CLOCK v1.2c</div>
+    <div class="app-title">ESP32-HAM-CLOCK v1.2d</div>
     <div class="sys-status-bar">
         <span class="sys-chip"><span class="sys-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0"/><circle cx="12" cy="19" r="1"/></svg></span><span class="sys-dot" id="sys-dot"></span><span id="sys-conn">connecting...</span></span>
         <span class="sys-chip"><span class="sys-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3C9.5 5.5 9.5 18 12 21"/></svg></span>IP <b id="sys-ip-chip">--</b></span>
@@ -34,9 +34,12 @@
         <button class="nav-btn" onclick="showPage('manual')"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2z"/><path d="M8 3v18"/></svg></span><span class="nav-label">Manual</span></button>
         <button class="nav-btn links-nav-entry" onclick="showPage('links')"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 14.5l5-5"/><path d="M8 12l-1.5 1.5a3.5 3.5 0 0 0 5 5L13 17M16 12l1.5-1.5a3.5 3.5 0 0 0-5-5L11 7"/></svg></span><span class="nav-label">Links</span></button>
         <div class="lang-switch">
-            <a class="lang-link active" href="/indexEN.html">EN</a>
-            <span>|</span>
             <a class="lang-link" href="/index.html">PL</a>
+            <a class="lang-link active" href="/indexEN.html">EN</a>
+            <a class="lang-link" href="/indexDE.html">DE</a>
+            <a class="lang-link" href="/indexFR.html">FR</a>
+            <a class="lang-link" href="/indexES.html">ES</a>
+            <a class="lang-link" href="/indexRU.html">RU</a>
         </div>
     </div>
     
@@ -247,6 +250,10 @@
                     <select id="tft_lang" name="tft_lang">
                         <option value="pl">Polish</option>
                         <option value="en">English</option>
+                        <option value="de">German</option>
+                        <option value="fr">French</option>
+                        <option value="es">Spanish</option>
+                        <option value="ru">Russian</option>
                     </select>
                     <small>Changes the TFT on-screen labels (requires restart)</small>
                 </div>
@@ -778,6 +785,18 @@
                     <small>Single CSV field. Maximum 20 entries. Example: SQ3NIK-9, SP3YOR, SP3KON* (trailing * = any SSID)</small>
                 </div>
                 <div class="form-group">
+                    <label>Blocked callsigns in alerts (comma-separated):</label>
+                    <input type="text" id="aprs_alert_block" name="aprs_alert_block" placeholder="SP3KON-7, WIDE1*, DIGI1">
+                    <small>Callsigns on this list will NOT trigger an alert (e.g. your own beacon or local Digi). Tokens: CALL, CALL-7, CALL* (any SSID).</small>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="aprs_alert_block_enabled" name="aprs_alert_block_enabled" style="width: auto;" checked>
+                        <span>Enable callsign blocking in alerts</span>
+                    </label>
+                    <small>When disabled, the block list remains saved but is not applied.</small>
+                </div>
+                <div class="form-group">
                     <label style="display: flex; align-items: center; gap: 10px;">
                         <input type="checkbox" id="aprs_alert_enabled" name="aprs_alert_enabled" style="width: auto;" checked>
                         <span>Enable APRS ALERT notifications</span>
@@ -843,19 +862,55 @@
                         <input type="checkbox" id="weather_alert_storm_enabled" name="weather_alert_storm_enabled" style="width: auto;">
                         <span>Enable possible storm alert</span>
                     </label>
-                    <small>Shows alert when a possible thunderstorm appears in the next 6 hours forecast.</small>
+                    <small>Shows an alert when the open-meteo forecast for the next 6 hours indicates a possible thunderstorm.</small>
                 </div>
                 <div class="form-group">
                     <label style="display: flex; align-items: center; gap: 10px;">
                         <input type="checkbox" id="weather_alert_wind_enabled" name="weather_alert_wind_enabled" style="width: auto;">
                         <span>Enable strong wind alert</span>
                     </label>
-                    <small>Shows alert when strong wind is detected in the forecast up to 6 hours ahead.</small>
+                    <small>Shows an alert when the open-meteo forecast for the next 6 hours indicates strong wind/gusts.</small>
                 </div>
                 <div class="form-group">
                     <label>Wind Alert Threshold (m/s):</label>
                     <input type="number" id="weather_alert_wind_threshold_ms" name="weather_alert_wind_threshold_ms" min="1" max="60" step="0.1" value="12.0">
                     <small>Set wind speed threshold for alerts (range 1.0-60.0 m/s).</small>
+                </div>
+            </div>
+            <div class="config-section">
+                <h3>🖼️ Alert icons (storm / wind)</h3>
+                <small>Replace the storm and wind graphics shown on the full-screen alert. Any JPG/PNG/BMP/GIF/WEBP is scaled to 408×320 and converted to a 16-bit RGB565 BMP in the browser, then sent to the device. Defaults: <b>burza.bmp</b> (storm) and <b>wiatr.bmp</b> (wind) from the <b>data/icon50</b> folder.</small>
+                <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;">
+                    <div style="flex:1;min-width:280px;background:#0b1220;border:1px solid #2a3357;border-radius:8px;padding:10px;">
+                        <label style="font-weight:bold;">⚡ Storm icon</label>
+                        <div style="margin:8px 0;">
+                            <img id="wx-storm-preview" src="/wxicon_preview?type=storm" alt="" style="width:96px;height:96px;object-fit:contain;background:#000;border:1px solid #2a3357;image-rendering:auto;">
+                        </div>
+                        <input type="file" id="wx-storm-file" accept="image/png,image/jpeg,image/bmp,image/gif,image/webp">
+                        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+                            <button type="button" class="btn" id="wx-storm-btn" style="background:#4a6a4a;">⬆️ Upload storm icon</button>
+                            <button type="button" class="btn" id="wx-storm-reset" style="background:#6a4a4a;">↩️ Default</button>
+                        </div>
+                        <div id="wx-storm-status" style="margin-top:6px;color:#b0b0b0;font-size:12px;"></div>
+                    </div>
+                    <div style="flex:1;min-width:280px;background:#0b1220;border:1px solid #2a3357;border-radius:8px;padding:10px;">
+                        <label style="font-weight:bold;">💨 Wind icon</label>
+                        <div style="margin:8px 0;">
+                            <img id="wx-wind-preview" src="/wxicon_preview?type=wind" alt="" style="width:96px;height:96px;object-fit:contain;background:#000;border:1px solid #2a3357;image-rendering:auto;">
+                        </div>
+                        <input type="file" id="wx-wind-file" accept="image/png,image/jpeg,image/bmp,image/gif,image/webp">
+                        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+                            <button type="button" class="btn" id="wx-wind-btn" style="background:#4a6a4a;">⬆️ Upload wind icon</button>
+                            <button type="button" class="btn" id="wx-wind-reset" style="background:#6a4a4a;">↩️ Default</button>
+                        </div>
+                        <div id="wx-wind-status" style="margin-top:6px;color:#b0b0b0;font-size:12px;"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Preview of the full alert screen (exactly what the TFT shows):</label>
+                    <div style="background:#000;border:1px solid #2a3357;border-radius:8px;padding:6px;display:inline-block;">
+                        <canvas id="wx-alert-canvas" width="480" height="320" style="max-width:100%;height:auto;display:block;"></canvas>
+                    </div>
                 </div>
             </div>
             <button type="button" class="save-btn" onclick="saveConfig()">💾 Save WEATHER ALERT</button>
@@ -864,7 +919,7 @@
     
     <div id="config-page" class="page">
         <div class="config-form">
-            <h2 style="color: #e0e0e0; margin-bottom: 20px; text-align: center;">ESP32-HAM-CLOCK v1.2c Configuration</h2>
+            <h2 style="color: #e0e0e0; margin-bottom: 20px; text-align: center;">ESP32-HAM-CLOCK v1.2d Configuration</h2>
             <form id="config-form" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
                 
                 <!-- Section: WiFi Connection -->
@@ -938,9 +993,21 @@
                 <div class="config-section">
                     <h3>📻 DX Cluster</h3>
                     <div class="form-group">
+                        <label>Preset:</label>
+                        <select id="cluster_preset" onchange="applyClusterPreset()">
+                            <option value="">-- select --</option>
+                            <option value="dxspots.com|7300">dxspots.com (7300)</option>
+                            <option value="dxfun.com|8000">dxfun.com (8000)</option>
+                            <option value="cluster.dxzone.com|7300">cluster.dxzone.com (7300)</option>
+                            <option value="dxc.ve7cc.net|23">dxc.ve7cc.net (23)</option>
+                            <option value="rk3dwa.ru|8000">rk3dwa.ru (8000)</option>
+                        </select>
+                        <small>Preset fills host and port. Telnet DX Cluster servers are supported (dxspots.com, dxfun.com and others).</small>
+                    </div>
+                    <div class="form-group">
                         <label>DX Cluster Host:</label>
                         <input type="text" id="cluster_host" name="cluster_host" required>
-                        <small>DX Cluster server address (e.g. dxc.metronet.pl or dxspots.com)</small>
+                        <small>DX Cluster server address (e.g. dxspots.com or dxfun.com)</small>
                     </div>
                     <div class="form-group">
                         <label>DX Cluster Port:</label>
@@ -1047,6 +1114,13 @@
                         <label>Time Zone (UTC offset hours):</label>
                         <input type="number" id="timezone" name="timezone" min="-12" max="14" step="0.5" value="0">
                         <small>Hour offset from UTC (e.g. Poland: 1)</small>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex; align-items:center; gap:10px;">
+                            <input type="checkbox" id="dst_auto" name="dst_auto" style="width:auto;">
+                            <span>Automatic summer/winter time change (Europe)</span>
+                        </label>
+                        <small>When enabled, the device adds +1 h during summer time (from the last Sunday of March, 01:00 UTC) and returns to winter time on the last Sunday of October (01:00 UTC). Disable if your time zone does not observe DST.</small>
                     </div>
                     <div class="form-group">
                         <label>Latitude:</label>
@@ -1220,6 +1294,19 @@
                         <small>API key from openweathermap.org (required to show weather and forecast on TFT screens)</small>
                     </div>
                 </div>
+
+                <!-- Section: open-meteo (additional source - weather/storm alerts) -->
+                <div class="config-section">
+                    <h3>🌦️ open-meteo (additional service)</h3>
+                    <div class="form-group">
+                        <small>Additional free weather data source (open-meteo.com) used for weather and storm alerts. No API key required. Enable alerts in the "WEATHER ALERT" section.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>open-meteo API address:</label>
+                        <input type="text" id="openmeteo_url" name="openmeteo_url" placeholder="https://api.open-meteo.com/v1/forecast" spellcheck="false">
+                        <small>open-meteo forecast endpoint (default https://api.open-meteo.com/v1/forecast)</small>
+                    </div>
+                </div>
                 
                 <!-- Section: KiwiSDR -->
                 <div class="config-section">
@@ -1303,6 +1390,45 @@
                         <label>Beacon interval (minutes):</label>
                         <input type="number" id="aprs_interval_min" name="aprs_interval_min" min="1" max="180" placeholder="29">
                         <small>Gap between consecutive beacons after the first (which goes at 1 minute). Range 1-180 min.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Beacon TOCALL (field after &gt;):</label>
+                        <input type="text" id="aprs_tocall" name="aprs_tocall" maxlength="9" placeholder="APRS">
+                        <small>TOCALL marker in the beacon frame (default APRS; e.g. APZESP, APDW16). 3-9 chars, uppercase.</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="aprs_tnc2_monitor" name="aprs_tnc2_monitor">
+                            APRS-TNC2 monitor (2-line, Yaesu format)
+                        </label>
+                        <small>Shows received packets in two lines: AX.25 header (FROM&gt;TO,path) + info payload.</small>
+                    </div>
+                </div>
+
+                <!-- Section: TCPIP TNC-KISS -->
+                <div class="config-section">
+                    <h3>🔌 TCPIP TNC-KISS (LoRa / Digi APRS)</h3>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="aprs_kiss_enabled" name="aprs_kiss_enabled">
+                            Send beacon to TNC-KISS (without APRS-IS)
+                        </label>
+                        <small>The beacon is built as an AX.25 (UI) frame and sent in KISS to the TNC (LoRa APRS / Digi / Direwolf).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>TNC-KISS Host:</label>
+                        <input type="text" id="aprs_kiss_host" name="aprs_kiss_host" placeholder="e.g. 192.168.1.50 or lora-aprs.local">
+                        <small>IP address or hostname of the TNC-KISS (e.g. LoRa APRS iGate/Digi with a KISS port).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>TNC-KISS Port:</label>
+                        <input type="number" id="aprs_kiss_port" name="aprs_kiss_port" min="1" max="65535" value="8001" placeholder="8001">
+                        <small>KISS TCP server port (typically 8001 for LoRa APRS, 8001/6700 for Direwolf).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>RF path (digi path):</label>
+                        <input type="text" id="aprs_kiss_path" name="aprs_kiss_path" placeholder="WIDE1-1,WIDE2-1">
+                        <small>Default RF path of the KISS beacon: WIDE1-1,WIDE2-1. Startup sequence: KISS ON after 30 s, RESTART after 1 s.</small>
                     </div>
                 </div>
                 
@@ -1432,10 +1558,10 @@
         <div class="cyd-container dx-mobile-shell propagation-mobile-shell links-mobile-shell">
             <h2 class="dx-panel-title">LINKS</h2>
             <div class="cyd-screen">
-                <h3 class="prop-section-title">ESP32-HAM-CLOCK v1.2c</h3>
+                <h3 class="prop-section-title">ESP32-HAM-CLOCK v1.2d</h3>
                 <div class="github-release-box">
                     <div class="github-release-label">&#128190; Download latest release</div>
-                    <div id="github-release-info" class="github-release-text">Latest version available: <strong>v1.2c</strong> released on <strong>18.10.2026</strong></div>
+                    <div id="github-release-info" class="github-release-text">Latest version available: <strong>v1.2d</strong> released on <strong>23.10.2026</strong></div>
                     <a href="https://github.com/Tom50505050/esp32-ham-clock" target="_blank" rel="noopener" class="github-link">github.com/Tom50505050/esp32-ham-clock</a>
                     <div class="github-release-text" style="margin-top:8px">&#128230; Project package (sources + data + .bin files):<br><a href="/esp32-ham-clock-s3.zip" class="github-link" download>esp32-ham-clock-s3.zip</a></div>
                 </div>
@@ -1467,6 +1593,7 @@
                         <tr><th>DX Heat</th><td><a href="https://dxheat.com" target="_blank" rel="noopener">dxheat.com</a></td></tr>
                         <tr><th>APRS.fi</th><td><a href="https://aprs.fi" target="_blank" rel="noopener">aprs.fi</a></td></tr>
                         <tr><th>OpenWeatherMap</th><td><a href="https://openweathermap.org" target="_blank" rel="noopener">openweathermap.org</a></td></tr>
+                        <tr><th>open-meteo</th><td><a href="https://open-meteo.com" target="_blank" rel="noopener">open-meteo.com</a></td></tr>
                         <tr><th>POTA</th><td><a href="https://pota.app" target="_blank" rel="noopener">pota.app</a></td></tr>
                         <tr><th>HamAlert</th><td><a href="https://hamalert.org" target="_blank" rel="noopener">hamalert.org</a></td></tr>
                         <tr><th>QRZ.com</th><td><a href="https://www.qrz.com" target="_blank" rel="noopener">qrz.com</a></td></tr>
@@ -1537,7 +1664,7 @@
 
         let linksLoaded = false;
         const loadLinks = () => {
-            // Version is hardcoded (v1.2c, 18.10.2026) - do not query the GitHub
+            // Version is hardcoded (v1.2d, 23.10.2026) - do not query the GitHub
             // API, so the text is not overwritten with another version.
             linksLoaded = true;
             initSplashUpload();
@@ -1792,6 +1919,163 @@
             uploadBtn.addEventListener('click', uploadConvertedImage);
         };
 
+        // ===== Ikony alertu pogodowego (burza/wiatr) =====
+        // Konwersja w przegladarce do 480x320 RGB565 (BMP) i upload na urzadzenie.
+        // Podglad pelnoekranowego alertu rysowany na canvasie - 1:1 z firmware.
+        let wxIconInit = false;
+        let wxStormImg = null;   // uploaded storm icon (HTMLImageElement)
+        let wxWindImg = null;
+        const WX_ICON_W = 408, WX_ICON_H = 320;  // alert graphic panel (matches firmware)
+
+        const wxRenderAlert = (storm, img) => {
+            const cv = document.getElementById('wx-alert-canvas');
+            if (!cv) return;
+            const ctx = cv.getContext('2d');
+            const accent = storm ? '#ff0000' : '#ff8800';
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, 480, 320);
+            // Graphic 408x320 (fit=contain) fills the left panel.
+            if (img && img.complete && img.naturalWidth) {
+                const iw = img.naturalWidth, ih = img.naturalHeight;
+                const s = Math.min(WX_ICON_W / iw, WX_ICON_H / ih);
+                const dw = Math.round(iw * s), dh = Math.round(ih * s);
+                ctx.drawImage(img, (WX_ICON_W - dw) / 2, (WX_ICON_H - dh) / 2, dw, dh);
+            }
+            // Red alert text centered on screen, on a black box.
+            const title = storm ? 'BURZA' : 'SILNY WIATR';
+            const gust = '-- m/s';
+            const in6h = 'w ciagu 6h';
+            ctx.font = 'bold 32px sans-serif';
+            const w1 = ctx.measureText(title).width;
+            ctx.font = 'bold 24px sans-serif';
+            const w2 = ctx.measureText(gust).width;
+            ctx.font = '16px sans-serif';
+            const w3 = ctx.measureText(in6h).width;
+            let boxW = Math.max(w1, w2, w3) + 28;
+            const boxH = 128, boxY = 104;
+            let boxX = 240 - boxW / 2;
+            if (boxX < 4) boxX = 4;
+            ctx.strokeStyle = accent;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = '#ff0000';
+            ctx.font = 'bold 32px sans-serif';
+            ctx.fillText(title, 240, 118);
+            ctx.font = 'bold 24px sans-serif';
+            ctx.fillText(gust, 240, 164);
+            ctx.font = '16px sans-serif';
+            ctx.fillText(in6h, 240, 202);
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'alphabetic';
+            // Close (X) button in the top-right corner - as in firmware (449,7).
+            ctx.fillStyle = '#ff8800';
+            ctx.fillRect(449, 7, 26, 26);
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(456, 14); ctx.lineTo(468, 25);
+            ctx.moveTo(468, 14); ctx.lineTo(456, 25);
+            ctx.stroke();
+        };
+
+        const wxLoadPreview = (type, cb) => {
+            const img = new Image();
+            img.onload = () => cb(img);
+            img.onerror = () => cb(null);
+            img.src = '/wxicon_preview?type=' + type + '&t=' + Date.now();
+        };
+
+        const wxRefreshPreviews = () => {
+            wxLoadPreview('storm', (im) => { wxStormImg = im; wxRenderAlert(true, im); });
+            wxLoadPreview('wind', (im) => { wxWindImg = im; wxRenderAlert(false, im); });
+            const sp = document.getElementById('wx-storm-preview');
+            const wp = document.getElementById('wx-wind-preview');
+            if (sp) sp.src = '/wxicon_preview?type=storm&t=' + Date.now();
+            if (wp) wp.src = '/wxicon_preview?type=wind&t=' + Date.now();
+        };
+
+        // Uploads an icon file: 170x170 RGB565 BMP (fit=contain) -> RAW POST.
+        const wxUploadIcon = (type, fileInput, statusEl, btn) => {
+            const file = fileInput && fileInput.files && fileInput.files[0];
+            if (!file) { statusEl.textContent = "Select an image file."; return; }
+            const url = URL.createObjectURL(file);
+            const im = new Image();
+            btn.disabled = true;
+            statusEl.textContent = "Converting and uploading...";
+            im.onload = () => {
+                // 408x320 graphic (fit=contain) - firmware draws it 1:1 in the
+                // left panel of the alert screen (no upscale, no clipping).
+                const cv = document.createElement('canvas');
+                cv.width = WX_ICON_W; cv.height = WX_ICON_H;
+                const c2 = cv.getContext('2d');
+                c2.fillStyle = '#000';
+                c2.fillRect(0, 0, WX_ICON_W, WX_ICON_H);
+                const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+                const s = Math.min(WX_ICON_W / iw, WX_ICON_H / ih);
+                const dw = Math.round(iw * s), dh = Math.round(ih * s);
+                c2.drawImage(im, (WX_ICON_W - dw) / 2, (WX_ICON_H - dh) / 2, dw, dh);
+                const rgba = c2.getImageData(0, 0, WX_ICON_W, WX_ICON_H).data;
+                URL.revokeObjectURL(url);
+                const blob = buildBmp565(rgba, WX_ICON_W, WX_ICON_H);
+                const target = (type === 'storm') ? 'wxicon_storm' : 'wxicon_wind';
+                fetch('/upload_' + target, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-Filename': (file.name.replace(/\.[^.]+$/, '') || 'icon') + '_icon.bmp',
+                        'X-Upload-Target': target
+                    },
+                    body: blob
+                })
+                    .then(r => r.ok ? r.text() : Promise.reject(r.status))
+                    .then(() => { statusEl.textContent = "OK - icon saved on the device."; wxRefreshPreviews(); })
+                    .catch(e => { statusEl.textContent = "Upload error: " + e; })
+                    .finally(() => { btn.disabled = false; });
+            };
+            im.onerror = () => { URL.revokeObjectURL(url); statusEl.textContent = "Cannot read the file."; btn.disabled = false; };
+            im.src = url;
+        };
+
+        const wxResetIcon = (type, statusEl) => {
+            fetch('/wxicon_reset?type=' + type, { method: 'POST' })
+                .then(r => r.ok ? r.text() : Promise.reject(r.status))
+                .then(() => { statusEl.textContent = "Default icon restored."; wxRefreshPreviews(); })
+                .catch(e => { statusEl.textContent = "Error: " + e; });
+        };
+
+        const initWxIcons = () => {
+            if (wxIconInit) return;
+            const sFile = document.getElementById('wx-storm-file');
+            const wFile = document.getElementById('wx-wind-file');
+            const sBtn = document.getElementById('wx-storm-btn');
+            const wBtn = document.getElementById('wx-wind-btn');
+            const sReset = document.getElementById('wx-storm-reset');
+            const wReset = document.getElementById('wx-wind-reset');
+            const sStatus = document.getElementById('wx-storm-status');
+            const wStatus = document.getElementById('wx-wind-status');
+            if (!sFile || !wFile) return;
+            wxIconInit = true;
+            sBtn.addEventListener('click', () => wxUploadIcon('storm', sFile, sStatus, sBtn));
+            wBtn.addEventListener('click', () => wxUploadIcon('wind', wFile, wStatus, wBtn));
+            sReset.addEventListener('click', () => wxResetIcon('storm', sStatus));
+            wReset.addEventListener('click', () => wxResetIcon('wind', wStatus));
+            sFile.addEventListener('change', () => {
+                const f = sFile.files && sFile.files[0];
+                if (f) { const u = URL.createObjectURL(f); const im = new Image();
+                    im.onload = () => { wxStormImg = im; wxRenderAlert(true, im); URL.revokeObjectURL(u); };
+                    im.onerror = () => URL.revokeObjectURL(u); im.src = u; }
+            });
+            wFile.addEventListener('change', () => {
+                const f = wFile.files && wFile.files[0];
+                if (f) { const u = URL.createObjectURL(f); const im = new Image();
+                    im.onload = () => { wxWindImg = im; wxRenderAlert(false, im); URL.revokeObjectURL(u); };
+                    im.onerror = () => URL.revokeObjectURL(u); im.src = u; }
+            });
+            wxRefreshPreviews();
+        };
+
         const loadManual = () => {
             if (manualLoaded) return;
             fetch(manualUrl)
@@ -1820,6 +2104,7 @@
             if (page === "config" || page === "tft" || page === "alert" || page === "modules") {
                 loadConfig();
                 if (page === "tft") { initImageUpload(); initWelcomeDirectUpload(); }
+                if (page === "alert") { initWxIcons(); }
             } else if (page === "aprs") {
                 loadAPRS();
             } else if (page === "propagation") {
@@ -2001,11 +2286,27 @@
             return text || "--:--";
         }
 
+        // European DST rule: last Sunday of March 01:00 UTC -> +1 h,
+        // last Sunday of October 01:00 UTC -> back to winter time.
+        const isEuropeanDST = (d) => {
+            const month = d.getUTCMonth() + 1;
+            if (month < 3 || month > 10) return false;
+            if (month > 3 && month < 10) return true;
+            const day = d.getUTCDate();
+            const wday = d.getUTCDay();
+            const lastSunday = 31 - ((31 - day + wday) % 7);
+            if (month === 3) return day > lastSunday || (day === lastSunday && d.getUTCHours() >= 1);
+            return day < lastSunday || (day === lastSunday && d.getUTCHours() < 1);
+        };
+
         const formatAprsTimeLocal = (raw) => {
             const utc = formatSpotUtc(raw);
             if (utc === "--:--" || utc.length < 5) return utc;
             const tzEl = document.getElementById('timezone');
-            const tzH = tzEl ? (parseFloat(tzEl.value) || 0) : 0;
+            let tzH = tzEl ? (parseFloat(tzEl.value) || 0) : 0;
+            const dstEl = document.getElementById('dst_auto');
+            const autoDst = dstEl ? dstEl.checked : true;
+            if (autoDst && isEuropeanDST(new Date())) tzH += 1;
             if (tzH === 0) return utc;
             let h = parseInt(utc.substring(0, 2), 10);
             const m = utc.substring(3, 5);
@@ -2235,6 +2536,8 @@
             document.getElementById('user_locator').value = data.user_locator || "";
             const timezoneValue = (data.timezone !== undefined && data.timezone !== null) ? data.timezone : 0;
             document.getElementById('timezone').value = timezoneValue;
+            const dstEl = document.getElementById('dst_auto');
+            if (dstEl) dstEl.checked = (data.dst_auto !== false);
             if (data.user_lat !== null && data.user_lat !== undefined) {
                 document.getElementById('user_lat').value = data.user_lat;
             } else {
@@ -2259,6 +2562,26 @@
             if (gpsRxElEN && data.gps_rx_pin !== undefined && data.gps_rx_pin !== null) gpsRxElEN.value = data.gps_rx_pin;
             const gpsTxElEN = document.getElementById('gps_tx_pin');
             if (gpsTxElEN && data.gps_tx_pin !== undefined && data.gps_tx_pin !== null) gpsTxElEN.value = data.gps_tx_pin;
+            const gpsProfileElEN = document.getElementById('gps_module_profile');
+            if (gpsProfileElEN) gpsProfileElEN.value = (typeof data.gps_module_profile === 'string' && data.gps_module_profile.length) ? data.gps_module_profile : 'auto';
+            const gpsAutoCfgElEN = document.getElementById('gps_auto_configure');
+            if (gpsAutoCfgElEN) gpsAutoCfgElEN.checked = data.gps_auto_configure !== false;
+            const aprsToCallElEN = document.getElementById('aprs_tocall');
+            if (aprsToCallElEN) aprsToCallElEN.value = data.aprs_tocall || "APRS";
+            const tnc2MonElEN = document.getElementById('aprs_tnc2_monitor');
+            if (tnc2MonElEN) tnc2MonElEN.checked = data.aprs_tnc2_monitor === true;
+            const kissEnElEN = document.getElementById('aprs_kiss_enabled');
+            if (kissEnElEN) kissEnElEN.checked = data.aprs_kiss_enabled === true;
+            const kissHostElEN = document.getElementById('aprs_kiss_host');
+            if (kissHostElEN) kissHostElEN.value = data.aprs_kiss_host || "";
+            const kissPortElEN = document.getElementById('aprs_kiss_port');
+            if (kissPortElEN) kissPortElEN.value = (data.aprs_kiss_port !== undefined && data.aprs_kiss_port !== null) ? data.aprs_kiss_port : 8001;
+            const kissPathElEN = document.getElementById('aprs_kiss_path');
+            if (kissPathElEN) kissPathElEN.value = data.aprs_kiss_path || "WIDE1-1,WIDE2-1";
+            const alertBlockElEN = document.getElementById('aprs_alert_block');
+            if (alertBlockElEN) alertBlockElEN.value = data.aprs_alert_block || "";
+            const alertBlockEnElEN = document.getElementById('aprs_alert_block_enabled');
+            if (alertBlockEnElEN) alertBlockEnElEN.checked = data.aprs_alert_block_enabled !== false;
             document.getElementById('qrz_user').value = data.qrz_user || "";
             document.getElementById('qrz_pass').value = data.qrz_pass || "";
             document.getElementById('qrz_api_key').value = data.qrz_api_key || "";
@@ -2326,6 +2649,7 @@
             const windThresholdFromApi = parseFloat(data.weather_alert_wind_threshold_ms);
             const windThresholdSafe = Number.isFinite(windThresholdFromApi) ? Math.min(60.0, Math.max(1.0, windThresholdFromApi)) : 12.0;
             document.getElementById('weather_alert_wind_threshold_ms').value = windThresholdSafe;
+            document.getElementById('openmeteo_url').value = (typeof data.openmeteo_url === 'string' && data.openmeteo_url.length) ? data.openmeteo_url : "https://api.open-meteo.com/v1/forecast";
             const alertDistanceFromApi = parseFloat(data.aprs_alert_distance_km);
             const alertDistanceSafe = Number.isFinite(alertDistanceFromApi) ? Math.min(500, Math.max(0.1, alertDistanceFromApi)) : 1.0;
             document.getElementById('aprs_alert_distance_km').value = alertDistanceSafe;
@@ -2932,6 +3256,7 @@
             })(),
             user_locator: document.getElementById('user_locator').value,
             timezone: parseFloat(document.getElementById('timezone').value) || 0,
+            dst_auto: (() => { const el = document.getElementById('dst_auto'); return el ? el.checked : true; })(),
             user_lat: parseFloat(document.getElementById('user_lat').value) || 0,
             user_lon: parseFloat(document.getElementById('user_lon').value) || 0,
             use_gps_if_active: document.getElementById('use_gps_if_active').checked,
@@ -2940,6 +3265,16 @@
             gps_baud: (() => { const el = document.getElementById('gps_baud'); const v = el ? parseInt(el.value, 10) : 9600; return Number.isFinite(v) ? Math.min(2000000, Math.max(300, v)) : 9600; })(),
             gps_rx_pin: (() => { const el = document.getElementById('gps_rx_pin'); const v = el ? parseInt(el.value, 10) : 18; return Number.isFinite(v) ? Math.min(48, Math.max(0, v)) : 18; })(),
             gps_tx_pin: (() => { const el = document.getElementById('gps_tx_pin'); const v = el ? parseInt(el.value, 10) : 17; return Number.isFinite(v) ? Math.min(48, Math.max(0, v)) : 17; })(),
+            gps_module_profile: (() => { const el = document.getElementById('gps_module_profile'); return el ? el.value : 'auto'; })(),
+            gps_auto_configure: (() => { const el = document.getElementById('gps_auto_configure'); return el ? el.checked : true; })(),
+            aprs_tocall: (() => { const el = document.getElementById('aprs_tocall'); return el ? el.value : 'APRS'; })(),
+            aprs_tnc2_monitor: (() => { const el = document.getElementById('aprs_tnc2_monitor'); return el ? el.checked : false; })(),
+            aprs_kiss_enabled: (() => { const el = document.getElementById('aprs_kiss_enabled'); return el ? el.checked : false; })(),
+            aprs_kiss_host: (() => { const el = document.getElementById('aprs_kiss_host'); return el ? el.value.trim() : ''; })(),
+            aprs_kiss_port: (() => { const el = document.getElementById('aprs_kiss_port'); const v = el ? parseInt(el.value, 10) : 8001; return Number.isFinite(v) ? Math.min(65535, Math.max(1, v)) : 8001; })(),
+            aprs_kiss_path: (() => { const el = document.getElementById('aprs_kiss_path'); const v = el ? el.value.trim() : ''; return v.length ? v : 'WIDE1-1,WIDE2-1'; })(),
+            aprs_alert_block: (() => { const el = document.getElementById('aprs_alert_block'); return el ? el.value : ''; })(),
+            aprs_alert_block_enabled: (() => { const el = document.getElementById('aprs_alert_block_enabled'); return el ? el.checked : true; })(),
             qrz_user: document.getElementById('qrz_user').value,
             qrz_pass: document.getElementById('qrz_pass').value,
             qrz_api_key: document.getElementById('qrz_api_key').value,
@@ -3008,6 +3343,11 @@
                 if (!Number.isFinite(raw)) return 12.0;
                 return Math.min(60.0, Math.max(1.0, raw));
             })(),
+            openmeteo_url: (() => {
+                const el = document.getElementById('openmeteo_url');
+                const v = el ? el.value.trim() : "";
+                return v.length ? v : "https://api.open-meteo.com/v1/forecast";
+            })(),
             aprs_alert_distance_km: (() => {
                 const raw = parseFloat(document.getElementById('aprs_alert_distance_km').value);
                 if (!Number.isFinite(raw)) return 1.0;
@@ -3022,6 +3362,19 @@
             // Note: APRS uses coordinates from "Your Station" (user_lat, user_lon)
         };
         };
+
+        const applyClusterPreset = () => {
+            const sel = document.getElementById('cluster_preset');
+            if (!sel || !sel.value) return;
+            const parts = String(sel.value).split('|');
+            if (parts.length !== 2) return;
+            const hostEl = document.getElementById('cluster_host');
+            const portEl = document.getElementById('cluster_port');
+            if (hostEl) hostEl.value = parts[0];
+            if (portEl) portEl.value = parts[1];
+        };
+        window.applyClusterPreset = applyClusterPreset;
+
 
         const resetTftRotation = () => {
             if (!confirm('Are you sure you want to reset TFT rotation to default (1)?')) {
@@ -3384,7 +3737,7 @@
                 '        <option value="none">None</option>' +
                 '        <option value="gps">GPS</option>' +
                 '        <option value="aprs_tnc">APRS TNC2 (RX Only)</option>' +
-                '        <option value="aprs_tnc_kiss">APRS_TNC-KISS</option>' +
+                '        <option value="aprs_tnc_kiss">APRS_TNC-KISS (TCPIP TNC / LoRa / Digi)</option>' +
                 '        <option value="esp32_bridge">ESP32-BRIDGE</option>' +
                 '      </select>' +
                 '    </div>' +
@@ -3402,6 +3755,23 @@
                 '      <label>GPS Baud Rate:</label>' +
                 '      <input type="number" id="gps_baud" name="gps_baud" min="300" max="2000000" step="1" value="9600">' +
                 '      <small>Default 9600 (typical NEO-6M/NEO-M8N/ATGM336H modules).</small>' +
+                '    </div>' +
+                '    <div class="form-group">' +
+                '      <label>GPS module profile:</label>' +
+                '      <select id="gps_module_profile" name="gps_module_profile">' +
+                '        <option value="auto">Auto (NEO-6M/NEO-M8N)</option>' +
+                '        <option value="neo6">u-blox NEO-6M / NEO-6</option>' +
+                '        <option value="neom8n">u-blox NEO-M8N</option>' +
+                '        <option value="atgm336h">ATGM336H (NMEA only)</option>' +
+                '      </select>' +
+                '      <small>Profile selects the UBX/NMEA configure sequence (1 Hz, only needed sentences).</small>' +
+                '    </div>' +
+                '    <div class="form-group">' +
+                '      <label style="display:flex; align-items:center; gap:10px;">' +
+                '        <input type="checkbox" id="gps_auto_configure" name="gps_auto_configure" style="width:auto;" checked>' +
+                '        <span>Automatic GPS module configuration</span>' +
+                '      </label>' +
+                '      <small>Sends the configure sequence to the GPS module after UART2 starts.</small>' +
                 '    </div>' +
                 '    <div class="form-group" style="display:flex; gap:10px; flex-wrap:wrap;">' +
                 '      <div style="flex:1; min-width:120px;">' +
@@ -3608,7 +3978,7 @@
     <div class="app-footer">
         Software author: Tomasz SP9TNV, based on the project by Konrad Wiśniewski SP3KON.<br>
         Software modified by SP9TNV based on the project by Konrad Wiśniewski SP3KON (with the help of AI).<br>
-        Current software version: ESP32-HAM-CLOCK v1.2c (18.10.2026).<br>
+        Current software version: ESP32-HAM-CLOCK v1.2d (23.10.2026).<br>
         For questions, contact: SP9TNV@gmail.com
     </div>
     <div class="links-bottom-bar">

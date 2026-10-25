@@ -128,7 +128,7 @@ Poniżej krótki opis każdej zakładki:
   Ekran TFT
   ---------
   Ustawienia wyświetlacza TFT: jasność podświetlenia, język ekranu (PL/EN),
-  rozmiar tabel, kolejność i zawartość slotów ekranów (1-11),
+  rozmiar tabel, kolejność i zawartość slotów ekranów (1-14),
   tryb auto-przełączania, obrót i kalibracja dotyku.
 
   Ustawienia
@@ -143,23 +143,72 @@ Poniżej krótki opis każdej zakładki:
 4. EKRANY TFT
 ==============
 
-Na wyświetlaczu TFT dostępnych jest 11 slotów ekranów. Każdy slot możesz
-przypisać do jednego z poniższych ekranów (lub wyłączyć - OFF):
-
-  HAM CLOCK           - zegar UTC i lokalny, data, status urządzenia
-  DX CLUSTER          - tabela spotów DX z filtrem MODE / BAND
-  APRS-IS             - lista odebranych stacji APRS
-  APRS RADAR          - widok radarowy stacji APRS wokół Twojej pozycji
-  BAND INFO           - informacje o warunkach na pasmach KF
-  SUN SPOTS           - dane propagacyjne (aktywność słoneczna)
-  WEATHER             - bieżąca pogoda dla Twojej lokalizacji
-  WEATHER FORECAST    - prognoza pogody godzinowa / dobowa + PM2.5/PM10
-  POTA                - spoty POTA
-  HAMALERT            - spoty i alerty z HamAlert
-  MATRIX              - zegar w stylu wizualnym Matrix
-
+Na wyświetlaczu TFT dostępnych jest 14 slotów ekranów. Każdy slot możesz
+przypisać do jednego z poniższych ekranów (lub wyłączyć - OFF).
 Dotknięcie ekranu zmienia wyświetlany widok. Przytrzymanie dotyku przez ~3 s
 w środku ekranu otwiera menu jasności (suwak LIVE) i przełącznik języka TFT.
+
+Opis funkcji wszystkich ekranów:
+
+  HAM CLOCK
+    Zegar UTC i lokalny z datą, tarcza analogowa, panel globusa i wodospadu
+    20 m oraz ikony statusu w nagłówku (patrz lista ikon niżej).
+    Przytrzymanie dotyku otwiera menu TIME MODE (styl zegara, AUTO DST wł./wył.).
+
+  DX CLUSTER
+    Tabela spotów DX Cluster na żywo. Filtr MODE (ALL/CW/SSB/FT8/FT4) oraz
+    BAND (160 m - 10 m). Dotknięcie wiersza pokazuje szczegóły.
+
+  APRS-IS
+    Lista stacji odebranych z APRS-IS w zadanym promieniu: czas, znak, symbol,
+    odległość i komentarz stacji.
+
+  APRS RADAR
+    Widok radarowy stacji APRS wokół Twojej pozycji z pierścieniami odległości.
+
+  BAND INFO
+    Warunki na pasmach KF (dzień / noc) - które pasma są otwarte.
+
+  SUN SPOTS
+    Dane propagacyjne: Solar Flux Index, K-index, A-index, MUF, liczba plam
+    słonecznych.
+
+  WEATHER
+    Bieżąca pogoda dla Twojej lokalizacji (OpenWeather): temperatura, wiatr,
+    wilgotność, ciśnienie, ikona oraz opcjonalny panel alertu burzowego/wiatru.
+
+  WEATHER FORECAST
+    Prognoza godzinowa i dobowa z jakością powietrza PM2.5/PM10.
+
+  POTA
+    Spoty POTA (Parks on the Air) - aktywacje parków przez krótkofalowców.
+
+  HAMALERT
+    Spoty i alerty z serwisu HamAlert (Telnet).
+
+  MATRIX
+    Zegar w stylu wizualnym Matrix.
+
+  PSK MAP
+    Mapa świata ze spotami PSK Reporter (MQTT) i znacznikiem Twojej pozycji.
+
+  SYSTEM INFO
+    Informacje systemowe: adres IP, sygnał WiFi, RAM/heap, czas pracy,
+    wersja firmware i stan baterii.
+
+  ISS
+    Śledzenie przelotów ISS: mapa nieba, najbliższe przeloty i aktualna pozycja.
+
+  STATION
+    Wyszukiwarka znaku: wpisujesz znak, urządzenie pobiera dane z QRZ.
+
+  LOGGER
+    ESP32 HAM LOGGER: formularz QSO + tabela dziennika ADIF.
+
+Ikony statusu w nagłówku (góra ekranu):
+  - Ikona satelity GPS: szary = brak modułu GPS, bursztynowy = szuka satelitów,
+    ZIELONY = pozycja ustalona (ESP32 połączony z satelitami).
+  - Paski WiFi oraz ikona baterii.
 
 
 5. ZAKŁADKA USTAWIENIA - SZCZEGÓŁOWY OPIS
@@ -370,6 +419,38 @@ przez Internet) oraz opcjonalnego wysyłania beaconu pozycyjnego.
     Zakres: 1-180 minut. Zalecana wartość: 29 minut (normy APRS).
 
 
+5.9b TCPIP TNC-KISS (APRS po LoRa / Digi)
+------------------------------------------
+Opcjonalny tryb wysylania beaconu APRS bezposrednio do TNC-KISS
+(np. LoRa APRS iGate/Digi lub Direwolf) zamiast do APRS-IS.
+
+  Wysylaj beacon do TNC-KISS
+    Gdy zaznaczone, beacon jest budowany jako ramka AX.25 (UI)
+    i wysylany w formacie KISS przez TCP do TNC. Beacon do APRS-IS
+    jest wtedy wylaczony (jedno zrodlo TX).
+
+  Host TNC-KISS
+    Adres IP lub nazwa hosta serwera KISS (np. 192.168.1.50).
+
+  Port TNC-KISS
+    Port TCP serwera KISS. Typowo 8001 dla LoRa APRS,
+    8001 lub 6700 dla Direwolf.
+
+  Sciezka RF (digi path)
+    Domyslna sciezka digipeaterow w beaconie AX.25.
+    Przyklad: WIDE1-1,WIDE2-1.
+
+  TOCALL beaconu
+    Znacznik TOCALL w ramce (pole po znaku >). Domyslnie APRS.
+
+  Sekwencja startowa
+    Po polaczeniu z TNC urzadzenie wysyla komende KISS ON po 30 s,
+    a nastepnie RESTART po 1 s.
+
+  Monitor APRS-TNC2
+    Po wlaczeniu ekran APRS pokazuje odebrane pakiety w dwoch liniach:
+    naglowek AX.25 (FROM>TO,path) oraz tresc info (format Yaesu).
+
 5.10 Zakładka "Ekran TFT" - Ustawienia wyświetlacza
 -----------------------------------------------------
 (Dostępna w osobnej zakładce "Ekran TFT" w menu głównym)
@@ -395,11 +476,12 @@ przez Internet) oraz opcjonalnego wysyłania beaconu pozycyjnego.
     Czas między automatycznymi przełączeniami ekranów.
     Zakres: 1-3600 sekund. Domyślnie: 30 sekund.
 
-  Kolejność ekranów (Strony 1-11)
+  Kolejność ekranów (Strony 1-14)
     Każda "Strona" to jeden slot w rotacji ekranów TFT.
     Dla każdego slotu wybierz jeden z ekranów:
       HAM CLOCK, DX CLUSTER, APRS-IS, APRS RADAR, BAND INFO,
-      SUN SPOTS, WEATHER, WEATHER FORECAST, POTA, HAMALERT, MATRIX
+      SUN SPOTS, WEATHER, WEATHER FORECAST, POTA, HAMALERT, MATRIX,
+      PSK MAP, SYSTEM INFO, STATION, LOGGER, ISS
     lub ustaw OFF, aby wyłączyć dany slot (pomijany w rotacji).
     Strona 1 wyświetlana jest jako pierwsza po włączeniu urządzenia.
 

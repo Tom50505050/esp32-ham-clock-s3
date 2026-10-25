@@ -1,6 +1,22 @@
 # Stan prac — ESP32-HAM-CLOCK-S3
 
-Ostatnia aktualizacja: 2026-10-18 (wieczor). Wersja firmware: **v1.2c**.
+Ostatnia aktualizacja: 2026-10-23. Wersja firmware: **v1.2d**.
+
+## v1.2d — czcionki zegara, alert pogodowy, migotanie, pin baterii (23.10.2026)
+
+- **Wybór czcionki znaku i zegara**: 14 krojów VLW + wbudowana, menu TIME MODE
+  (siatka 5×3), zapis NVS `clock_font`. Rysowanie `drawString()` + `TC_DATUM`,
+  centrowanie w stałych komórkach (monospace), pion od rzeczywistego atramentu.
+- **Alert pogodowy — własne grafiki (burza/wiatr)**: pliki w LittleFS, ścieżki w
+  NVS `wxal_ic_s/wxal_ic_w`, trasy `/upload_wxicon_storm|wind`, `/wxicon_preview`,
+  `/wxicon_reset`; podgląd całego ekranu 480×320 w WWW.
+- **Naprawa migotania cyfr zegara (wszystkie 15 czcionek)**: dirty-cells w
+  `clockDrawMonospace()` (tylko zmienione komórki, ~67% mniej pikseli na SPI),
+  `clockTimeInkOffset()` (stały pionowy offset `"0123456789:"` — koniec drgania
+  1 px), guard przerysowania w `updateScreen1ClockClassic()`.
+- **Pin dzielnika baterii GPIO7 → GPIO1** (`BATTERY_ADC_PIN 1`, ADC1_CH0).
+- **`FIRMWARE_VERSION` 1.2c → 1.2d**; `data/index*.html` (6 języków),
+  `tools/lang_pages.json`, `platformio.ini`, README/RELEASE_NOTES zaktualizowane.
 
 ## v1.2c — poprawki PSK MQTT i nagłówka (18.10.2026)
 
@@ -28,7 +44,6 @@ Ostatnia aktualizacja: 2026-10-18 (wieczor). Wersja firmware: **v1.2c**.
   ikona baterii, napisy, legenda i stopka pozostaja nietkniete (bez migania).
 - MQTT startuje domyslnie (`pskMqttEnabled = true`, NVS `psk_mqtt_en = true`).
 - Przycisk RESET w menu PSK czysci spoty (`resetPskMapSpots()`).
-- Zapis rozmow: `tools/export_conversation.py` + `conversations/`.
 
 Buildy: `esp32-s3-n16r8`, `-notouch` — SUCCESS. Artefakty w `dist/`, `download/`
 i `/workspace/share/` (merged-flash*.bin, ZIP).
@@ -37,4 +52,3 @@ i `/workspace/share/` (merged-flash*.bin, ZIP).
 
 - `git commit` domyslnie wymaga podpisu GPG (`commit.gpgsign=true`). Klucz
   prywatny jest w `.gpg-release-key` (poza VCS). Bez klucza: `--no-gpg-sign`.
-- NIE commitujemy pelnego zapisu rozmow ani `base_state.json` (klucz API).

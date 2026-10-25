@@ -2,11 +2,227 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## v1.2d — czcionki zegara, alert pogodowy, migotanie, pin baterii (23.10.2026)
+Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.2d**):
+- **Wybór czcionki znaku i zegara** — 14 krojów VLW + wbudowana, menu TIME MODE
+  (siatka 5×3), zapis w NVS `clock_font`.
+- **Własne grafiki alertu pogodowego (burza/wiatr)** — pliki w LittleFS, ścieżki w
+  NVS `wxal_ic_s/wxal_ic_w`, trasy `/upload_wxicon_*`, `/wxicon_preview`,
+  `/wxicon_reset`; podgląd 480×320 w WWW.
+- **Naprawa migotania cyfr zegara (wszystkie 15 czcionek)**: dirty-cells w
+  `clockDrawMonospace()` (rysuje tylko zmienione komórki, ~67% mniej pikseli na
+  SPI), `clockTimeInkOffset()` (stały pionowy offset `"0123456789:"`, koniec
+  drgania 1 px), guard przerysowania w `updateScreen1ClockClassic()`.
+  Podgląd QA: `tools/render_clock_flicker_preview.py`.
+- **Pin dzielnika baterii GPIO7 → GPIO1** (`BATTERY_ADC_PIN 1`, ADC1_CH0); w WWW i
+  `PINOUT.md` GPIO1 zajęty, GPIO7 wolny.
+- **`FIRMWARE_VERSION` 1.2c → 1.2d**; `data/index*.html` (6 języków),
+  `tools/lang_pages.json`, `platformio.ini`, README/RELEASE_NOTES zaktualizowane.
+
+## Grafiki alertu pogodowego (burza/wiatr) — pełnoekranowy layout 408×320 (22.10.2026)
+- **Ekran alertu: grafika 408×320 + czerwony napis.** Lewy panel (408×320 px)
+  wypelnia grafika burzy/wiatru w trybie **fit=contain** (bez skalowania w gore i
+  bez przycinania, tlo czarne). Napisy pozostawione bez zmian merytorycznych
+  (nazwa zjawiska, poryw `m/s`, `w ciagu 6h`), ale wyśrodkowane na ekranie i w
+  **kolorze czerwonym** na czarnym prostokacie z ramka (akcent: czerwony dla
+  burzy, pomaranczowy dla wiatru). Przycisk X w prawym gornym rogu bez zmian.
+- **Firmware `drawWeatherAlertIconFile(path)`.** Bez parametrow cx/cy/maxSide -
+  skaluje obraz do okna 408×320 (fit=contain) i wypelnia caly lewy panel.
+  Bufor docelowy 408×320×2 B (~261 kB) trzymany w **PSRAM** (`heap_caps_malloc`
+  z `MALLOC_CAP_SPIRAM`, alokowany raz). Obsluga BMP 16/24-bit z odczytem
+  wierszowym i resamplingiem nearest liczonym po pikselach docelowych
+  (bezpieczne takze dla pomniejszania). Szybka sciezka: obraz 1:1 z panelem
+  rysowany wprost (`drawBmpFromFS`/`drawBmp16FromFS`). PNG/JPG: nadal nie sa
+  skalowane przez firmware (naglowek uzywany tylko do wymiarow), wiec wgrywaj BMP.
+- **WWW (6 jezykow).** Podglad ekranu na `<canvas>` 480×320 rysuje grafike
+  408×320 (fit=contain) + czerwony wysrodkowany napis + X. Upload konwertuje
+  obraz w przegladarce do **408×320 BMP 16-bit RGB565** (`buildBmp565`).
+  Opis sekcji w `lang_pages.json` zaktualizowany (170×170 → 408×320) i strony
+  DE/FR/ES/RU wygenerowane przez `gen_pages.py`.
+- **QA:** `tools/render_weather_alert_preview.py` → `weather_alert_preview.png`
+  (dwa ekrany 480×320: burza + wiatr).
+- **Artefakty:** env `esp32-s3-n16r8` i `-notouch` `pio run` + `buildfs` SUCCESS,
+  `merge_bin` → `dist/`, `python3 tools/make_zip.py`.
+
+## Grafiki alertu pogodowego (burza/wiatr) — własne ikony z WWW (22.10.2026)
+- **Zakładka ALERT POGODOWY (WWW, 6 języków).** Nowa sekcja „Grafiki alertu
+  (burza / wiatr)": dwa pola wyboru pliku (JPG/PNG/BMP/GIF/WEBP), przyciski
+  **Wgraj** i **Domyślna**, podgląd miniatury oraz **podgląd całego ekranu
+  alertu** na `<canvas>` 480×320 (1:1 z firmware). Nowe stringi UI dodane do
+  `tools/lang_pages.json` dla DE/FR/ES/RU i wygenerowane przez `gen_pages.py`.
+- **Konwersja w przeglądarce.** Wybrany obraz jest skalowany do **408×320**
+  (fit=contain, bez skalowania w górę i bez przycinania, czarne tło) i
+  konwertowany do **BMP 16-bit RGB565**
+  (`buildBmp565(rgba, w, h)` — dodane parametry wymiarów) i wysyłany jako RAW
+  POST na `/upload_wxicon_storm` / `/upload_wxicon_wind`.
+- **Firmware.** Nowe globalne `weatherIconStormPath` (domyślnie
+  `/icon50/burza.bmp`) i `weatherIconWindPath` (`/icon50/wiatr.bmp`), NVS
+  `wxal_ic_s` / `wxal_ic_w`, pola `weather_icon_storm` / `weather_icon_wind`
+  w `GET/POST /api/config`. Upload zapisuje `/wxicon_storm.<ext>` (lub
+  `/wxicon_wind.<ext>`) i aktualizuje ścieżkę w NVS. Trasy `/wxicon_preview`
+  (podgląd) i `/wxicon_reset` (powrót do domyślnej). `drawWeatherAlertScreen()`
+  rysuje ikonę z pliku przez nowy `drawWeatherAlertIconFile()` (odczyt wymiarów
+  z nagłówka BMP/PNG/JPEG, skalowanie nearest-neighbour), a gdy plik brak —
+  wbudowaną ikonę wektorową.
+- **Domyślne ikony:** `data/icon50/burza.bmp` i `data/icon50/wiatr.bmp`
+  (24-bit BMP 50×50, czarne tło) generowane przez `tools/make_weather_icons.py`.
+  Podgląd QA: `tools/render_weather_alert_preview.py` → `weather_alert_preview.png`,
+  porównanie przed/po: `tools/render_weather_alert_before_after.py`.
+- **Układ ekranu (23.10.2026).** Grafika burzy/wiatru zajmuje cały lewy panel
+  **408×320** (`WX_ICON_TARGET_W/H`, fit=contain, bez skalowania w górę i bez
+  przycinania); prawy pasek 408..479 zostaje czarny (tam przycisk X w prawym
+  górnym rogu). Napisy **czerwone** (`TFT_RED`), wyśrodkowane na środku ekranu
+  (x=240), na **przezroczystym tle** — rysujemy tylko ramkę akcentu
+  (`drawRect`; czerwona dla burzy, pomarańczowa dla wiatru) i sam tekst
+  (`setTextColor(TFT_RED)` bez koloru tła). Wcześniej pod napisami był czarny
+  prostokąt (`fillRect`) — usunięty na prośbę użytkownika („sama ramka i napisy
+  bez czarnego tła”). Wiersze: nazwa zjawiska (rozm. 4), poryw „NN m/s”
+  (rozm. 3), `w ciagu 6h` (rozm. 2). Podgląd WWW na `<canvas>` rysuje to samo.
+- **Artefakty:** oba env `pio run` + `buildfs` SUCCESS, `merge_bin` → `dist/`,
+  `python3 tools/make_zip.py` (630 wpisów).
+
+## TCPIP TNC-KISS (APRS po LoRa/Digi) + preset DX Cluster (21.10.2026)
+- **Nowy moduł UART2 `aprs_tnc_kiss`.** W zakładce Modules (WWW, 6 języków)
+  można wybrać `APRS_TNC-KISS (TCPIP TNC / LoRa / Digi)`; zapisywany w NVS jako
+  `uart2_connected_module`. Beacon APRS budowany jest jako ramka **AX.25 (UI)** i
+  wysyłany w **KISS przez TCP** do TNC (LoRa APRS iGate/Digi, Direwolf).
+- **Pola KISS w WWW** (wszystkie języki): `aprs_kiss_enabled`, `aprs_kiss_host`,
+  `aprs_kiss_port` (domyślnie 8001), `aprs_kiss_path` (domyślnie `WIDE1-1,WIDE2-1`).
+  Firmware: NVS `aprs_kiss_en/h/p/pth`, JSON `GET/POST /api/config`
+  (walidacja portu 1-65535, trim hosta/ścieżki). Beacon do APRS-IS jest wtedy
+  wyłączony (jedno źródło TX); `kissSendBeacon()`/`connectToKiss()`/
+  `handleKissData()`/`kissHandleStartupSequence()` wołane w `loop()` niezależnie
+  od APRS-IS (sekwencja startowa: KISS ON po 30 s, RESTART po 1 s).
+- **Pola APRS dodane do WWW:** `aprs_tocall` (NVS `aprs_tocall`, znacznik w polu
+  po `>`), `aprs_tnc2_monitor` (NVS `aprs_tnc2_mon`, 2-liniowy monitor Yaesu),
+  `aprs_alert_block` + `aprs_alert_block_enabled` (NVS `aprs_alrt_blk` /
+  `aprs_alrt_blk_en`).
+- **Preset DX Cluster** (`cluster_preset` + `applyClusterPreset()`): uzupełnia
+  host/port (dxspots.com:7300, dxfun.com:8000, cluster.dxzone.com:7300,
+  dxc.ve7cc.net:23, rk3dwa.ru:8000). Obecny w PL/EN i w tłumaczeniach.
+- **Tłumaczenia generowane z EN.** `data/indexDE|ES|FR|RU.html` powstają przez
+  `python3 tools/gen_pages.py` z `data/indexEN.html` + `tools/lang_pages.json`.
+  Nowe stringi (m.in. `GPS module profile:`, profil GPS w zakładce Modules,
+  etykiety KISS/TOCALL/monitora/blokady, preset DX Cluster) dodane do słownika
+  dla wszystkich 4 języków — **nie edytować plików DE/ES/FR/RU ręcznie**, bo
+  regeneracja je nadpisze. Markup wewnątrz literałów JS (zakładka Modules)
+  dopasowywany jest kluczami z wiodącym `>` (konwencja gen_pages.py).
+- **Manual w 6 językach:** nowa sekcja **5.9b TCPIP TNC-KISS** w
+  `data/instrukcja.txt`, `data/manual.txt`, `manual{DE,ES,FR,RU}.txt`.
+- **Artefakty:** `pio run` dla 4 env SUCCESS, `buildfs` OK; JS walidowany
+  `node --check` dla wszystkich 6 stron WWW.
+
+## Instrukcja w 6 językach + ikona satelity + opis ekranów (21.10.2026)
+- **Ikona satelity GPS zielona po fixie.** `gpsIconStatusColor()` rozdzielone na
+  `gpsIconState()` (0=brak modułu, 1=szuka, 2=fix) i kolor: szary `0x6BF2`,
+  bursztynowy `0xFE4A`, **zielony `0x07E0`** gdy `gpsFix`. Nowy
+  `refreshGpsIconIfChanged()` (main.cpp ~3980) wołany w `loop()` obok
+  `drawBatteryQuickUpdate` odświeża samą ikonę po zmianie stanu (tylko ekran
+  HAM CLOCK, z pominięciem `inMenu`/menu jasności/wygaszacza). `gpsIconLastState`
+  trzyma ostatnio narysowany stan, żeby nie odświeżać bez potrzeby.
+- **Manual w 6 językach.** Nowe pliki `data/manualDE.txt`, `manualFR.txt`,
+  `manualES.txt`, `manualRU.txt` (pełne tłumaczenia EN, sekcje 1-6 + opis
+  wszystkich ekranów + lista ikon). Trasy `/manualDE.txt` … `/manualRU.txt`
+  w main.cpp (~20991, pętla po `manualFiles[]`) streamują plik z LittleFS,
+  z fallbackiem na `/manual.txt`. `tools/gen_pages.py` podmienia
+  `manualUrl` na `/manual<LANG>.txt` w generowanych stronach DE/FR/ES/RU
+  (PL zostaje `/instrukcja.txt`, EN `/manual.txt`).
+- **Opis funkcji wszystkich ekranów** w sekcji 4 każdego manuala (14 ekranów:
+  HAM CLOCK, DX CLUSTER, APRS-IS, APRS RADAR, BAND INFO, SUN SPOTS, WEATHER,
+  WEATHER FORECAST, POTA, HAMALERT, MATRIX, PSK MAP, SYSTEM INFO, ISS, STATION,
+  LOGGER) + liczba slotów zaktualizowana z 11 na **14**.
+- **Artefakty:** env `esp32-s3-n16r8` i `-notouch` SUCCESS, `buildfs` OK;
+  `littlefs.bin` zawiera 4 nowe manuale; `merged-flash*.bin` + ZIP (**594
+  wpisy**, w tym `data/manual{DE,FR,ES,RU}.txt`).
+
+## Auto czas letni/zimowy + T_IRQ opcjonalny (21.10.2026)
+- **Automatyczna zmiana czasu (DST).** Reguła europejska: ostatnia niedziela
+  marca 01:00 UTC → +1 h, ostatnia niedziela października 01:00 UTC → powrót do
+  czasu zimowego. `isEuropeanDST(struct tm*)` (UTC) już istniała i jest zgodna
+  z bazą IANA (sprawdzone dla 2018-2030 bez rozbieżności). Dodano:
+  - nowy przełącznik `bool autoDst` (domyślnie `true`), NVS **`dst_auto`**,
+    pole `dst_auto` w eksporcie/imporcie JSON (`GET/POST /api/config`);
+  - **`currentTimezoneOffsetHours()`** (main.cpp ~1688) — offset `timezoneHours`
+    + ewentualne DST, liczony **na bieżąco z UTC** (usunięto stary 60-sekundowy
+    cache `getCachedTimezoneOffset`, który po zmianie roku trzymał zły offset);
+  - wszystkie 4 ścieżki DST sprawdzają teraz `autoDst`: `currentTimezoneOffsetHours`,
+    `getTimeWithTimezone`, `formatAprsTime` (APRS) i obliczenia dobowe pogody;
+  - **WWW**: checkbox „Automatyczna zmiana czasu letni/zimowy (Europa)” obok pola
+    strefy czasowej (`data/index.html` + `indexEN.html`), z JS-owym
+    `isEuropeanDST()` w `formatAprsTimeLocal` (spójny podgląd czasu lokalnego);
+  - **TFT**: w menu TIME MODE (długie przytrzymanie zegara) nowy wiersz
+    `AUTO DST` z kaflami **ON / OFF** (y=162), zapis NVS od razu.
+- **T_IRQ opcjonalny.** `XPT2046_Touchscreen` obsługuje `tirq=255` = brak pinu:
+  wtedy `begin()` **nie** podłącza przerwania, a `update()` nie ustawia
+  `isrWake=false`, więc `touched()` (pomiar Z ≥ 300) działa w trybie
+  **odpytywania** — dotyk działa bez T_IRQ. Zmiany:
+  - `tft_setup.h` + `main.cpp`: nowe makro **`TOUCH_USE_IRQ`** (domyślnie `0`);
+    obiekt `touch` tworzony jako `(TOUCH_CS, TOUCH_IRQ)` tylko gdy
+    `TOUCH_USE_IRQ=1`, inaczej `(TOUCH_CS, 255)`;
+  - nowy env `esp32-s3-n16r8-touchirq` (`-DTOUCH_USE_IRQ=1`) dla płyt z T_IRQ;
+  - PINOUT.md + wbudowany manual (`/manual`) opisują T_IRQ jako opcjonalny.
+- **Artefakty:** 3 env SUCCESS (`esp32-s3-n16r8`, `-notouch`, `-touchirq`);
+  `littlefs.bin` z nowymi stronami; `merged-flash*.bin`, ZIP 590 wpisów.
+
+## POTA: kraj + odległość z API zamiast QRZ (21.10.2026) — dzięki EA7JTP
+- **Objaw:** na ekranie POTA kolumna COUNTRY pokazywała `-` (dane pojawiały
+  się dopiero po wolnym zapytaniu QRZ, a dla wielu znaków wcale).
+- **Przyczyna:** API `api.pota.app` **nie ma pola `country`** — kod czytał
+  `spot["country"]`, które nie istnieje, więc `s.country` zostawało puste.
+  Kraj jest w polu **`locationDesc`** (prefiks ISO, np. `US-TX`, `ES-M`,
+  `DE-BW`, `GB-ENG`), a pozycja aktywatora w `latitude`/`longitude` oraz
+  kwadratach `grid4`/`grid6`.
+- **Fix (`fetchPotaApi`):** filtr JSON wzbogacony o `locationDesc`,
+  `latitude`, `longitude`, `grid4`, `grid6`, `reference` (pula 512 → **768 B**);
+  `potaCountryFromLocationDesc()` mapuje prefiks ISO na nazwę kraju (kolumna
+  COUNTRY działa od razu, bez QRZ); lat/lon (a gdy brak — `grid6`/`grid4` przez
+  `locatorToLatLon`) trafiają do `DXSpot.lat/lon/hasLatLon`, więc odległość
+  liczy się lokalnie. **QRZ dopytujemy tylko o brakujący kraj.**
+- Weryfikacja na żywym API: 91/91 spotów ma rozwiązany kraj i pozycję.
+
+## 6 języków UI + alerty pogodowe/burzowe (21.10.2026)
+- **Języki TFT: PL/EN/DE/FR/ES/RU** (`enum TftLang`, `uint8_t tftLanguage`).
+  Napisy przez `tr(TrKey)` (tablice `TR_PL..TR_RU`, 35 kluczy) oraz
+  `trStr(pl,en,de,fr,es,ru)` dla etykiet spoza tabeli. Kody dla API/WWW:
+  `tftLangToCode` / `tftLangFromCode`.
+- **Czcionki VLW nie mają cyrylicy**, a część ekranów używa wbudowanego Font 2
+  (tylko ASCII) — dlatego **wszystkie napisy UI są ASCII-only** (RU =
+  transliteracja łacińska). Opisy pogody (OpenWeatherMap zwraca je w języku
+  interfejsu) przechodzą przez `foldToAscii()` (PL + Latin-Ext + transliteracja
+  cyrylicy) — patrz ekran pogody.
+- **WWW: 6 stron** `data/index.html` (PL), `indexEN/DE/FR/ES/RU.html`, przełącznik
+  języków na każdej stronie + trasy `server->on("/indexXX.html")` w firmware.
+  Strony DE/FR/ES/RU generowane z EN przez `python3 tools/gen_pages.py`
+  (słownik `tools/lang_pages.json`; klucze = dokładne węzły tekstowe oraz łańcuchy
+  w `<script>` — komunikaty statusu/alertów JS — z `data/indexEN.html`); teksty są
+  UTF-8 (przeglądarka renderuje poprawnie, także cyrylicę). Apostrofy w tłumaczeniach
+  FR są automatycznie escapowane w literałach JS. Po zmianie `indexEN.html` uruchom
+  generator ponownie.
+- **Uzupełnienie ES/tłumaczeń (21.10.2026)**: dodano brakujące nazwy sekcji z
+  emoji (np. `🌐 TFT Language`, `📡 Your Station`, `📁 Settings Backup`,
+  `🎯 TFT Calibration`) oraz komunikaty JS (`Showing … spots POTA`,
+  `Error loading …`, `Reset …`, statusy GPS/BTSPP) do **DE/FR/ES/RU**
+  (po ~503 klucze na język). **Uwaga w generatorze:** globalna podmiana kluczy
+  zaczynających się od znaku nie-alfanumerycznego dotyczy tylko etykiet z emoji;
+  klucze zaczynające się **od spacji** (fragmenty zdań jak `" POTA spots"`) są
+  podmieniane wyłącznie przez dopasowanie całego literału JS — inaczej
+  `str.replace` korumpowałby całe zdania (np. `fetch спотов POTA`). Literały
+  szablonowe w backtickach (`\`BT Module: ${x}\``) są podmieniane **tylko w
+  całości** (klucz zawiera placeholdery `${...}`), żeby nie uszkodzić interpolacji.
+- **Alert pogodowy/burzowy**: firmware pobiera `open-meteo.com` (bez klucza API,
+  `fetchOpenMeteoAlerts()` co 15 min) i wykrywa burzę (WMO 95-99 lub CAPE ≥ 2000)
+  oraz silny wiatr (próg m/s) w horyzoncie 6 h. Ekran `drawWeatherAlertScreen()`
+  (reuse infrastruktury ekranu APRS ALERT: `weatherAlertScreenActive`,
+  `isAprsAlertCloseButtonHit`). Konfiguracja: NVS `wxal_storm/wxal_wind/
+  wxal_windms/wxal_url`, pola WWW `weather_alert_*` + `openmeteo_url`.
+
 ## Bateria na GPIO1 + ciągłe odświeżanie ekranu GPS (21.10.2026)
 - **Pin dzielnika napięcia baterii: GPIO1 (ADC1_CH0)** — `BATTERY_ADC_PIN 1`
-  (`main.cpp`). Schemat na stronie WWW (`getMainHTML`) oraz `PINOUT.md` (tabela
+  (`main.cpp`). Wcześniej GPIO7 (ADC1_CH6); zmienione 23.10.2026 na GPIO1.
+  Schemat na stronie WWW (`getMainHTML`) oraz `PINOUT.md` (tabela
   pinów + listy piny zarezerwowane/wolne) zgodne z GPIO1.
-  Przykład „fałszywego odczytu 0.21 V" dotyczy GPIO1.
+  Przykład „fałszywego odczytu 0.21 V" dotyczy GPIO1 (wolny pin = dzielnik
+  niepodłączony, ADC czyta śmieci).
 - **Ekran informacji GPS odświeża się ciągle (bez migania)**: `updateGpsScreen()`
   (wołany w `uiTaskLoop` co ~10 ms) rysuje pełny ekran co **300 ms** (było
   **1500 ms**). Cały ekran trafia do sprite w PSRAM (`gpsScreenSprite`, 480×320,
@@ -62,7 +278,9 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
   HAMLOG, opcje w `log_upload_service`, przycisk **Test połączenia**
   (`logbookTest()` -> `POST /api/log_test`), pola w load/save configu.
 - **Paczka ZIP**: `tools/make_zip.py` pakuje TYLKO scalone obrazy
-  `merged-flash.bin` i `merged-flash-notouch.bin` (16 MB, offset `0x0`).
+  `merged-flash.bin` i `merged-flash-notouch.bin` (16 MB, offset `0x0`)
+  oraz źródła, `data/**`, `tools/*.py` i `tools/*.json` (słownik
+  `lang_pages.json` potrzebny do regeneracji stron).
   Scalanie: `python -m esptool --chip esp32s3 merge-bin -o dist/merged-flash.bin
   --flash-mode dio --flash-freq 80m --flash-size 16MB 0x0 bootloader.bin
   0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin
@@ -1485,18 +1703,6 @@ Uzytkownik podal wzorcowy kod TFT_eSPI (320x240, rotacja 1). Przeniesione 1:1 na
 - Artefakty: oba env SUCCESS, `merged-flash*.bin`, `esp32-ham-clock-s3.zip`
   (580 wpisow) - w `dist/` i `/workspace/share/`.
 
-## Zapis rozmow (eksport dziennika zdarzen) (16.10.2026)
-- Zrodlo: `/workspace/conversations/<id>/events/event-*.json` (katalog poza repo,
-  ~717 MB zrzutow). NIE czytamy `base_state.json` - zawiera klucz API.
-- Narzedzie: `tools/export_conversation.py <katalog_konwersacji> <wyjscie.md> [--dialog]`.
-  - Bez `--dialog`: pelny zapis (wiadomosci + komendy + wyniki), ~7,3 MB.
-  - `--dialog`: tylko wypowiedzi UZYTKOWNIK/AGENT, ~0,3 MB (wersja commitowana).
-  - Redakcja sekretow: `gAAAAA*` (Fernet), `ghp_*`, `github_pat_*`, `sk-*`,
-    `api_key=...`, `Bearer ...` -> `<secret-hidden>`. Wyniki przycinane do 3000 znakow.
-- `.gitignore`: `conversations/*.md` ignorowane, ale `!conversations/*-dialog.md`
-  zostaje (commitowany skrocony zapis).
-- Artefakty: `conversations/2026-10-13_esp32-ham-clock-s3-dialog.md` (commitowany),
-  wersja pelna tylko w `/workspace/share/`.
 - UWAGA: `git commit` domyslnie wymaga podpisu GPG (`commit.gpgsign=true`); klucz
   prywatny jest w `.gpg-release-key` (poza VCS). Bez klucza uzyj `--no-gpg-sign`.
 
@@ -1690,4 +1896,69 @@ w lewo, zeby nie nachodzila na prawa krawedz:
   (~linia 3626),
 - `uiHeader`: `rightLimit` 415 -> 403, by tytul nie wchodzil na przesunieta baterie.
 Wifi (445/405) i GPS (88) bez zmian.
+
+
+## Wybor czcionki znaku i zegara (22.10.2026)
+Na prosbe uzytkownika ("lepsza czcionka znaku i godziny" + wybor czcionki w menu
+zegara) dodano 14 krojow VLW + wbudowana czcionke TFT_eSPI:
+- **Generacja**: `python3 tools/make_clock_fonts.py` pobiera kroje (Google Fonts,
+  OFL) do `tools/fonts_src/` i tworzy w `data/fonts/` po dwa pliki na opcje:
+  `clockNN-call.vlw` (znak) i `clockNN-time.vlw` (duzy zegar). Rozmiar dobierany
+  automatycznie (`pick_size`), by `00:00:00` <= 400x60 px i znak <= 400x38 px.
+  Zestaw znakow: `0123456789:./-+ A..Z` (42 glify -> male pliki, ~0,85 MB razem).
+- **Firmware**: `#define CLOCK_FONT_COUNT 14`, tablica `CLOCK_FONTS[]` (nazwa +
+  sciezki VLW), `uint8_t clockFontIndex` (0 = wbudowana). Rysowanie przez
+  `clockDrawCentered()`, wspolne dla stylu klasycznego i nowoczesnego.
+- **Pozycjonowanie (wazne!)**: uzywamy `drawString()` z `TC_DATUM`, NIE `print()`.
+  `print()` ignoruje `setTextDatum` - tekst startowal od kursora (przesuniety w
+  prawo o pol szerokosci) i od gory pola czcionki (zjazd w dol). `drawString()`
+  honoruje `TC_DATUM` i `setTextPadding(360)` (brak duchow przy sekundowej
+  aktualizacji). Pion liczony z `clockInkOffset()` = rzeczywisty atrament glifow
+  (`gFont.ascent` + `(maxDesc - maxAsc)/2`), nie z `fontHeight()` (to yAdvance).
+  Pas znaku: y=50..94 (srodek 72), pas zegara: y=126..178 (srodek 152).
+- **Stala szerokosc zegara (23.10.2026, wazne!)**: kroje VLW maja rozna szerokosc
+  cyfr (np. `clock05-time`: „1" = 16 px, „0" = 43 px), wiec zegar zmienial
+  szerokosc i „uciekal" w bok przy zmianie cyfry, a napis nie byl rowno
+  wysrodkowany. Dodatkowo `TFT_eSPI::textWidth()` liczy sume `gWidth`, a
+  `drawString()` przesuwa kursor o `gxAdvance` - te wartosci sie roznia, wiec
+  srodek wypadal zle. Rozwiazanie: `clockDrawMonospace()` rysuje znak po znaku w
+  **komorkach o stalej szerokosci** (= `gxAdvance` najszerszej cyfry/dwukropka),
+  wysrodkowanych wokol x=240; uzywane dla duzego zegara (`forTime`) i w pasku
+  podgladu (`clockMonospaceWidth()` do pomiaru). Znak (callsign) zostaje
+  proporcjonalny. Podglad QA: `tools/render_clock_center_preview.py`.
+- **Brak migotania przy zmianie sekund (23.10.2026, wazne!)**: objaw = migotanie
+  cyfr przy kazdej zmianie sekundy. Dwie przyczyny, obie naprawione:
+  1. **Przerysowanie calego zegara co sekunde.** `clockDrawMonospace()` czyscil i
+     rysowal wszystkie 8 komorek przy kazdym odswiezeniu. Teraz pamieta poprzednia
+     godzine (`prevText`) i dotyka TYLKO komorki, ktore sie zmienily (czyszczenie +
+     rysunek jednej cyfry) - zwykle 1 komorka zamiast 8 (~67% mniej pikseli na SPI).
+     `useCache=false` (podglad w menu) wymusza pelne rysowanie. Pamiec czyszczona
+     przez `clockMonoGeneration`/`clockMonoInvalidate()` przy `fillScreen`
+     (nowy ekran/kroj) oraz gdy chwilowo zabraknie czcionki VLW.
+  2. **Pionowe drganie 1 px.** Korekta pionowa liczona z BIEZACEJ godziny
+     (`clockInkOffset(text)`) - rozne cyfry maja rozna wysokosc atramentu
+     (BUNGEE `clock10`, MONO BOLD `clock14`: „1" i „8" roznia sie o 1 px). Teraz
+     `clockTimeInkOffset()` liczy offset ze stalego zestawu `"0123456789:"`
+     (`clockInkOffsetRef()`), niezaleznie od wyswietlanej godziny - dla wszystkich
+     krojow.
+  Dodatkowo `updateScreen1ClockClassic()` rysuje tylko gdy tekst godziny sie
+  zmienil (wczesniej przerysowywal w kazdej iteracji `loop()`). Podglad QA:
+  `tools/render_clock_flicker_preview.py` (podswietla przerysowane komorki).
+- **Menu**: `drawHamClockTimeMenu()` + `handleScreen1MenuTouch()` - siatka 5x3
+  (DOMYSLNA + 14 krojow, `fStartY=214`, `ftH=20`) ponizej przelacznikow UTC/LOCAL,
+  stylu i DST. Pasek podgladu `clockFontPreviewBand(150,146,326,62,...)` ma 62 px
+  (najwyzsze kroje ~60 px). Wybor zapisywany od razu (`savePreferences()` -> NVS
+  `clock_font`). CLOSE na y=286.
+- **WWW**: pole `clock_font` w `/api/config` (GET/POST) i w formularzu
+  (3 miejsca w `main.cpp`: HTML, `val()`, payload `gint`).
+- **Tlumaczenia**: nowy `TrKey::TR_CLOCK_FONT` we wszystkich 6 tablicach
+  (PL/EN/DE/FR/ES/RU).
+- **Podglad QA**: `python3 tools/render_clock_fonts_preview.py` -> plansza PNG
+  wszystkich czcionek (wlasny parser VLW, bez sprzetu).
+- **Uwaga na RAM**: kazda czcionka VLW trzyma metryki w RAM (`loadMetrics`), ale
+  sa zwalniane w `unloadFont()` po kazdym rysowaniu; warunek `clockFontHasFile()`
+  wymaga >90 KB wolnego heapu, inaczej fallback na wbudowana czcionke.
+- **Artefakty**: `pio run -e esp32-s3-n16r8` (+ `-notouch`), `-t buildfs`,
+  `merge_bin` -> `dist/`, `python3 tools/make_zip.py`. LittleFS: data ~4,6 MB z
+  7,87 MB partycji (28 plikow clock*.vlw = ~0,85 MB).
 
