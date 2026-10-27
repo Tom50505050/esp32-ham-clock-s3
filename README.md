@@ -56,7 +56,7 @@ zaadaptowany oraz rozbudowany przez **Tomasza SP9TNV** (z użyciem AI).
 | Dotyk IRQ | 16 | T_IRQ (opcjonalnie) |
 | Dotyk DIN / DO / CLK | 11 / 14 / 12 | wspólne z SPI |
 | RGB LED R/G/B | 4 / 5 / 6 | statusowy LED (opcjonalnie) |
-| Bateria ADC | 1 | dzielnik 100k/100k |
+| Bateria ADC | 7 | dzielnik 100k/100k |
 
 - **Nie używaj GPIO 26–37** — zajęte przez flash (QIO) i PSRAM (OPI).
 - **GPIO 19/20** to natywne USB D-/D+ (nie kolidują z TFT).

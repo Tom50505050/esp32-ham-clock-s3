@@ -113,6 +113,22 @@ Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczy
   (wcześniej przerysowywał w każdej iteracji `loop()`).
 - Podgląd QA: `tools/render_clock_flicker_preview.py`.
 
+## Poprawki ekranu DX SPOTS i pin dzielnika baterii
+- **Nazwy krajów na ekranie DX SPOTS (`dxspots.com`).** Cluster telnet nie
+  przesyła pola kraju, a dotychczas kolumna „Country" opierała się wyłącznie na
+  (wolnym, opcjonalnym) zapytaniu QRZ — bez skonfigurowanego QRZ pozostawała
+  pusta (`-`). Dodano `countryFromCallsignPrefix()` w `main.cpp`: kraj jest
+  wyprowadzany lokalnie i natychmiast z prefiksu znaku (dopasowanie
+  **najdłuższego** prefiksu, m.in. `SP→POLAND`, `DL→GERMANY`, `K/W/N→USA`,
+  `JA→JAPAN`), analogicznie jak ekran POTA korzysta z `locationDesc`. QRZ nadal
+  może nadpisać/uzupełnić kraj, gdy jest dostępny.
+- **Pin dzielnika napięcia baterii: GPIO 1 → GPIO 7** (ADC1_CH0 → ADC1_CH6).
+  `BATTERY_ADC_PIN` zmieniony na **7** w `main.cpp`; zaktualizowany schemat
+  dzielnika na stronie WWW (`getMainHTML`), `PINOUT.md`, `README.md`,
+  `README_S3.md` i `INSTRUKCJA.md`.
+- `tools/make_zip.py` jawnie pomija lokalny serwer-atrapę `mock_openmeteo.py`
+  (nie trafia do paczki wydania).
+
 ## Wersja
 - `FIRMWARE_VERSION`: `1.2c` → **`1.2d`**. Zaktualizowane też `data/index*.html`
   (PL/EN/DE/FR/ES/RU), `tools/lang_pages.json` i `platformio.ini`.

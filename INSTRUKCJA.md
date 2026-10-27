@@ -52,7 +52,7 @@ Pełna tabela i warianty pinów: **`PINOUT.md`**. Skrót (domyślne, działając
 | Podświetlenie BL | 21 | PWM |
 | Dotyk CS / IRQ | 15 / 16 | |
 | RGB LED R/G/B | 4 / 5 / 6 | statusowy (opcjonalny) |
-| Bateria ADC | 1 | dzielnik 100k/100k |
+| Bateria ADC | 7 | dzielnik 100k/100k |
 
 Zasady dla N16R8:
 - **Nie używać GPIO 26–37** (flash QIO + PSRAM OPI) ani **19/20** (USB), **43/44** (UART0/logi).

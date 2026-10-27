@@ -2468,7 +2468,7 @@ bool rgbBlueAprsStateOn = false;
 // - Pomiar napiÄ™cia przez dzielnik 100k/100k na pin ADC
 
 #define BATTERY_MONITORING_ENABLED  // Włącz pomiar napięcia baterii
-#define BATTERY_ADC_PIN 1           // Pin ADC1_CH0 (GPIO1) - pomiar napięcia baterii (ESP32-S3)
+#define BATTERY_ADC_PIN 7           // Pin ADC1_CH6 (GPIO7) - pomiar napięcia baterii (ESP32-S3)
 #define BATTERY_ADC_RESOLUTION 12   // RozdzielczoĹ›Ä‡ ADC (12 bit = 0-4095)
 #define BATTERY_VOLTAGE_DIVIDER 2.0f // Dzielnik napiÄ™cia 100k/100k (1:2)
 #define BATTERY_ADC_VREF 3.3f       // NapiÄ™cie referencyjne ADC (3.3V)
@@ -2523,7 +2523,7 @@ bool updateBatteryStatus() {
   lastBatteryCheckMs = now;
   
   float v = readBatteryVoltage();
-  // Sanity: odczyt < 1.0 V = dzielnik/akumulator niepodlaczony (wiszace GPIO1)
+  // Sanity: odczyt < 1.0 V = dzielnik/akumulator niepodlaczony (wiszace GPIO7)
   // albo ADC zwraca smieci. Wtedy nie raportujemy "0%" ani falszywego
   // ostrzezenia "podlacz ladowarke" - po prostu brak pomiaru.
   if (v < 1.0f) {
@@ -16429,6 +16429,195 @@ void runQrzSingleTest(const String &callsign) {
   (void)callsign;
 }
 
+// Kraj z prefiksu znaku (odpowiednik mechanizmu POTA `potaCountryFromLocationDesc`
+// dla spotow DX z dxspots.com). Cluster telnet nie podaje kraju, a zapytanie QRZ
+// jest wolne/opcjonalne - dlatego kraj wyprowadzamy lokalnie i natychmiast.
+// Mapowanie jest malejace ("3DA" przed "3D"), aby trafnie rozpoznac prefiksy
+// 3-znakowe; nieznany prefiks zwraca pusty String.
+String countryFromCallsignPrefix(const String &callsign) {
+  String call = callsign;
+  call.trim();
+  call.toUpperCase();
+  // Odetnij prefiks operacyjny / obszar (np. SP5ABC/P, DL/SP5ABC).
+  int slash = call.indexOf('/');
+  if (slash > 0 && slash < (int)call.length() - 1) call = call.substring(0, slash);
+
+  static const struct { const char *p; const char *name; } MAP[] = {
+    // Polska
+    {"3Z", "POLAND"}, {"HF", "POLAND"}, {"SN", "POLAND"}, {"SO", "POLAND"},
+    {"SP", "POLAND"}, {"SQ", "POLAND"}, {"SR", "POLAND"},
+    // Europa
+    {"DL", "GERMANY"}, {"DO", "GERMANY"}, {"DA", "GERMANY"}, {"DB", "GERMANY"},
+    {"DC", "GERMANY"}, {"DD", "GERMANY"}, {"DF", "GERMANY"}, {"DG", "GERMANY"},
+    {"DH", "GERMANY"}, {"DJ", "GERMANY"}, {"DK", "GERMANY"}, {"DM", "GERMANY"},
+    {"DN", "GERMANY"}, {"DQ", "GERMANY"},
+    {"OE", "AUSTRIA"},
+    {"HB9", "SWITZERLAND"}, {"HB0", "LIECHTENSTEIN"},
+    {"HE", "SWITZERLAND"}, {"HB", "SWITZERLAND"},
+    {"F", "FRANCE"}, {"TM", "FRANCE"},
+    {"ON", "BELGIUM"}, {"OT", "BELGIUM"},
+    {"PA", "NETHERLANDS"}, {"PB", "NETHERLANDS"}, {"PC", "NETHERLANDS"},
+    {"PD", "NETHERLANDS"}, {"PE", "NETHERLANDS"}, {"PF", "NETHERLANDS"},
+    {"PG", "NETHERLANDS"}, {"PH", "NETHERLANDS"}, {"PI", "NETHERLANDS"},
+    {"G", "ENGLAND"}, {"M", "ENGLAND"},
+    {"GM", "SCOTLAND"}, {"GW", "WALES"}, {"GI", "N.IRELAND"},
+    {"GD", "ISLE OF MAN"}, {"GJ", "JERSEY"}, {"GU", "GUERNSEY"},
+    {"EI", "IRELAND"}, {"EJ", "IRELAND"},
+    {"I", "ITALY"}, {"IK", "ITALY"}, {"IN", "ITALY"}, {"IR", "ITALY"},
+    {"IS", "ITALY"}, {"IT", "ITALY"}, {"IW", "ITALY"}, {"IX", "ITALY"},
+    {"IZ", "ITALY"},
+    {"EA", "SPAIN"}, {"EB", "SPAIN"}, {"EC", "SPAIN"}, {"ED", "SPAIN"},
+    {"EE", "SPAIN"}, {"EF", "SPAIN"}, {"EG", "SPAIN"}, {"EH", "SPAIN"},
+    {"CT", "PORTUGAL"}, {"CR", "PORTUGAL"}, {"CS", "PORTUGAL"},
+    {"CU", "AZORES"}, {"CT8", "AZORES"}, {"CT9", "MADEIRA"},
+    {"LA", "NORWAY"}, {"LB", "NORWAY"}, {"LC", "NORWAY"}, {"LD", "NORWAY"},
+    {"LE", "NORWAY"}, {"LF", "NORWAY"}, {"LG", "NORWAY"}, {"LH", "NORWAY"},
+    {"LI", "NORWAY"}, {"LJ", "NORWAY"}, {"LK", "NORWAY"}, {"LL", "NORWAY"},
+    {"LM", "NORWAY"}, {"LN", "NORWAY"},
+    {"SM", "SWEDEN"}, {"SA", "SWEDEN"}, {"SB", "SWEDEN"}, {"SC", "SWEDEN"},
+    {"SD", "SWEDEN"}, {"SE", "SWEDEN"}, {"SF", "SWEDEN"}, {"SG", "SWEDEN"},
+    {"SH", "SWEDEN"}, {"SI", "SWEDEN"}, {"SJ", "SWEDEN"}, {"SK", "SWEDEN"},
+    {"SL", "SWEDEN"}, {"7S", "SWEDEN"}, {"8S", "SWEDEN"},
+    {"OZ", "DENMARK"}, {"OU", "DENMARK"}, {"OV", "DENMARK"},
+    {"OH", "FINLAND"}, {"OF", "FINLAND"}, {"OG", "FINLAND"},
+    {"TF", "ICELAND"},
+    {"ES", "ESTONIA"}, {"LY", "LITHUANIA"}, {"YL", "LATVIA"},
+    {"EU", "BELARUS"}, {"EW", "BELARUS"}, {"EV", "BELARUS"},
+    {"UR", "UKRAINE"}, {"US", "UKRAINE"}, {"UT", "UKRAINE"}, {"UU", "UKRAINE"},
+    {"UV", "UKRAINE"}, {"UW", "UKRAINE"}, {"UX", "UKRAINE"}, {"UY", "UKRAINE"},
+    {"UZ", "UKRAINE"}, {"EM", "UKRAINE"}, {"EN", "UKRAINE"}, {"EO", "UKRAINE"},
+    {"ER", "MOLDOVA"},
+    {"OK", "CZECHIA"}, {"OL", "CZECHIA"},
+    {"OM", "SLOVAKIA"},
+    {"HA", "HUNGARY"}, {"HG", "HUNGARY"},
+    {"S5", "SLOVENIA"}, {"S7", "SEYCHELLES"}, {"S9", "SAO TOME"},
+    {"9A", "CROATIA"},
+    {"YU", "SERBIA"}, {"YT", "SERBIA"}, {"YZ", "SERBIA"},
+    {"E7", "BOSNIA"},
+    {"4O", "MONTENEGRO"},
+    {"Z3", "N.MACEDONIA"},
+    {"ZA", "ALBANIA"}, {"ZB", "ALBANIA"}, {"ZC", "ALBANIA"}, {"ZD", "ALBANIA"},
+    {"ZE", "ALBANIA"},
+    {"LZ", "BULGARIA"},
+    {"YO", "ROMANIA"}, {"YP", "ROMANIA"}, {"YQ", "ROMANIA"}, {"YR", "ROMANIA"},
+    {"SV", "GREECE"}, {"SW", "GREECE"}, {"SX", "GREECE"}, {"SY", "GREECE"},
+    {"SZ", "GREECE"},
+    {"5B", "CYPRUS"}, {"C4", "CYPRUS"}, {"H2", "CYPRUS"},
+    {"9H", "MALTA"},
+    {"TA", "TURKEY"}, {"TB", "TURKEY"}, {"TC", "TURKEY"}, {"TD", "TURKEY"},
+    {"UA", "RUSSIA"}, {"UB", "RUSSIA"}, {"UC", "RUSSIA"}, {"UD", "RUSSIA"},
+    {"UE", "RUSSIA"}, {"UF", "RUSSIA"}, {"UG", "RUSSIA"}, {"UH", "RUSSIA"},
+    {"UI", "RUSSIA"}, {"UJ", "UZBEKISTAN"}, {"UK", "RUSSIA"}, {"UL", "RUSSIA"},
+    {"UM", "RUSSIA"}, {"UO", "KAZAKHSTAN"}, {"UP", "RUSSIA"},
+    {"UQ", "RUSSIA"}, {"RA", "RUSSIA"}, {"RB", "RUSSIA"}, {"RC", "RUSSIA"},
+    {"RD", "RUSSIA"}, {"RE", "RUSSIA"}, {"RF", "RUSSIA"}, {"RG", "RUSSIA"},
+    {"RH", "RUSSIA"}, {"RI", "RUSSIA"}, {"RJ", "RUSSIA"}, {"RK", "RUSSIA"},
+    {"RL", "RUSSIA"}, {"RM", "RUSSIA"}, {"RN", "RUSSIA"}, {"RO", "RUSSIA"},
+    {"RP", "RUSSIA"}, {"RQ", "RUSSIA"}, {"RR", "RUSSIA"}, {"RS", "RUSSIA"},
+    {"RT", "RUSSIA"}, {"RU", "RUSSIA"}, {"RV", "RUSSIA"}, {"RW", "RUSSIA"},
+    {"RX", "RUSSIA"}, {"RY", "RUSSIA"}, {"RZ", "RUSSIA"},
+    {"4K", "AZERBAIJAN"}, {"EK", "ARMENIA"}, {"4L", "GEORGIA"},
+    {"EX", "KYRGYZSTAN"}, {"EY", "TAJIKISTAN"}, {"EZ", "TURKMENISTAN"},
+    {"UN", "KAZAKHSTAN"},
+    // Ameryka Północna
+    {"K", "USA"}, {"W", "USA"}, {"N", "USA"}, {"AA", "USA"}, {"AB", "USA"},
+    {"AC", "USA"}, {"AD", "USA"}, {"AE", "USA"}, {"AF", "USA"}, {"AG", "USA"},
+    {"AH", "USA"}, {"AI", "USA"}, {"AJ", "USA"}, {"AK", "USA"}, {"AL", "USA"},
+    {"VE", "CANADA"}, {"VA", "CANADA"}, {"VY", "CANADA"}, {"VO", "CANADA"},
+    {"XE", "MEXICO"}, {"XF", "MEXICO"}, {"XA", "MEXICO"}, {"XB", "MEXICO"},
+    {"HP", "PANAMA"}, {"TI", "COSTA RICA"}, {"YN", "NICARAGUA"},
+    {"TG", "GUATEMALA"}, {"HR", "HONDURAS"}, {"YS", "EL SALVADOR"},
+    {"CO", "CUBA"}, {"CM", "CUBA"}, {"HI", "DOMINICAN REP."}, {"HH", "HAITI"},
+    {"KP4", "PUERTO RICO"}, {"NP4", "PUERTO RICO"}, {"WP4", "PUERTO RICO"},
+    {"KP2", "US VIRGIN IS."}, {"FG", "GUADELOUPE"}, {"FM", "MARTINIQUE"},
+    {"8P", "BARBADOS"}, {"9Y", "TRINIDAD"}, {"J3", "GRENADA"},
+    {"V2", "ANTIGUA"}, {"VP2", "ANGUILLA"}, {"ZF", "CAYMAN IS."},
+    {"C6", "BAHAMAS"}, {"VP5", "TURKS & CAICOS"}, {"VP9", "BERMUDA"},
+    {"6Y", "JAMAICA"},
+    // Ameryka Południowa
+    {"PY", "BRAZIL"}, {"PP", "BRAZIL"}, {"PQ", "BRAZIL"}, {"PR", "BRAZIL"},
+    {"PS", "BRAZIL"}, {"PT", "BRAZIL"}, {"PU", "BRAZIL"}, {"PV", "BRAZIL"},
+    {"PW", "BRAZIL"}, {"PX", "BRAZIL"}, {"ZV", "BRAZIL"}, {"ZW", "BRAZIL"},
+    {"ZX", "BRAZIL"}, {"ZY", "BRAZIL"}, {"ZZ", "BRAZIL"},
+    {"LU", "ARGENTINA"}, {"LW", "ARGENTINA"}, {"LO", "ARGENTINA"},
+    {"LP", "ARGENTINA"}, {"LQ", "ARGENTINA"}, {"LR", "ARGENTINA"},
+    {"LS", "ARGENTINA"}, {"LT", "ARGENTINA"}, {"CE", "CHILE"},
+    {"CA", "CHILE"}, {"CB", "CHILE"}, {"CC", "CHILE"}, {"CD", "CHILE"},
+    {"XQ", "CHILE"}, {"XR", "CHILE"},
+    {"OA", "PERU"}, {"OB", "PERU"}, {"OC", "PERU"},
+    {"HK", "COLOMBIA"}, {"HJ", "COLOMBIA"}, {"5J", "COLOMBIA"},
+    {"YV", "VENEZUELA"}, {"YY", "VENEZUELA"}, {"YW", "VENEZUELA"},
+    {"HC", "ECUADOR"}, {"HD", "ECUADOR"},
+    {"CP", "BOLIVIA"},
+    {"ZP", "PARAGUAY"},
+    {"CX", "URUGUAY"}, {"CV", "URUGUAY"}, {"CW", "URUGUAY"},
+    {"FY", "FRENCH GUIANA"}, {"PZ", "SURINAME"}, {"8R", "GUYANA"},
+    // Afryka
+    {"ZS", "SOUTH AFRICA"}, {"ZR", "SOUTH AFRICA"}, {"ZT", "SOUTH AFRICA"},
+    {"ZU", "SOUTH AFRICA"},
+    {"CN", "MOROCCO"}, {"5C", "MOROCCO"}, {"5D", "MOROCCO"},
+    {"7X", "ALGERIA"}, {"3V", "TUNISIA"}, {"5A", "LIBYA"}, {"SU", "EGYPT"},
+    {"ST", "SUDAN"}, {"ET", "ETHIOPIA"}, {"5Z", "KENYA"}, {"5Y", "KENYA"},
+    {"5H", "TANZANIA"}, {"5X", "UGANDA"}, {"5U", "NIGER"}, {"5N", "NIGERIA"},
+    {"TU", "IVORY COAST"}, {"9G", "GHANA"}, {"6W", "SENEGAL"},
+    {"TZ", "MALI"}, {"TJ", "CAMEROON"}, {"TR", "GABON"}, {"TN", "CONGO"},
+    {"9Q", "DR CONGO"}, {"9X", "RWANDA"}, {"9U", "BURUNDI"},
+    {"Z2", "ZIMBABWE"}, {"7Q", "MALAWI"}, {"9J", "ZAMBIA"}, {"C9", "MOZAMBIQUE"},
+    {"V5", "NAMIBIA"}, {"A2", "BOTSWANA"}, {"7P", "LESOTHO"}, {"3DA", "ESWATINI"},
+    {"3D", "ESWATINI"}, {"3B8", "MAURITIUS"}, {"5R", "MADAGASCAR"},
+    // Azja
+    {"JA", "JAPAN"}, {"JE", "JAPAN"}, {"JF", "JAPAN"}, {"JG", "JAPAN"},
+    {"JH", "JAPAN"}, {"JI", "JAPAN"}, {"JJ", "JAPAN"}, {"JK", "JAPAN"},
+    {"JL", "JAPAN"}, {"JM", "JAPAN"}, {"JN", "JAPAN"}, {"JO", "JAPAN"},
+    {"JP", "JAPAN"}, {"JQ", "JAPAN"}, {"JR", "JAPAN"}, {"JS", "JAPAN"},
+    {"7J", "JAPAN"}, {"7K", "JAPAN"}, {"7L", "JAPAN"}, {"7M", "JAPAN"},
+    {"7N", "JAPAN"}, {"8J", "JAPAN"}, {"8K", "JAPAN"}, {"8L", "JAPAN"},
+    {"8M", "JAPAN"}, {"8N", "JAPAN"},
+    {"HL", "KOREA"}, {"DS", "KOREA"}, {"6K", "KOREA"}, {"6L", "KOREA"},
+    {"BY", "CHINA"}, {"BA", "CHINA"}, {"BD", "CHINA"}, {"BG", "CHINA"},
+    {"BH", "CHINA"}, {"BI", "CHINA"}, {"BJ", "CHINA"}, {"BL", "CHINA"},
+    {"BM", "CHINA"}, {"BO", "CHINA"}, {"BP", "CHINA"}, {"BQ", "CHINA"},
+    {"BR", "CHINA"}, {"BS", "CHINA"}, {"BT", "CHINA"}, {"BU", "CHINA"},
+    {"BV", "TAIWAN"}, {"BW", "TAIWAN"}, {"BX", "TAIWAN"},
+    {"VR", "HONG KONG"}, {"XX", "MACAO"},
+    {"VU", "INDIA"}, {"VU2", "INDIA"}, {"AT", "INDIA"},
+    {"YB", "INDONESIA"}, {"YC", "INDONESIA"}, {"YD", "INDONESIA"},
+    {"YE", "INDONESIA"}, {"YF", "INDONESIA"}, {"YG", "INDONESIA"},
+    {"YH", "INDONESIA"},
+    {"9M", "MALAYSIA"}, {"9M2", "MALAYSIA"}, {"9M6", "MALAYSIA"},
+    {"9V", "SINGAPORE"}, {"HS", "THAILAND"}, {"E2", "THAILAND"},
+    {"XV", "VIETNAM"}, {"3W", "VIETNAM"}, {"DU", "PHILIPPINES"},
+    {"DV", "PHILIPPINES"}, {"DW", "PHILIPPINES"}, {"DX", "PHILIPPINES"},
+    {"DY", "PHILIPPINES"}, {"DZ", "PHILIPPINES"},
+    {"AP", "PAKISTAN"}, {"4S", "SRI LANKA"},
+    {"4X", "ISRAEL"}, {"4Z", "ISRAEL"}, {"JY", "JORDAN"}, {"OD", "LEBANON"},
+    {"YK", "SYRIA"}, {"YI", "IRAQ"}, {"HZ", "SAUDI ARABIA"},
+    {"A4", "OMAN"}, {"A6", "UAE"}, {"A7", "QATAR"}, {"A9", "BAHRAIN"},
+    {"9K", "KUWAIT"}, {"EP", "IRAN"}, {"EQ", "IRAN"}, {"YA", "AFGHANISTAN"},
+    {"JT", "MONGOLIA"}, {"JT5", "MONGOLIA"}, {"XU", "CAMBODIA"},
+    {"XW", "LAOS"}, {"XZ", "MYANMAR"}, {"S2", "BANGLADESH"}, {"9N", "NEPAL"},
+    // Oceania
+    {"VK", "AUSTRALIA"}, {"VK9", "AUSTRALIA"}, {"ZL", "NEW ZEALAND"},
+    {"ZM", "NEW ZEALAND"}, {"VK9N", "NORFOLK IS."}, {"VK0", "ANTARCTICA"},
+    {"KH6", "HAWAII"}, {"KH7", "HAWAII"},
+    {"3D2", "FIJI"}, {"5W", "SAMOA"}, {"YJ", "VANUATU"}, {"FK", "NEW CALEDONIA"},
+    {"T8", "PALAU"}, {"V6", "MICRONESIA"}, {"T30", "KIRIBATI"}, {"A3", "TONGA"},
+    {"E5", "COOK IS."}, {"FO", "FRENCH POLYNESIA"}, {"TX", "FRENCH POLYNESIA"},
+  };
+  // Najdluzsze dopasowanie prefiksu (np. "VK9N" przed "VK", "KH6" przed "K"),
+  // dzieki czemu kolejnosc wpisow w MAP nie ma znaczenia.
+  const char *best = nullptr;
+  size_t bestLen = 0;
+  for (const auto &e : MAP) {
+    size_t plen = strlen(e.p);
+    if (plen >= bestLen && call.startsWith(e.p)) {
+      best = e.name;
+      bestLen = plen;
+    }
+  }
+  return best ? String(best) : String("");
+}
+
 // Parsowanie spotu DX z formatu "DX de [Spotter]: [Freq] [Call] [Comments] [Time]"
 bool parseDXSpot(String line, DXSpot &spot) {
   LOGV_PRINT("[PARSE] parseDXSpot START, len=");
@@ -16532,7 +16721,9 @@ bool parseDXSpot(String line, DXSpot &spot) {
   LOGV_PRINTLN("[PARSE] Obliczanie odlegĂ„Ä…Ă˘â‚¬ĹˇoĂ„Ä…Ă˘â‚¬Ĺźci...");
   
   spot.distance = 0;
-  spot.country = "";
+  // Kraj od razu z prefiksu znaku (cluster telnet nie podaje kraju, QRZ bywa
+  // wolny/wylaczony) - analogicznie jak POTA robi z locationDesc.
+  spot.country = countryFromCallsignPrefix(spot.callsign);
   spot.lat = 0.0f;
   spot.lon = 0.0f;
   spot.hasLatLon = false;
@@ -22325,7 +22516,7 @@ void setupWebServer() {
 
     html += "<h3>Pomiar napięcia baterii (dzielnik)</h3>";
     html += "<pre>";
-    html += "Bateria 18650 (+) ----+--- [R1 100k] ---+---> GPIO 1 (ADC1_CH0)\n";
+    html += "Bateria 18650 (+) ----+--- [R1 100k] ---+---> GPIO 7 (ADC1_CH6)\n";
     html += "                      |                 |\n";
     html += "                     GND             [R2 100k] ---+--- GND\n";
     html += "                                                   |\n";

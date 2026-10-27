@@ -214,12 +214,12 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
   `isAprsAlertCloseButtonHit`). Konfiguracja: NVS `wxal_storm/wxal_wind/
   wxal_windms/wxal_url`, pola WWW `weather_alert_*` + `openmeteo_url`.
 
-## Bateria na GPIO1 + ciągłe odświeżanie ekranu GPS (21.10.2026)
-- **Pin dzielnika napięcia baterii: GPIO1 (ADC1_CH0)** — `BATTERY_ADC_PIN 1`
-  (`main.cpp`). Wcześniej GPIO7 (ADC1_CH6); zmienione 23.10.2026 na GPIO1.
+## Bateria na GPIO7 + ciągłe odświeżanie ekranu GPS (21.10.2026)
+- **Pin dzielnika napięcia baterii: GPIO7 (ADC1_CH6)** — `BATTERY_ADC_PIN 7`
+  (`main.cpp`). Wcześniej GPIO1 (ADC1_CH0); zmienione 27.10.2026 na GPIO7.
   Schemat na stronie WWW (`getMainHTML`) oraz `PINOUT.md` (tabela
-  pinów + listy piny zarezerwowane/wolne) zgodne z GPIO1.
-  Przykład „fałszywego odczytu 0.21 V" dotyczy GPIO1 (wolny pin = dzielnik
+  pinów + listy piny zarezerwowane/wolne) zgodne z GPIO7.
+  Przykład „fałszywego odczytu 0.21 V" dotyczy GPIO7 (wolny pin = dzielnik
   niepodłączony, ADC czyta śmieci).
 - **Ekran informacji GPS odświeża się ciągle (bez migania)**: `updateGpsScreen()`
   (wołany w `uiTaskLoop` co ~10 ms) rysuje pełny ekran co **300 ms** (było
@@ -724,7 +724,7 @@ Wnioski:
    (`drawSplashScreen` -> `/splash.bmp`) albo główny ekran rysuje się, ale bez
    WiFi/spotów jest wizualnie ubogi. Dodano log `[UI] alive screen=... menu=... sleep=...`
    co 15 s w `uiTaskLoop`, żeby potwierdzić, że zadanie UI żyje i jaki ekran rysuje.
-2. **Fałszywy odczyt baterii `0.21V (0%)`** = GPIO1 (ADC1_CH0) niepodłączony
+2. **Fałszywy odczyt baterii `0.21V (0%)`** = GPIO7 (ADC1_CH6) niepodłączony
    (wisi) -> dzielnik nie zamontowany albo akumulator niepodłączony. To NIE usterka
    ESP. Dodano sanity-check: odczyt < 1.0 V -> brak pomiaru (bez fałszywego 0%
    i ostrzeżenia "podłącz ładowarkę"), w `updateBatteryStatus()` i przy starcie.
@@ -732,8 +732,8 @@ Wnioski:
    teraz też filtrowany progiem 1.0 V.
 
 ### Uwaga o odczycie baterii
-`BATTERY_ADC_PIN 1` = GPIO1 (ADC1_CH0) z dzielnikiem 100k/100k. Jeśli dzielnik
-nie jest fizycznie podłączony, GPIO1 "wisi" i ADC zwraca śmieci (0.2-0.4 V).
+`BATTERY_ADC_PIN 7` = GPIO7 (ADC1_CH6) z dzielnikiem 100k/100k. Jeśli dzielnik
+nie jest fizycznie podłączony, GPIO7 "wisi" i ADC zwraca śmieci (0.2-0.4 V).
 Nie da się tego naprawić w firmware — trzeba podłączyć dzielnik lub ustawić
 pomiar nieaktywny.
 

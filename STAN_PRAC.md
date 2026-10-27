@@ -24,6 +24,16 @@ Ostatnia aktualizacja: 2026-10-27. Wersja firmware: **v1.2d**.
 - **`FIRMWARE_VERSION` 1.2c → 1.2d**; `data/index*.html` (6 języków),
   `tools/lang_pages.json`, `platformio.ini`, README/RELEASE_NOTES zaktualizowane.
 
+- **Ekran DX SPOTS — nazwy krajów (`dxspots.com`)**: dodano
+  `countryFromCallsignPrefix()` (kraj z prefiksu znaku, dopasowanie najdłuższego
+  prefiksu) wywoływane w `parseDXSpot()`, analogicznie do `potaCountryFromLocationDesc`
+  na ekranie POTA. Kraj pojawia się od razu, bez czekania na QRZ; QRZ nadal może
+  go nadpisać/uzupełnić.
+- **Pin dzielnika napięcia baterii: GPIO 1 → GPIO 7** (ADC1_CH0 → ADC1_CH6);
+  `BATTERY_ADC_PIN` = **7** w `main.cpp`, zaktualizowane `PINOUT.md`, `README.md`,
+  `README_S3.md`, `INSTRUKCJA.md` i schemat na stronie WWW.
+- `tools/make_zip.py` pomija lokalny `mock_openmeteo.py` (nie trafia do paczki).
+
 ## v1.2c — poprawki PSK MQTT i nagłówka (18.10.2026)
 
 - **PSK MQTT**: zmiana pasma/trybu nie ściągała spotów — subskrypcja budowała filtr

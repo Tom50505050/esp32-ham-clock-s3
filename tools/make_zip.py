@@ -28,6 +28,11 @@ files += [f for f in glob.glob("tools/*.py") if os.path.isfile(f)]
 files += [f for f in glob.glob("tools/*.json") if os.path.isfile(f)]
 files += [os.path.join("dist", b) for b in DIST_BINS if os.path.isfile(os.path.join("dist", b))]
 
+# Serwer-atrapa open-meteo jest narzedziem tylko do lokalnych testow - nie moze
+# trafic do publicznej paczki wydania ani do repo.
+EXCLUDE = {"mock_openmeteo.py"}
+files = [f for f in files if os.path.basename(f) not in EXCLUDE]
+
 with zipfile.ZipFile("esp32-ham-clock-s3.zip", "w", zipfile.ZIP_DEFLATED) as z:
     for f in files:
         arc = os.path.basename(f) if f.startswith("dist/") else f
