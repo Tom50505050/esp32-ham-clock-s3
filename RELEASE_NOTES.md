@@ -18,7 +18,8 @@ Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b**, **v1.2c** i **v1.2d** 
 Wydanie **v1.2d** (23.10.2026) dla platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB
 PSRAM) + **ILI9488 na 3.5" i 4" 480×320** + XPT2046. Zakres wydania:
 - **wybór czcionki** znaku (callsign) i dużego zegara — 14 krojów + wbudowana,
-- **własne grafiki alertu pogodowego** (burza / wiatr) z podglądem całego ekranu,
+- **własne grafiki alertu pogodowego** (burza / wiatr) wypełniające **cały ekran**
+  480×320 (fit=cover, bez czarnych pasów) z podglądem 1:1 w WWW,
 - **naprawa migotania cyfr zegara** dla wszystkich czcionek.
 
 ## Wybór czcionki znaku i zegara
@@ -66,16 +67,22 @@ PSRAM) + **ILI9488 na 3.5" i 4" 480×320** + XPT2046. Zakres wydania:
   (JPG / PNG / BMP / GIF / WEBP), przyciskami **Wgraj** i **Domyślna** oraz
   miniaturami aktualnych ikon.
 - **Podgląd całego ekranu alertu** na kanwie 480×320 — dokładnie tak, jak pokaże
-  to TFT (pasek nagłówka, przycisk zamknięcia, ramka, ikona i opis).
-- Dowolny obraz jest skalowany do **170×170** (dopasowanie z zachowaniem
-  proporcji, czarne tło) i konwertowany w przeglądarce do **BMP 16-bit RGB565**
-  przed wysłaniem na urządzenie — bez potrzeby ręcznej konwersji plików.
+  to TFT. Grafika **wypełnia cały ekran** (fit=cover, brak czarnych pasów), a
+  napisy alertu i przycisk zamknięcia rysowane są na jej wierzchu.
+- Dowolny obraz jest skalowany do **480×320** (dopasowanie z zachowaniem
+  proporcji — pokrycie całego ekranu, nadmiar przycinany symetrycznie) i
+  konwertowany w przeglądarce do **BMP 16-bit RGB565** przed wysłaniem na
+  urządzenie — bez potrzeby ręcznej konwersji plików.
 
 ### Firmware
 - Ikony alertu pochodzą teraz z plików w LittleFS. Ścieżki trzymane są w NVS
   (`wxal_ic_s`, `wxal_ic_w`) i eksponowane w `GET/POST /api/config` jako
   `weather_icon_storm` / `weather_icon_wind`.
-- **Domyślnie:** `/icon50/burza.bmp` (burza) i `/icon50/wiatr.bmp` (wiatr).
+- **Grafika wypełnia cały ekran 480×320** (fit=cover — pokrycie bez czarnych
+  pasów, nadmiar przycinany symetrycznie, małe obrazy powiększane). Napisy
+  alertu i przycisk zamknięcia rysowane są na wierzchu grafiki.
+- **Domyślnie:** `/icon50/burza.bmp` (burza) i `/icon50/wiatr.bmp` (wiatr)
+  w rozmiarze **480×320** (pełny ekran).
   Wgranie własnej grafiki zapisuje `/wxicon_storm.<ext>` / `/wxicon_wind.<ext>`;
   przycisk „Domyślna” przywraca ikony z `data/icon50`.
 - Nowe trasy: `/upload_wxicon_storm`, `/upload_wxicon_wind` (RAW POST),
@@ -84,7 +91,7 @@ PSRAM) + **ILI9488 na 3.5" i 4" 480×320** + XPT2046. Zakres wydania:
 
 ### Nowe narzędzia
 - `tools/make_weather_icons.py` — generuje domyślne `data/icon50/burza.bmp`
-  i `data/icon50/wiatr.bmp` (24-bit BMP 50×50, czarne tło).
+  i `data/icon50/wiatr.bmp` (24-bit BMP **480×320**, pełny ekran).
 - `tools/render_weather_alert_preview.py` — renderuje podgląd QA ekranu alertu
   (burza + wiatr) do pliku PNG.
 

@@ -13128,14 +13128,15 @@ static void drawWeatherAlertWindIcon(int cx, int cy) {
   tft.fillCircle(cx + 30, cy + 24, 6, c);
 }
 
-// Docelowy rozmiar grafiki alertu (burza/wiatr) na TFT 480x320. Lewy panel
-// ekranu alertu ma dokladnie 408x320 px, wiec grafika wypelnia go bez skalowania
-// w gore i bez przycinania (obrazy <=408x320 sa powiekszane proporcjonalnie).
-#define WX_ICON_TARGET_W 408
+// Docelowy rozmiar grafiki alertu (burza/wiatr) na TFT 480x320. Grafika
+// wypelnia CALY ekran (fit=cover - pokrywa ekran bez czarnych pasow, nadmiar
+// przycinany symetrycznie; male obrazy sa powiekszane).
+#define WX_ICON_TARGET_W 480
 #define WX_ICON_TARGET_H 320
 
-// Skalowany bufor docelowy grafiki alertu (~261 kB) trzymamy w PSRAM - na
-// wewnetrznej stercie nie ma na niego miejsca i powodowalby OOM. Alokujemy raz.
+// Skalowany bufor docelowy grafiki alertu (~300 kB przy 480x320) trzymamy w
+// PSRAM - na wewnetrznej stercie nie ma na niego miejsca i powodowalby OOM.
+// Alokujemy raz.
 static uint16_t* wx_icon_canvas = nullptr;
 
 static bool wxIconCanvasEnsure() {
@@ -13150,8 +13151,8 @@ static uint16_t wxRgb565(uint8_t r, uint8_t g, uint8_t b) {
   return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-// Rysuje grafike alertu wypelniajaca caly panel 408x320: skaluje proporcjonalnie
-// (nearest, fit=contain) i centruje, tlo czarne. Zwraca false, gdy brak pliku,
+// Rysuje grafike alertu wypelniajaca CALY ekran 480x320: skaluje proporcjonalnie
+// (nearest, fit=cover) i centruje, tlo czarne. Zwraca false, gdy brak pliku,
 // pamieci lub format jest nieobslugiwany (wtedy rysowana jest ikona wektorowa).
 static bool drawWeatherAlertIconFile(const String &path) {
   if (!littleFsReady || !LittleFS.exists(path) || !wxIconCanvasEnsure()) return false;
@@ -13213,21 +13214,23 @@ static bool drawWeatherAlertIconFile(const String &path) {
   }
   if (iw <= 0 || ih <= 0) return false;
 
-  // Fit=contain w oknie 408x320 (mnoznik calkowity w gore, gdy obraz mniejszy).
+  // Fit=cover: grafika pokrywa CALY ekran 480x320 (brak czarnych pasow).
+  // Mnoznik = max, wiec jeden wymiar wychodzi wiekszy niz ekran i jest
+  // przycinany symetrycznie. Maly obraz jest powiekszany do pelnego ekranu.
   int sNum = WX_ICON_TARGET_W, sDen = iw;
-  if ((int32_t)ih * sNum > (int32_t)WX_ICON_TARGET_H * sDen) { sNum = WX_ICON_TARGET_H; sDen = ih; }
+  if ((int32_t)ih * sNum < (int32_t)WX_ICON_TARGET_H * sDen) { sNum = WX_ICON_TARGET_H; sDen = ih; }
   if (sDen <= 0) return false;
   int dw = (int)((int32_t)iw * sNum / sDen);
   int dh = (int)((int32_t)ih * sNum / sDen);
   if (dw < 1) dw = 1;
   if (dh < 1) dh = 1;
-  if (dw > WX_ICON_TARGET_W) dw = WX_ICON_TARGET_W;
-  if (dh > WX_ICON_TARGET_H) dh = WX_ICON_TARGET_H;
+  if (dw < WX_ICON_TARGET_W) dw = WX_ICON_TARGET_W;
+  if (dh < WX_ICON_TARGET_H) dh = WX_ICON_TARGET_H;
 
   const int dxOff = (WX_ICON_TARGET_W - dw) / 2;
   const int dyOff = (WX_ICON_TARGET_H - dh) / 2;
 
-  // Szybka sciezka: obraz <= panel i tozsamy wymiar - BMP rysujemy bezposrednio.
+  // Szybka sciezka: obraz tozsamy z ekranem 480x320 - BMP rysujemy bezposrednio.
   if (dw == iw && dh == ih && bmp24) {
     if (drawBmpFromFS(path, dxOff, dyOff)) return true;
   } else if (dw == iw && dh == ih && bmp16) {
@@ -13302,8 +13305,8 @@ void drawWeatherAlertScreen() {
 
   tft.fillScreen(TFT_BLACK);
 
-  // Grafika burzy/wiatru wypelnia caly lewy panel 408x320 (bez skalowania w gore
-  // ani przycinania). Prawy pasek (408..479) zostaje czarny - tam jest przycisk X.
+  // Grafika burzy/wiatru wypelnia CALY ekran 480x320 (fit=cover, bez czarnych
+  // pasow). Napisy i przycisk X rysowane na wierzchu grafiki.
   const String iconPath = storm ? weatherIconStormPath : weatherIconWindPath;
   if (!drawWeatherAlertIconFile(iconPath)) {
     if (storm) {

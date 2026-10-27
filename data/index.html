@@ -879,7 +879,7 @@
             </div>
             <div class="config-section">
                 <h3>🖼️ Grafiki alertu (burza / wiatr)</h3>
-                <small>Podmień grafiki burzy i wiatru pokazywane na pełnoekranowym alercie. Dowolny plik JPG/PNG/BMP/GIF/WEBP jest skalowany do 408×320 i konwertowany do BMP 16-bit RGB565 w przeglądarce, a następnie wysyłany na urządzenie. Domyślnie: <b>burza.bmp</b> (burza) i <b>wiatr.bmp</b> (wiatr) z folderu <b>data/icon50</b>.</small>
+                <small>Podmień grafiki burzy i wiatru pokazywane na pełnoekranowym alercie. Dowolny plik JPG/PNG/BMP/GIF/WEBP jest skalowany do 480×320 i konwertowany do BMP 16-bit RGB565 w przeglądarce, a następnie wysyłany na urządzenie. Domyślnie: <b>burza.bmp</b> (burza) i <b>wiatr.bmp</b> (wiatr) z folderu <b>data/icon50</b>.</small>
                 <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;">
                     <div style="flex:1;min-width:280px;background:#0b1220;border:1px solid #2a3357;border-radius:8px;padding:10px;">
                         <label style="font-weight:bold;">⚡ Ikona burzy</label>
@@ -1837,7 +1837,7 @@
         let wxIconInit = false;
         let wxStormImg = null;   // HTMLImageElement wgranej ikony burzy
         let wxWindImg = null;
-        const WX_ICON_W = 408, WX_ICON_H = 320;  // panel grafiki alertu (jak w firmware)
+        const WX_ICON_W = 480, WX_ICON_H = 320;  // grafika alertu = caly ekran (jak w firmware)
 
         const wxRenderAlert = (storm, img) => {
             const cv = document.getElementById('wx-alert-canvas');
@@ -1846,10 +1846,10 @@
             const accent = storm ? '#ff0000' : '#ff8800';
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, 480, 320);
-            // Grafika 408x320 (fit=contain) wypelnia lewy panel.
+            // Grafika 480x320 (fit=cover) wypelnia caly ekran (bez czarnych pasow).
             if (img && img.complete && img.naturalWidth) {
                 const iw = img.naturalWidth, ih = img.naturalHeight;
-                const s = Math.min(WX_ICON_W / iw, WX_ICON_H / ih);
+                const s = Math.max(WX_ICON_W / iw, WX_ICON_H / ih);
                 const dw = Math.round(iw * s), dh = Math.round(ih * s);
                 ctx.drawImage(img, (WX_ICON_W - dw) / 2, (WX_ICON_H - dh) / 2, dw, dh);
             }
@@ -1917,15 +1917,15 @@
             btn.disabled = true;
             statusEl.textContent = "Konwertuję i wysyłam...";
             im.onload = () => {
-                // Grafika 408x320 (fit=contain) - firmware rysuje ja 1:1 w lewym
-                // panelu ekranu alertu (bez skalowania w gore i bez przycinania).
+                // Grafika 480x320 (fit=cover) - firmware rysuje ja 1:1 na calym
+                // ekranie alertu (bez skalowania w gore i bez przycinania).
                 const cv = document.createElement('canvas');
                 cv.width = WX_ICON_W; cv.height = WX_ICON_H;
                 const c2 = cv.getContext('2d');
                 c2.fillStyle = '#000';
                 c2.fillRect(0, 0, WX_ICON_W, WX_ICON_H);
                 const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
-                const s = Math.min(WX_ICON_W / iw, WX_ICON_H / ih);
+                const s = Math.max(WX_ICON_W / iw, WX_ICON_H / ih);
                 const dw = Math.round(iw * s), dh = Math.round(ih * s);
                 c2.drawImage(im, (WX_ICON_W - dw) / 2, (WX_ICON_H - dh) / 2, dw, dh);
                 const rgba = c2.getImageData(0, 0, WX_ICON_W, WX_ICON_H).data;

@@ -1,8 +1,15 @@
 # Stan prac — ESP32-HAM-CLOCK-S3
 
-Ostatnia aktualizacja: 2026-10-23. Wersja firmware: **v1.2d**.
+Ostatnia aktualizacja: 2026-10-27. Wersja firmware: **v1.2d**.
 
 ## v1.2d — czcionki zegara, alert pogodowy, migotanie, pin baterii (23.10.2026)
+
+- **Grafika alertu (burza/wiatr) na całym ekranie**: `WX_ICON_TARGET_W` 408→**480**
+  (panel 408×320 → pełne 480×320), skalowanie **fit=contain → fit=cover** (pokrycie
+  ekranu bez czarnych pasów, nadmiar przycinany symetrycznie, małe obrazy
+  powiększane). Domyślne `data/icon50/burza.bmp` / `wiatr.bmp` generowane od nowa w
+  **480×320** (`tools/make_weather_icons.py`). WWW (6 języków) i narzędzia podglądu
+  zsynchronizowane (480×320, cover); komentarze „170×170 / contain / 408" usunięte.
 
 - **Wybór czcionki znaku i zegara**: 14 krojów VLW + wbudowana, menu TIME MODE
   (siatka 5×3), zapis NVS `clock_font`. Rysowanie `drawString()` + `TC_DATUM`,

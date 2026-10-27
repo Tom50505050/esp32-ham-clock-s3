@@ -24,8 +24,8 @@ def render(storm, icon_path, black_box):
     d = ImageDraw.Draw(img)
     accent = RED if storm else ORANGE
 
-    ic = fit_icon(icon_path, 408, 320)
-    img.paste(ic, ((408 - ic.width) // 2, (320 - ic.height) // 2))
+    ic = fit_icon(icon_path, 480, 320)
+    img.paste(ic, (0, 0))
 
     title = "BURZA" if storm else "SILNY WIATR"
     gust = "-- m/s"

@@ -31,11 +31,21 @@ def load_font(size, bold=True):
 
 
 def fit_icon(path, box_w, box_h):
-    """Skaluje grafike proporcjonalnie (contain, nearest) do okna box_w x box_h."""
+    """Skaluje grafike proporcjonalnie (cover, nearest) do okna box_w x box_h.
+
+    Pokrywa cale okno bez czarnych pasow; nadmiar jest przycinany symetrycznie
+    (odpowiada fit=cover w firmware).
+    """
     im = Image.open(path).convert("RGB")
     iw, ih = im.size
-    s = min(box_w / iw, box_h / ih)
-    return im.resize((max(1, round(iw * s)), max(1, round(ih * s))), Image.NEAREST)
+    s = max(box_w / iw, box_h / ih)
+    nw, nh = max(1, round(iw * s)), max(1, round(ih * s))
+    im = im.resize((nw, nh), Image.NEAREST)
+    if nw > box_w or nh > box_h:
+        x = (nw - box_w) // 2
+        y = (nh - box_h) // 2
+        im = im.crop((x, y, x + box_w, y + box_h))
+    return im
 
 
 def render(storm, icon_path, out_path):
@@ -43,9 +53,9 @@ def render(storm, icon_path, out_path):
     d = ImageDraw.Draw(img)
     accent = RED if storm else ORANGE
 
-    # Grafika 408x320 wypelnia lewy panel (fit=contain), reszta czarna.
-    ic = fit_icon(icon_path, 408, 320)
-    img.paste(ic, ((408 - ic.width) // 2, (320 - ic.height) // 2))
+    # Grafika wypelnia CALY ekran (fit=cover), brak czarnych pasow.
+    ic = fit_icon(icon_path, 480, 320)
+    img.paste(ic, (0, 0))
 
     # Czerwony napis alertu wysrodkowany na ekranie - bez czarnego tla, tylko
     # ramka akcentu + napisy (grafika widoczna pod spodem).

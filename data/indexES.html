@@ -879,7 +879,7 @@
             </div>
             <div class="config-section">
                 <h3>🖼️ Iconos de alerta (tormenta / viento)</h3>
-                <small>Reemplaza los gráficos de tormenta y viento mostrados en la alerta a pantalla completa. Cualquier archivo JPG/PNG/BMP/GIF/WEBP se escala a 408×320 y se convierte a BMP de 16 bits RGB565 en el navegador, y luego se envía al dispositivo. Predeterminado: <b>burza.bmp</b> (storm) and <b>wiatr.bmp</b> (wind) from the <b>data/icon50</b> folder.</small>
+                <small>Reemplaza los gráficos de tormenta y viento mostrados en la alerta a pantalla completa. Cualquier archivo JPG/PNG/BMP/GIF/WEBP se escala a 480×320 y se convierte a BMP de 16 bits RGB565 en el navegador, y luego se envía al dispositivo. Predeterminado: <b>burza.bmp</b> (storm) and <b>wiatr.bmp</b> (wind) from the <b>data/icon50</b> folder.</small>
                 <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;">
                     <div style="flex:1;min-width:280px;background:#0b1220;border:1px solid #2a3357;border-radius:8px;padding:10px;">
                         <label style="font-weight:bold;">⚡ Icono de tormenta</label>
@@ -1925,7 +1925,7 @@
         let wxIconInit = false;
         let wxStormImg = null;   // uploaded storm icon (HTMLImageElement)
         let wxWindImg = null;
-        const WX_ICON_W = 408, WX_ICON_H = 320;  // alert graphic panel (matches firmware)
+        const WX_ICON_W = 480, WX_ICON_H = 320;  // alert graphic = whole screen (matches firmware)
 
         const wxRenderAlert = (storm, img) => {
             const cv = document.getElementById('wx-alert-canvas');
@@ -1934,10 +1934,10 @@
             const accent = storm ? '#ff0000' : '#ff8800';
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, 480, 320);
-            // Graphic 408x320 (fit=contain) fills the left panel.
+            // Graphic 480x320 (fit=cover) fills the whole screen (no black bars).
             if (img && img.complete && img.naturalWidth) {
                 const iw = img.naturalWidth, ih = img.naturalHeight;
-                const s = Math.min(WX_ICON_W / iw, WX_ICON_H / ih);
+                const s = Math.max(WX_ICON_W / iw, WX_ICON_H / ih);
                 const dw = Math.round(iw * s), dh = Math.round(ih * s);
                 ctx.drawImage(img, (WX_ICON_W - dw) / 2, (WX_ICON_H - dh) / 2, dw, dh);
             }
@@ -1996,7 +1996,7 @@
             if (wp) wp.src = '/wxicon_preview?type=wind&t=' + Date.now();
         };
 
-        // Uploads an icon file: 170x170 RGB565 BMP (fit=contain) -> RAW POST.
+        // Uploads an icon file: 480x320 RGB565 BMP (fit=cover) -> RAW POST.
         const wxUploadIcon = (type, fileInput, statusEl, btn) => {
             const file = fileInput && fileInput.files && fileInput.files[0];
             if (!file) { statusEl.textContent = "Selecciona un archivo de imagen."; return; }
@@ -2005,15 +2005,15 @@
             btn.disabled = true;
             statusEl.textContent = "Convirtiendo y subiendo...";
             im.onload = () => {
-                // 408x320 graphic (fit=contain) - firmware draws it 1:1 in the
-                // left panel of the alert screen (no upscale, no clipping).
+                // 480x320 graphic (fit=cover) - firmware draws it 1:1 filling the
+                // whole screen of the alert (no upscale, no clipping).
                 const cv = document.createElement('canvas');
                 cv.width = WX_ICON_W; cv.height = WX_ICON_H;
                 const c2 = cv.getContext('2d');
                 c2.fillStyle = '#000';
                 c2.fillRect(0, 0, WX_ICON_W, WX_ICON_H);
                 const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
-                const s = Math.min(WX_ICON_W / iw, WX_ICON_H / ih);
+                const s = Math.max(WX_ICON_W / iw, WX_ICON_H / ih);
                 const dw = Math.round(iw * s), dh = Math.round(ih * s);
                 c2.drawImage(im, (WX_ICON_W - dw) / 2, (WX_ICON_H - dh) / 2, dw, dh);
                 const rgba = c2.getImageData(0, 0, WX_ICON_W, WX_ICON_H).data;
