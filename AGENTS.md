@@ -17,6 +17,71 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
 - **`FIRMWARE_VERSION` 1.2c → 1.2d**; `data/index*.html` (6 języków),
   `tools/lang_pages.json`, `platformio.ini`, README/RELEASE_NOTES zaktualizowane.
 
+## Grafiki alertu pogodowego: restart ESP32 przy wgrywaniu ikony przez WWW (30.10.2026)
+- **OBJAW:** przy wgrywaniu przez WWW grafiki ikony alertu (wiatr/burza) ESP32
+  restartowal sie. Log uzytkownika pokazal `IntegerDivideByZero` (EXCCAUSE 6) w
+  littlefs, nie WDT.
+- **PRZYCZYNA (potwierdzona backtrace):** brak miejsca w LittleFS (ENOSPC).
+  Log: `Free: 299008` B, a wgrywana ikona WWW (16-bit 480x320) to **307266** B.
+  Zapis 307 kB do FS z ~299 kB wolnego wyczerpuje bloki; littlefs wchodzi w
+  sciezke braku miejsca i dzieli przez zero (cache/metadane) => panic =>
+  restart. Backtrace z `firmware.elf` (mini addr2line w Pythonie, bez
+  toolchainu) wskazal `lfs_file_flushedwrite` w
+  `components/esp_littlefs/src/littlefs/lfs.c`. To NIE jest blad skalera ani WDT.
+- **KLUCZOWY FAKT:** `drawWeatherAlertIconFile()` dla wgranej ikony NIGDY nie
+  wchodzi w petle skalowania - WWW zawsze wysyla obraz dokladnie **480x320**
+  (`WX_ICON_W/H`), wiec dziala szybka sciezka `drawBmp16FromFS(path,0,0)`.
+- **ZAUWAZONE PRZY OKAZJI (naprawione):** skalowana sciezka czytala naglowek BMP
+  z pominietym polem zarezerwowanym (`readBmp16; readBmp32` zamiast
+  `readBmp16; readBmp32; readBmp32`), przez co `planes` = wysokosc obrazu i
+  warunek `planes==1` byl zawsze falszywy. Poprawka: pelny odczyt naglowka
+  (dodany offset danych). Kod byl jednak martwy dla ikon 480x320 - nie to
+  powodowalo restart.
+- **POPRAWKA GLOWNA:** domyslne ikony `/icon50/wiatr.bmp` i `/icon50/burza.bmp`
+  byly 24-bit (460854 B kazda). Przekonwertowane do 16-bit RGB565 BI_BITFIELDS
+  (307266 B, `tools/bmp24to16.py`) - jak pliki z WWW. Wolne miejsce w FS wzroslo
+  z ~610 kB do ~913 kB, wiec upload 307 kB sie miesci.
+- **POPRAWKA OCHRONNA (przed ponownym panicem):** przed zapisem sprawdzane jest
+  wolne miejsce (`totalBytes - usedBytes`, margines 64 kB) wobec `Content-Length`
+  (`server->clientContentLength()` - NIE `header("Content-Length")`, bo WebServer
+  nie ma tego naglowka w `header()`; poprzednia kontrola byla martwa). Dodatkowo
+  kontrola w trakcie `RAW_WRITE` chroni upload chunked bez Content-Length. Przy
+  braku miejsca upload jest odrzucany, plik czyszczony, a trasa zwraca **HTTP 507**
+  (`sendUploadResult`) - WWW pokazuje blad zamiast "OK".
+- **WOLNE WGRYWANIE IKON (30.10.2026):** pierwsza wersja kontroli w trakcie zapisu
+  wolala `LittleFS.usedBytes()` co 8 blokow. `usedBytes()` -> `lfs_fs_size()` ->
+  `lfs_fs_rawtraverse()` przechodzi **caly** system plikow (~2016 blokow po 4 kB),
+  czyli ~27 pelnych przejsc po 7.9 MB na jedna ikone. Dodatkowo kazde przejscie
+  czyta flash synchronicznie w zadaniu `loop()`, blokujac odbior gniazda (klient
+  musi czekac, dopoki bufor RX sie nie oprozni) - upload trwal dlugo. Poprawka:
+  wolne miejsce liczone **raz** w `RAW_START` (`rawSpaceLeft`), a w petli tylko
+  pomniejszane (kontrola O(1)). `usedBytes()` w `/api/sysinfo` pozostaje (wolane
+  na zadanie), ale nie w sciezce uploadu.
+- **QA:** backtrace zdekodowany z `firmware.elf` (pyelftools + DWARF); wolne
+  miejsce FS zmierzone w `littlefs.bin` (littlefs-python: 1867 -> 1793 bloki
+  uzyte). Buildy `esp32-s3-n16r8` i `esp32-s3-n16r8-notouch` SUCCESS.
+- **WWW: GPS Lat/Lon z 8 miejscami po przecinku.** Panel "GPS status na zywo"
+  (`updateGpsLiveStatus`) formatowal `Number(d.lat).toFixed(5)` - zmienione na
+  `toFixed(8)` we wszystkich 6 `data/index*.html` (12 miejsc). `gpsLat`/`gpsLon`
+  w firmware to `double`, wiec 8. miejsce jest znaczace. Uwaga: ArduinoJson
+  6.21.6 dla `double` serializuje maks. 9 cyfr znaczacych i obcina zera
+  koncowe (np. `52.12345678` przechodzi, `52.10000000` da `52.1`).
+- **NIE MOZNA BYLO ZAPISAC 8 MIEJSC W "TWOJA STACJA" (30.10.2026).** Dwie
+  przyczyny:
+  1. Pola `user_lat`/`user_lon` mialy `step="0.000001"` (6 miejsc) -> HTML5
+     constraint validation odrzucal 8-cyfrowa wartosc (np. `50.22769165`),
+     przegladarka blokowala `submit` i pokazywala "Podaj prawidlowa wartosc",
+     wiec `saveConfig()` w ogole nie bylo wolane. Poprawka: `step="any"` w
+     wszystkich 6 `data/index*.html` + w zapasowej stronie w `main.cpp`
+     (`step="0.0001"` -> `step="any"`).
+  2. Firmware zapisywal pozycje jako **float32** (`putFloat`/`getFloat`) ->
+     tylko ~7 cyfr znaczacych, 8. miejsce gubione juz przy zapisie do NVS.
+     Poprawka: nowe klucze NVS `user_lat_d`/`user_lon_d` z pelnym `double`
+     (8 B przez `putBytes`), funkcje `prefPutUserPos`/`prefGetUserPos`
+     (odczyt: double, fallback na stary float - zgodnosc wstecz). Zapis jest
+     podwojny (double + float), wiec starszy firmware nadal odczyta pozycje.
+     Pola `double userLat/userLon` byly juz typu double - zmiana tylko w NVS.
+
 ## Grafiki alertu pogodowego (burza/wiatr) — pełnoekranowy layout 408×320 (22.10.2026)
 - **Ekran alertu: grafika 408×320 + czerwony napis.** Lewy panel (408×320 px)
   wypelnia grafika burzy/wiatru w trybie **fit=contain** (bez skalowania w gore i
@@ -213,6 +278,55 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
   (reuse infrastruktury ekranu APRS ALERT: `weatherAlertScreenActive`,
   `isAprsAlertCloseButtonHit`). Konfiguracja: NVS `wxal_storm/wxal_wind/
   wxal_windms/wxal_url`, pola WWW `weather_alert_*` + `openmeteo_url`.
+
+## Precyzyjny pomiar baterii: kalibracja ADC + krzywa Li-ion (27.10.2026)
+- **Kalibracja eFuse zamiast surowego `analogRead()`**: `readBatteryVoltage()` używa
+  `analogReadMilliVolts()` (rdzeń używa `esp_adc_cal` z eFuse Two Point / Vref
+  wbudowanego w każdy ESP32-S3), więc znika dominujący błąd offsetu i nieliniowości
+  surowych kodów ADC. `analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db)` w `setup()`
+  (pełny zakres 0-3.3 V); `analogSetAttenuation()` globalnie zostaje jako fallback.
+- **Średnia obcięta**: `batteryTrimmedMeanMv(12, 2)` pobiera 12 próbek, sortuje i
+  odrzuca po 2 skrajne z każdej strony (średnia z 8 środkowych). Pojedynczy błędny kod
+  ADC (0/4095) nie rozciąga już wyniku.
+- **Korekcja tolerancji dzielnika**: `batteryDividerCal` (mnożnik, NVS `bat_div_cal`)
+  i `batteryVoltOffset` (offset V, NVS `bat_off`). Wzór:
+  `Vbat = (Vpin_mV/1000) * 2.0 * bat_div_cal + bat_off`.
+- **Krzywa rozładowania Li-ion** zamiast liniowej mapy: tablica `kBatteryCurve[]`
+  (15 punktów 3.40-4.20 V) z interpolacją liniową w `calculateBatteryPercentage()`.
+  Liniowa mapa 3.4-4.2 V zawyżała „50%" (ogniwo trzyma ~3.7-3.8 V przez większość czasu).
+  Np. 3.80 V → 47% (było 50%), 3.70 V → 33% (było 37.5%), 3.60 V → 18% (było 25%).
+- **Histereza ładowania**: `batteryCharging` ustawiane przy >4.25 V, kasowane przy
+  <4.10 V - w fazie CV (4.15-4.25 V) stan nie miga.
+- **Kalibracja jednopunktowa w WWW** (zakładka System → „Kalibracja baterii"):
+  pole `bat_cal_v` = rzeczywiste napięcie z multimetru; firmware mnoży
+  `bat_div_cal *= vref/raw` tylko gdy `|vref-raw| > 50 mV` (bez tego każdy „Zapisz"
+  kumulowałby korektę). Pola `bat_div_cal` i `bat_off` edytowalne wprost.
+- **API**: `/api/config` eksportuje `bat_div_cal`, `bat_off`, `sys_vcc`, `sys_batt_pct`,
+  `sys_batt_chg`; `/api/save` przyjmuje `bat_cal_v`, `bat_div_cal`, `bat_off`.
+  Naprawiona literówka `#ifdef ENABLE_BATTERY_MONITORING` → `BATTERY_MONITORING_ENABLED`
+  (wcześniej `sys_vcc` zawsze zwracał 0).
+- **Ikona - ujednolicona (27.10.2026)**: w kodzie były **dwie** funkcje
+  `drawBatteryIcon` - martwa `drawBatteryIcon(x,y,w,h)` (20×10, własna logika
+  kolorów, bez błyskawicy) oraz `drawBatteryIcon(x,y,percentage)` (20×10 w
+  `(x, y+2)`) faktycznie rysująca nagłówki na WSZYSTKICH ekranach (zegar
+  klasyczny/nowoczesny, `uiHeader`, splash). Nagłówki używały tej drugiej, więc
+  wcześniejsze prace nad ikoną ich nie obejmowały. Teraz jest **jedna** funkcja
+  `drawBatteryIcon(x, y, percentage = -1, bg = TFT_BLACK)`:
+  wspólne `drawBatteryFill()` + `drawBatteryBolt()`, kolor z `getBatteryColor()`
+  (histereza ładowania), wnętrze czyszczone kolorem tła nagłówka (`bg`), więc
+  poziom może maleć bez starego wypełnienia, a przy ładowaniu rysowana jest
+  błyskawica. Układ współrzędnych zgodny z `drawBatteryQuickUpdate` (ramka na
+  `y+2`, wnętrze od `y+4`) - brak skoku o 2 px przy szybkiej aktualizacji.
+  Miejsca wywołań przekazują `bg`: zegar klasyczny `TFT_RADIO_ORANGE`, zegar
+  nowoczesny `HC_BG`, `uiHeader` `bg` (klasyczny/modernowany). Usunięto martwe
+  `drawBatteryIcon(x,y,w,h)` i `drawBatteryStatus()` (nigdzie niewołane).
+  `tools/render_header_preview.py` zsynchronizowany.
+- **Uwaga WWW**: strona `/config` jest serwowana z LittleFS (`data/index*.html`),
+  a `getMainHTML()` w `main.cpp` to tylko fallback. Panel kalibracji dodano w
+  **obu miejscach**: `main.cpp` (fallback) oraz 6 plikach `data/index*.html`
+  (PL/EN/DE/FR/ES/RU) - HTML `#battery-calibration`, JS `applyConfigToUI()`
+  (odczyt `bat_div_cal`/`bat_off`/`sys_vcc`) i `collectConfigPayload()`
+  (`bat_div_cal`/`bat_off`/`bat_cal_v`).
 
 ## Bateria na GPIO7 + ciągłe odświeżanie ekranu GPS (21.10.2026)
 - **Pin dzielnika napięcia baterii: GPIO7 (ADC1_CH6)** — `BATTERY_ADC_PIN 7`
@@ -1977,3 +2091,88 @@ zegara) dodano 14 krojow VLW + wbudowana czcionke TFT_eSPI:
   `merge_bin` -> `dist/`, `python3 tools/make_zip.py`. LittleFS: data ~4,6 MB z
   7,87 MB partycji (28 plikow clock*.vlw = ~0,85 MB).
 
+
+## Paski WiFi w naglowku — wskazania zanizone (2026-10-13) — NAPRAWIONE
+Objaw: router ~2 m od urzadzenia, a ikona WiFi pokazywala 1 kreske (albo 0 /
+"brak zasiegu" tuz po polaczeniu), mimo dobrego sygnalu (skan logowal RSSI=-60).
+
+Przyczyny (trzy, wszystkie naprawione):
+1. **Progi zbyt surowe.** -50/-60/-70/-80 dBm dawaly 1 kreske dopiero przy
+   RSSI <= -70. Dla 2 m / -60 dBm wychodzily 2 kreski, a chwilowy spadek do -80
+   dawal 0 ("brak zasiegu", czerwone wypelnienie). Nowe progi (`rssiToBars`):
+   >-55=4, >-67=3, >-78=2, >-88=1, inaczej 0. -60 dBm -> 3 kreski.
+2. **RSSI==0 po polaczeniu.** Tuz po GOT_IP `WiFi.RSSI()` zwraca 0 (radio nie
+   zdazylo zmierzyc), co wpadalo w "else -> 0 belek" = czerwony "brak zasiegu".
+   Teraz `rssi==0` pokazuje 1 kreske zamiast falszywego braku zasiegu.
+3. **Naglowek rysowany raz.** `screen1HeaderNeedsRedraw` ustawia sie przy wejsciu
+   na ekran; jesli wtedy RSSI bylo jeszcze 0, ikona zostawala zla na stale.
+   Dodano `drawWifiBarsQuickUpdate()` — szybkie przerysowanie SAMYCH paskow co 5 s
+   z loop() (bez pelnego rysowania naglowka, wiec bez migotania).
+
+Dodatkowo: `drawWifiSignalBars(x, y, strength, bg)` czysci obszar paskow kolorem
+tla naglowka — pusta belka (drawRect) nie zostawia juz sladu po mocniejszym
+sygnalе. Ekran monitora systemu pokazuje "NN dBm N/4" z tego samego progu
+(`rssiToBars`), zeby dalo sie skorelowac odczyt z ikona.
+
+Uwaga: sam odczyt RSSI to sygnal z routera do ESP. Jesli mimo to jest slaby —
+sprawdzic antene (community: "antena byla luzna"), odleglosc od metalu/zasilacza
+i czy router nie jest w trybie oszczedzania. Log `[WIFI SCAN] ... RSSI=..` w
+konsoli pokazuje pomiar z chwili laczenia.
+
+## Pola dotyku na wszystkich ekranach — audyt i naprawa (2026-10-13)
+Zgloszenie: "sprawdz w wszystkich ekranach pola dotyku i je napraw".
+
+Znaleziony blad (funkcjonalny): **wspolna nawigacja w rogach zjadala dotkniecia
+przyciskow** na trzech ekranach z wlasnymi przyciskami przy dolnej krawedzi.
+Globalny dispatcher (`handleTouchNavigation`) sprawdzal strefy nawigacji
+`y >= 60 && (x < 80 || x >= 400)` PRZED handlerami ekranow, a dla PSK/STACJA/
+LOGGER te strefy nachodza na:
+- **LOGGER**: przyciski `SAVE QSO` (x 8..119), `CLEAR` (125..236),
+  `EXPORT ADIF` (242..353), `SETTINGS` (359..470) na `y 248..286` - kazde
+  dotkniecie lewych/prawych przelaczalo ekran zamiast wykonac akcje;
+- **STACJA**: prawy transceiver (`x 346..466`, `y 200..294`) - dotkniecie
+  otwieralo zly ekran zamiast klawiatury;
+- **PSK MAP**: wlasna nawigacja `cornerY=280` byla martwa (przechwytywana
+  wczesniej przez `y>=60`), a lewa/prawa strefa mapy (80 px) nie dzialala.
+
+Naprawa:
+- nowy wspolny helper `handleScreenSwitchTouch(x, y, cornerY, cornerX)`;
+- PSK/STACJA/LOGGER **wylaczone** ze wspolnej nawigacji w dispatcherze
+  (`screenHandlesOwnNav`) i obsluguja nawigacje same, tylko w **pasie stopki**
+  (`y >= 296`, `x < 80` / `x >= 400`) - przyciski sa nietkniete;
+- PSK odzyskal wlasna nawigacje `y >= 280` (jak zamierzone w komentarzu).
+
+Dodatkowo: etykieta jezyka w menu jasnosci (`langLabelY`) byla na `208` i
+chowala sie pod przyciskami (`190..216`) - przeniesiona na `220` (kafelki
+jezykow sa na `228`).
+
+Audyt: przejrzano wszystkie `handle*Touch` + hit-testy (`isPointInRect`,
+`isAprsAlertCloseButtonHit`, `isGpsScreenCloseButtonHit`,
+`isScreen6RadarRangeTileHit`, `callsignHit*`, `clockHit*`, `gpsIconHit*`).
+Pozostale ekrany (DX/POTA/HamAlert/APRS lista/radar, pogoda, menu filtrow,
+menu kolorow, jasnosc, uspienie, wygaszacz, QRZ popup, GPS) - geometria
+hit-testow zgodna z rysowaniem; nawigacja w rogach jest tam zamierzona.
+`isScreen6ViewToggleHit()`/`drawScreen6ViewToggleButton3D()` pozostaja
+nieuzywane (przelaczanie listy/radaru robi wybor ekranu 6/9 w WWW).
+
+## APRS RADAR - nawigacja ekranow "slabo dziala" (2026-10-13)
+Zgloszenie: "w ekranie aprs radar przyciski przelaczania na inny ekran slabo dzialaja".
+
+Przyczyny:
+1. Ekran radaru jest pelnoekranowy (`issFullBleed`), wiec wspolny `uiFooter()`
+   NIE rysowal strzalek "SWITCH SCREEN" - nie bylo widac, gdzie dotknac.
+2. Animacja smugi (`aprsRadarTick()`: `fillScreen` + `pushSprite` 480x320,
+   ~50 ms na klatke) byla wolana z `UI_Task` PRZED `handleTouchNavigation()`,
+   wiec w oknie rysowania XPT2046 nie byl odpytywany - tapniecie trafialo
+   w klatke i przepadalo (ten sam problem, ktory dotyczyl PSK).
+
+Naprawa:
+- `aprsRadarRenderFrame()` rysuje do sprite'a dwie strzalki nawigacji w pasie
+  stopki (x=14 i x=466, y=309, kolor `ARP_COL_SWEEP`); napisu "SWITCH SCREEN"
+  nie ma, bo srodek dolu zajmuja kafelki zakresu x0.2..x4 (`ARP_TILE_Y=300`).
+- w bloku `SCREEN_APRS_RADAR` dispatcher-a dodano
+  `handleScreenSwitchTouch(x, y, 296, 80)` - nawigacja tylko w pasie stopki
+  (y>=296), z dala od kafelkow zakresu i animacji.
+- animacje przeniesiono PO `handleTouchNavigation()` (zeby klatka nie
+  opozniala odczytu dotyku), w UI_Task jest teraz: (1) rysunki zadan, (2) odczyt
+  dotyku, (3) animacja radaru.

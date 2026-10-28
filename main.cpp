@@ -786,6 +786,10 @@ bool screenSaverActive = false;                   // Czy wygaszacz aktualnie dzi
 ScreenType screenSaverPrevScreen = SCREEN_OFF;    // Poprzedni ekran przed wygaszaczem
 bool screenSaverMenuActive = false;               // Czy jesteĹ›my w menu wygaszacza
 unsigned long lastScreen1UpdateMs = 0;
+// Pulsowanie naglowka zegara: RSSI ustala sie dopiero po polaczeniu, a naglowek
+// rysuje sie raz (flaga screen1HeaderNeedsRedraw) - bez tego paski WiFi zostawaly
+// z wartoscia z momentu rysowania (czesto 0 belek przy dobrym sygnale).
+unsigned long lastWifiBarsRefreshMs = 0;
 
 // Typy wygaszacza ekranu
 enum ScreenSaverType {
@@ -869,6 +873,18 @@ static bool isTableFooterScreen(ScreenType screenNum) {
           screenNum == SCREEN_APRS_IS ||
           screenNum == SCREEN_WEATHER_DSP ||
           screenNum == SCREEN_WEATHER_FORECAST);
+}
+
+// Ekrany, ktore rysuja wspolny naglowek (uiHeader) z paskami WiFi w (445,1).
+// Lustro warunku !issFullBleed z drawScreen() - pelnoekranowe ekrany (Matrix,
+// PSK MAP, radar APRS, monitor systemu, tracking ISS) nie maja paskow WiFi.
+static bool isHeaderScreen(ScreenType screenNum) {
+  return screenNum != SCREEN_MATRIX_CLOCK &&
+         screenNum != SCREEN_PSK_MAP &&
+         screenNum != SCREEN_APRS_RADAR &&
+         screenNum != SCREEN_SYSTEM_INFO &&
+         screenNum != SCREEN_ISS_PASS_TRACKING &&
+         screenNum != SCREEN_OFF;
 }
 
 static bool isTableNavFooterVisible(ScreenType screenNum) {
@@ -1911,6 +1927,11 @@ const unsigned long KISS_START_RESTART_DELAY_MS = 1000UL;
 // Profil ustawia domyslny baud + polecenia konfiguracyjne UBX/NMEA dla modulu.
 String gpsModuleProfile = "auto";   // auto|neo6|neo6m|neom8n|atgm336h
 const char *NVS_KEY_GPS_PROFILE = "gps_prof";
+// Pozycja uzytkownika: float (stare) + double (pelna precyzja 8 miejsc).
+const char *NVS_KEY_USER_LAT = "user_lat";
+const char *NVS_KEY_USER_LON = "user_lon";
+const char *NVS_KEY_USER_LAT_D = "user_lat_d";
+const char *NVS_KEY_USER_LON_D = "user_lon_d";
 bool gpsAutoConfigure = true;       // wysylaj sekwencje startowa do modulu (UBX/NMEA)
 unsigned long gpsConfigureSentMs = 0;
 bool gpsConfigured = false;
@@ -2484,133 +2505,166 @@ bool rgbBlueAprsStateOn = false;
 
 #define BATTERY_MONITORING_ENABLED  // Włącz pomiar napięcia baterii
 #define BATTERY_ADC_PIN 7           // Pin ADC1_CH6 (GPIO7) - pomiar napięcia baterii (ESP32-S3)
-#define BATTERY_ADC_RESOLUTION 12   // RozdzielczoĹ›Ä‡ ADC (12 bit = 0-4095)
-#define BATTERY_VOLTAGE_DIVIDER 2.0f // Dzielnik napiÄ™cia 100k/100k (1:2)
-#define BATTERY_ADC_VREF 3.3f       // NapiÄ™cie referencyjne ADC (3.3V)
+#define BATTERY_ADC_RESOLUTION 12   // Rozdzielczość ADC (12 bit = 0-4095)
+#define BATTERY_VOLTAGE_DIVIDER 2.0f // Nominalny dzielnik napięcia 100k/100k (1:2)
+#define BATTERY_ADC_VREF 3.3f       // Napięcie referencyjne ADC (tylko awaryjny odczyt raw)
 
-// Zakresy napiÄ™cia akumulatora 18650 (dla pĹ‚ytki z ochronÄ… DW01A)
-#define BATTERY_VOLTAGE_MAX 4.2f      // 100% naĹ‚adowana
+// Kalibracja pomiaru (korekcja tolerancji rezystorów dzielnika i ADC).
+// Vbat = Vpin * BATTERY_VOLTAGE_DIVIDER * batteryDividerCal + batteryVoltOffset.
+// Zamiast analogRead() (surowe kody, obarczone błędem offsetu i nieliniowości)
+// używamy analogReadMilliVolts(), które korzysta z kalibracji eFuse (Two Point /
+// Vref) wbudowanej w każdy ESP32-S3 - to usuwa największe źródło błędu.
+float batteryDividerCal = 1.0f;   // mnożnik kalibracji (np. 0.98 gdy dzielnik zaniża)
+float batteryVoltOffset = 0.0f;   // offset w woltach (korekta stałego przesunięcia)
+
+// Zakresy napięcia akumulatora 18650 (dla płytki z ochroną DW01A)
+#define BATTERY_VOLTAGE_MAX 4.2f      // 100% naładowana
 #define BATTERY_VOLTAGE_NOM 3.8f    // 50% nominalna
-#define BATTERY_VOLTAGE_LOW 3.6f    // 25% niski poziom (pomaraĹ„czowy)
+#define BATTERY_VOLTAGE_LOW 3.6f    // 25% niski poziom (pomarańczowy)
 #define BATTERY_VOLTAGE_MIN 3.4f    // 0% krytyczny (czerwony)
-#define BATTERY_VOLTAGE_CUTOFF 3.4f // 0% ochrona wyĹ‚Ä…cza
+#define BATTERY_VOLTAGE_CUTOFF 3.4f // 0% ochrona wyłącza
 
-// InterwaĹ‚y pomiaru i ostrzegania
-#define BATTERY_CHECK_INTERVAL_MS 1000UL   // Sprawdzaj co 1 sekundÄ™
+// Interwały pomiaru i ostrzegania
+#define BATTERY_CHECK_INTERVAL_MS 1000UL   // Sprawdzaj co 1 sekundę
 #define BATTERY_WARN_INTERVAL_MS 60000UL   // Ostrzegaj co 60 sekund przy niskim poziomie
 
 unsigned long lastBatteryCheckMs = 0;
 float batteryVoltage = 0.0f;
 int batteryPercentage = 0;
 bool batteryLowWarningShown = false;
-bool batteryCharging = false;  // Rozpoznawanie Ĺ‚adowania (napiÄ™cie > 4.25V)
+bool batteryCharging = false;  // Rozpoznawanie ładowania (napięcie > 4.25V)
 
-// Funkcja odczytu napiÄ™cia baterii z ADC
-float readBatteryVoltage() {
-  // DokĹ‚adniejszy odczyt - Ĺ›rednia z 8 prĂłbek
-  long adcSum = 0;
-  const int samples = 8;
+// Średnia obcięta (trimmed mean): sortuje próbki i odrzuca skrajne. ADC ESP32
+// potrafi sporadycznie zwrócić pojedynczy błędny kod (np. 0 albo 4095), który
+// zwykła średnia rozciąga na cały wynik. Po odrzuceniu skrajnych dostajemy
+// stabilny odczyt bez szarpania wskazaniem procentu.
+static float batteryTrimmedMeanMv(int samples, int drop) {
+  if (samples < 1) return 0.0f;
+  uint32_t mv[24];
+  if (samples > 24) samples = 24;
+  if (drop * 2 >= samples) drop = 0;
   for (int i = 0; i < samples; i++) {
-    adcSum += analogRead(BATTERY_ADC_PIN);
-    delayMicroseconds(100);
+    mv[i] = analogReadMilliVolts(BATTERY_ADC_PIN);
+    delayMicroseconds(200);
   }
-  float adcAvg = adcSum / (float)samples;
-  float voltageAtPin = (adcAvg / 4095.0f) * BATTERY_ADC_VREF;
-  return voltageAtPin * BATTERY_VOLTAGE_DIVIDER;
+  // Sortowanie bąbelkowe (mało próbek - koszt pomijalny).
+  for (int i = 0; i < samples - 1; i++) {
+    for (int k = 0; k < samples - 1 - i; k++) {
+      if (mv[k] > mv[k + 1]) {
+        uint32_t t = mv[k];
+        mv[k] = mv[k + 1];
+        mv[k + 1] = t;
+      }
+    }
+  }
+  uint32_t sum = 0;
+  int used = 0;
+  for (int i = drop; i < samples - drop; i++) {
+    sum += mv[i];
+    used++;
+  }
+  if (used == 0) return 0.0f;
+  return (float)sum / (float)used;
 }
 
-// Funkcja obliczania procentu naĹ‚adowania (liniowe mapowanie: 4.2V=100%, 3.8V=50%, 3.4V=0%)
+// Funkcja odczytu napięcia baterii z ADC (kalibracja eFuse + korekcja dzielnika)
+float readBatteryVoltage() {
+  // 12 próbek, odrzucamy po 2 skrajne z każdej strony (średnia z 8 środkowych).
+  float pinMv = batteryTrimmedMeanMv(12, 2);
+  float vbat = (pinMv / 1000.0f) * BATTERY_VOLTAGE_DIVIDER * batteryDividerCal
+               + batteryVoltOffset;
+  return vbat;
+}
+
+// Nieliniowa charakterystyka rozładowania ogniwa Li-ion (3.4-4.2V).
+// Liniowa mapa 3.4-4.2V zaniżała wskazania w środku zakresu: ogniwo trzyma
+// ~3.7-3.8V przez większość czasu, więc "50%" świeciło zbyt długo, a pod
+// obciążeniem procent spadał skokowo. Poniższa tabela odwzorowuje typową
+// krzywą 18650 (napięcie w spoczynku -> procent).
+static const struct { float v; int pct; } kBatteryCurve[] = {
+  {4.20f, 100}, {4.10f, 90}, {4.00f, 78}, {3.95f, 70}, {3.90f, 62},
+  {3.85f, 55}, {3.80f, 47}, {3.75f, 40}, {3.70f, 33}, {3.65f, 25},
+  {3.60f, 18}, {3.55f, 12}, {3.50f, 7},  {3.45f, 3},  {3.40f, 0},
+};
+
+// Funkcja obliczania procentu naładowania (interpolacja krzywej Li-ion)
 int calculateBatteryPercentage(float voltage) {
   if (voltage >= BATTERY_VOLTAGE_MAX) return 100;
   if (voltage <= BATTERY_VOLTAGE_MIN) return 0;
-  // Liniowe mapowanie miÄ™dzy 3.4V (0%) a 4.2V (100%)
-  // 3.8V = 50%
-  float percentage = ((voltage - BATTERY_VOLTAGE_MIN) / (BATTERY_VOLTAGE_MAX - BATTERY_VOLTAGE_MIN)) * 100.0f;
-  return (int)percentage;
+  const int n = (int)(sizeof(kBatteryCurve) / sizeof(kBatteryCurve[0]));
+  for (int i = 0; i < n - 1; i++) {
+    if (voltage <= kBatteryCurve[i].v && voltage >= kBatteryCurve[i + 1].v) {
+      float span = kBatteryCurve[i].v - kBatteryCurve[i + 1].v;
+      float frac = (span > 0.0f) ? (voltage - kBatteryCurve[i + 1].v) / span : 0.0f;
+      float pct = kBatteryCurve[i + 1].pct +
+                  frac * (kBatteryCurve[i].pct - kBatteryCurve[i + 1].pct);
+      return (int)(pct + 0.5f);
+    }
+  }
+  return 0;
 }
 
-// SprawdĹş stan baterii i zwrĂłÄ‡ true jeĹ›li byĹ‚a aktualizacja
+// Sprawdź stan baterii i zwróć true jeśli była aktualizacja
 bool updateBatteryStatus() {
   unsigned long now = millis();
   if (now - lastBatteryCheckMs < BATTERY_CHECK_INTERVAL_MS) {
     return false;
   }
   lastBatteryCheckMs = now;
-  
+
   float v = readBatteryVoltage();
-  // Sanity: odczyt < 1.0 V = dzielnik/akumulator niepodlaczony (wiszace GPIO7)
-  // albo ADC zwraca smieci. Wtedy nie raportujemy "0%" ani falszywego
-  // ostrzezenia "podlacz ladowarke" - po prostu brak pomiaru.
+  // Sanity: odczyt < 1.0 V = dzielnik/akumulator niepodłączony (wiszące GPIO7)
+  // albo ADC zwraca śmieci. Wtedy nie raportujemy "0%" ani fałszywego
+  // ostrzeżenia "podłącz ładowarkę" - po prostu brak pomiaru.
   if (v < 1.0f) {
     batteryVoltage = 0.0f;
     batteryPercentage = 0;
     batteryCharging = false;
     return false;
   }
-  
+
   batteryVoltage = v;
   batteryPercentage = calculateBatteryPercentage(batteryVoltage);
-  
-  // Wykrywanie Ĺ‚adowania (napiÄ™cie > 4.25V wskazuje na podĹ‚Ä…czone 5V)
-  batteryCharging = (batteryVoltage > 4.25f);
-  
+
+  // Wykrywanie ładowania: TP4056 podnosi napięcie ogniwa powyżej 4.25V. Gdy
+  // ogniwo jest blisko pełne, ładowanie przechodzi w fazę CV i napięcie
+  // 4.15-4.25V jest dwuznaczne - wtedy zostawiamy poprzedni stan (histereza),
+  // żeby ikona nie migała między "ładuje" i "naładowana".
+  if (batteryVoltage > 4.25f) {
+    batteryCharging = true;
+  } else if (batteryVoltage < 4.10f) {
+    batteryCharging = false;
+  }
+
   return true;
 }
 
-// Zwraca kolor dla poziomu baterii (do wyĹ›wietlania na TFT)
+// Zwraca kolor dla poziomu baterii (do wyświetlania na TFT)
 uint16_t getBatteryColor() {
-  if (batteryCharging) return 0x07E0;  // Zielony podczas Ĺ‚adowania
+  if (batteryCharging) return 0x07E0;  // Zielony podczas ładowania
   if (batteryVoltage <= BATTERY_VOLTAGE_MIN) return TFT_RED;
-  if (batteryVoltage <= BATTERY_VOLTAGE_LOW) return 0xFDA0;  // PomaraĹ„czowy
+  if (batteryVoltage <= BATTERY_VOLTAGE_LOW) return 0xFDA0;  // Pomarańczowy
   return 0x07E0;  // Zielony
 }
 
-// Funkcja rysujÄ…ca ikonÄ™ baterii na TFT
-void drawBatteryIcon(int x, int y, int w, int h) {
-  if (!tftInitialized) return;
-  
-  uint16_t color = getBatteryColor();
-  int level = batteryPercentage;
-  
-  // Obrys baterii
-  tft.drawRect(x, y, w, h, TFT_WHITE);
-  // Plusik (kontakt) baterii
-  tft.fillRect(x + w, y + h/4, 3, h/2, TFT_WHITE);
-  
-  // WypeĹ‚nienie poziomem naĹ‚adowania
+// Rysuje wypełnienie ikony baterii kolorem poziomu, w obszarze wewnętrznym
+// (x+2, y+4, w-4, h-4). Wspólne dla pełnego rysowania i szybkiej aktualizacji,
+// żeby obie ścieżki dawały identyczny obraz (koniec migania przy odświeżeniu).
+static void drawBatteryFill(int x, int y, int w, int h, int level, uint16_t color) {
+  if (level < 0) level = 0;
+  if (level > 100) level = 100;
   int fillW = (w - 4) * level / 100;
   if (fillW < 0) fillW = 0;
   if (fillW > w - 4) fillW = w - 4;
-  
-  tft.fillRect(x + 2, y + 2, fillW, h - 4, color);
-  // WyczyĹ›Ä‡ pozostaĹ‚Ä… czÄ™Ĺ›Ä‡ (gdy poziom spada)
-  tft.fillRect(x + 2 + fillW, y + 2, (w - 4) - fillW, h - 4, TFT_BLACK);
+  if (fillW > 0) tft.fillRect(x + 2, y + 4, fillW, h - 4, color);
 }
 
-// Funkcja wyĹ›wietlajÄ…ca status baterii na ekranie (w nagĹ‚Ăłwku)
-void drawBatteryStatus(int x, int y) {
-  if (!tftInitialized) return;
-  
-  // Aktualizuj stan baterii
-  updateBatteryStatus();
-  
-  // Rysuj ikonÄ™ baterii (30x16 pikseli)
-  drawBatteryIcon(x, y, 30, 14);
-  
-  // Tekst z procentami i napiÄ™ciem
-  tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE);
-  char buf[16];
-  snprintf(buf, sizeof(buf), "%d%% %.1fV", batteryPercentage, batteryVoltage);
-  tft.setCursor(x + 36, y + 4);
-  tft.print(buf);
-  
-  // Indykator Ĺ‚adowania
-  if (batteryCharging) {
-    tft.setTextColor(0x07E0);  // Zielony
-    tft.setCursor(x + 36, y - 8);
-    tft.print("[Ĺ‚adowanie]");
-  }
+// Błyskawica (stan ładowania) rysowana na ikonie baterii - dwa trójkąty w
+// kształcie pioruna, kolorem tła (żeby "wyciąć" piorun z wypełnienia).
+static void drawBatteryBolt(int x, int y, int w, int h, uint16_t color) {
+  int cx = x + w / 2;
+  tft.fillTriangle(cx + 3, y + 2, cx - 2, y + h / 2 + 1, cx + 1, y + h / 2 + 1, color);
+  tft.fillTriangle(cx - 3, y + h - 2, cx + 2, y + h / 2, cx - 1, y + h / 2, color);
 }
 
 // ========== Restart (np. po zapisaniu konfiguracji)
@@ -3975,65 +4029,73 @@ void drawDateLine(const String &dateText) {
 // Funkcja rysujÄ…ca paski sygnaĹ‚u WiFi (belki jak w telefonie)
 // x, y - pozycja lewego gĂłrnego rogu
 // strength - siĹ‚a sygnaĹ‚u 0-4 (0=brak, 4=max)
-void drawWifiSignalBars(int x, int y, int strength = -1) {
-  // Automatyczna detekcja siĹ‚y sygnaĹ‚u jeĹ›li nie podano
+// Mapowanie RSSI -> liczba belek (0-4). Jedno zrodlo prawdy dla wskazan WiFi
+// (paski w naglowku + ekran monitora), zeby prog nie rozjechaly sie miedzy
+// miejscami. Pulsowanie co 5 s wymusza odswiezenie, bo RSSI jest ustalane
+// dopiero po polaczeniu - bez tego pierwszy rysunek naglowka zostawal z 0 belek.
+static int rssiToBars(int rssi) {
+  if (rssi > -55) return 4;
+  if (rssi > -67) return 3;
+  if (rssi > -78) return 2;
+  if (rssi > -88) return 1;
+  return 0;
+}
+
+void drawWifiSignalBars(int x, int y, int strength = -1, uint16_t bg = TFT_BLACK) {
+  // Wyczysc obszar paskow kolorem tla naglowka - bez tego pusta belka
+  // (drawRect) zostawialaby slad po poprzednim, mocniejszym sygnale.
+  tft.fillRect(x, y, 30, 16, bg);
   if (strength < 0) {
     if (!wifiConnected || WiFi.status() != WL_CONNECTED) {
       strength = 0;
     } else {
       int rssi = WiFi.RSSI();
-      if (rssi > -50) strength = 4;
-      else if (rssi > -60) strength = 3;
-      else if (rssi > -70) strength = 2;
-      else if (rssi > -80) strength = 1;
-      else strength = 0;
+      // RSSI==0 tuz po polaczeniu = brak danych z radia; pokaz minimum zamiast
+      // "brak zasiegu", zeby ikona nie klamala przy dobrym sygnale.
+      strength = (rssi == 0) ? 1 : rssiToBars(rssi);
     }
   }
-  
-  // Kolory dla belek WiFi - gradient od czerwonego do zielonego
-  uint16_t bar1Color = TFT_RED;       // Belka 1 (sĹ‚aby sygnaĹ‚)
-  uint16_t bar2Color = TFT_ORANGE;    // Belka 2
-  uint16_t bar3Color = TFT_YELLOW;    // Belka 3
-  uint16_t bar4Color = TFT_GREEN;     // Belka 4 (mocny sygnaĹ‚)
-  uint16_t noSignalColor = TFT_RED;   // Brak zasiÄ™gu
-  uint16_t emptyColor = TFT_DARKGREY; // Puste belki
-  
-  // 4 belki o rosnÄ…cej wysokoĹ›ci w rĂłĹĽnych kolorach (gradient)
-  // Belka 1 (najniĹĽsza) - CZERWONA
-  if (strength >= 1) {
-    tft.fillRect(x, y + 12, 6, 4, bar1Color);
-  } else if (strength == 0) {
-    tft.fillRect(x, y + 12, 6, 4, noSignalColor);
-  } else {
-    tft.drawRect(x, y + 12, 6, 4, emptyColor);
-  }
-  
-  // Belka 2 - POMARAĹCZOWA
-  if (strength >= 2) {
-    tft.fillRect(x + 8, y + 8, 6, 8, bar2Color);
-  } else if (strength == 0) {
-    tft.fillRect(x + 8, y + 8, 6, 8, noSignalColor);
-  } else {
-    tft.drawRect(x + 8, y + 8, 6, 8, emptyColor);
-  }
-  
-  // Belka 3 - Ĺ»Ă“ĹTA
-  if (strength >= 3) {
-    tft.fillRect(x + 16, y + 4, 6, 12, bar3Color);
-  } else if (strength == 0) {
-    tft.fillRect(x + 16, y + 4, 6, 12, noSignalColor);
-  } else {
-    tft.drawRect(x + 16, y + 4, 6, 12, emptyColor);
-  }
-  
-  // Belka 4 (najwyĹĽsza) - ZIELONA
-  if (strength >= 4) {
-    tft.fillRect(x + 24, y, 6, 16, bar4Color);
-  } else if (strength == 0) {
-    tft.fillRect(x + 24, y, 6, 16, noSignalColor);
-  } else {
-    tft.drawRect(x + 24, y, 6, 16, emptyColor);
-  }
+
+  uint16_t bar1Color = TFT_RED;
+  uint16_t bar2Color = TFT_ORANGE;
+  uint16_t bar3Color = TFT_YELLOW;
+  uint16_t bar4Color = TFT_GREEN;
+  uint16_t noSignalColor = TFT_RED;
+  uint16_t emptyColor = TFT_DARKGREY;
+
+  if (strength >= 1) tft.fillRect(x, y + 12, 6, 4, bar1Color);
+  else if (strength == 0) tft.fillRect(x, y + 12, 6, 4, noSignalColor);
+  else tft.drawRect(x, y + 12, 6, 4, emptyColor);
+
+  if (strength >= 2) tft.fillRect(x + 8, y + 8, 6, 8, bar2Color);
+  else if (strength == 0) tft.fillRect(x + 8, y + 8, 6, 8, noSignalColor);
+  else tft.drawRect(x + 8, y + 8, 6, 8, emptyColor);
+
+  if (strength >= 3) tft.fillRect(x + 16, y + 4, 6, 12, bar3Color);
+  else if (strength == 0) tft.fillRect(x + 16, y + 4, 6, 12, noSignalColor);
+  else tft.drawRect(x + 16, y + 4, 6, 12, emptyColor);
+
+  if (strength >= 4) tft.fillRect(x + 24, y, 6, 16, bar4Color);
+  else if (strength == 0) tft.fillRect(x + 24, y, 6, 16, noSignalColor);
+  else tft.drawRect(x + 24, y, 6, 16, emptyColor);
+}
+
+// Szybka aktualizacja tylko paskow WiFi (bez przerysowania calego naglowka).
+// Wywolywana cyklicznie z loop() - paski musza sledzic RSSI, ktore zmienia sie
+// po polaczeniu. Rysuje w tej samej pozycji i z tym samym tlem co naglowek.
+void drawWifiBarsQuickUpdate() {
+  if (!tftInitialized) return;
+  if (inMenu || aprsAlertScreenActive || gpsScreenActive) return;
+  if (brightnessMenuActive || screenSaverMenuActive) return;
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) return;  // brak polaczenia -> zostaw
+
+  bool clockScreen = (currentScreen == SCREEN_HAM_CLOCK);
+  if (!clockScreen && !isHeaderScreen(currentScreen)) return;  // tylko ekrany z uiHeader
+  // Modern naglowek zegara = HC_BG (0x0000, zdefiniowane pozniej - uzywamy literalu).
+  uint16_t bg = uiStyleClassic() ? TFT_RADIO_ORANGE : (clockScreen ? 0x0000 : UI_COL_CARD);
+  int x = clockScreen ? (tft.width() - 45) : 445;
+  int y = clockScreen ? 8 : 1;
+  drawWifiSignalBars(x, y, -1, bg);
 }
 
 // ===== Ikona GPS w naglowku zegara (widoczna gdy GPS wlaczony w ustawieniach) =====
@@ -4106,50 +4168,30 @@ static void refreshGpsIconIfChanged() {
 // Funkcja rysujÄ…ca ikonÄ™ baterii
 // x, y - pozycja lewego gĂłrnego rogu
 // percentage - procent naĹ‚adowania 0-100
-void drawBatteryIcon(int x, int y, int percentage = -1) {
-  // JeĹ›li napiÄ™cie baterii jest 0.00V lub poniĹĽej 0.1V, nie rysuj ikony
-  if (batteryVoltage <= 0.1f) {
-    return;
-  }
-  
-  // Automatyczna detekcja procentu jeĹ›li nie podano
-  if (percentage < 0) {
-    percentage = batteryPercentage;
-  }
-  
-  // Ograniczenie zakresu
+// Ikona baterii w naglowku: obudowa 20x10 w (x, y+2) + terminal 3x6.
+// Kolor poziomu pochodzi ze wspolnego getBatteryColor() (z histereza ladowania),
+// a wnetrze czysci sie kolorem tla naglowka (bg), zeby poziom mogl malec bez
+// pozostawiania starego wypelnienia. Podczas ladowania rysowana jest blyskawica
+// - identycznie jak w drawBatteryIcon(x,y,w,h) i drawBatteryQuickUpdate(), dzieki
+// czemu ikona jest spojna na wszystkich ekranach.
+void drawBatteryIcon(int x, int y, int percentage = -1, uint16_t bg = TFT_BLACK) {
+  if (batteryVoltage <= 0.1f) return;  // brak pomiaru (dzielnik niepodlaczony)
+  if (percentage < 0) percentage = batteryPercentage;
   if (percentage < 0) percentage = 0;
   if (percentage > 100) percentage = 100;
-  
-  // Wymiary ikony baterii
   const int batteryW = 20;
   const int batteryH = 10;
   const int terminalW = 3;
   const int terminalH = 6;
-  
-  // Kolor zaleĹĽny od poziomu naĹ‚adowania
-  uint16_t batteryColor;
-  if (percentage <= 20) {
-    batteryColor = TFT_RED;      // Krytyczny
-  } else if (percentage <= 50) {
-    batteryColor = TFT_ORANGE;   // Niski
-  } else if (percentage <= 75) {
-    batteryColor = TFT_YELLOW;   // Ĺšredni
-  } else {
-    batteryColor = TFT_GREEN;    // Wysoki
-  }
-  
-  // Rysuj obudowÄ™ baterii
+  // Wyczysc wnetrze kolorem tla i wypelnij poziomem (wspolny helper).
+  // Uklad wspolrzednych jak w drawBatteryQuickUpdate: ramka na y+2, wnetrze od
+  // y+4 - inaczej wypelnienie "skakaloby" o 2 px przy kazdej szybkiej aktualizacji.
+  tft.fillRect(x + 2, y + 4, batteryW - 4, batteryH - 4, bg);
+  drawBatteryFill(x, y, batteryW, batteryH, percentage, getBatteryColor());
+  // Obudowa + terminal baterii.
   tft.drawRect(x, y + 2, batteryW, batteryH, TFT_WHITE);
-  
-  // Rysuj terminal baterii (maĹ‚y wystÄ™p po prawej stronie)
   tft.fillRect(x + batteryW, y + 4, terminalW, terminalH, TFT_WHITE);
-  
-  // Rysuj poziom naĹ‚adowania (wewnÄ…trz obudowy)
-  int fillWidth = (batteryW - 4) * percentage / 100;
-  if (fillWidth > 0) {
-    tft.fillRect(x + 2, y + 4, fillWidth, batteryH - 4, batteryColor);
-  }
+  if (batteryCharging) drawBatteryBolt(x, y, batteryW, batteryH, bg);
 }
 // Szybka aktualizacja tylko ikony baterii (bez odswiezania calego naglowka).
 // Uzywana w loop() aby uniknac watchdog resetu. Dorysowuje wypelnienie w tej
@@ -4186,11 +4228,9 @@ void drawBatteryQuickUpdate(bool skipScreenCheck = false) {
   tft.fillRect(x + 2, y + 4, bw - 4, bh - 4, bg);
   tft.drawRect(x, y + 2, bw, bh, TFT_WHITE);
   tft.fillRect(x + bw, y + 4, 3, bh - 4, TFT_WHITE);
-  uint16_t color = getBatteryColor();
-  int fillW = (bw - 4) * batteryPercentage / 100;
-  if (fillW < 0) fillW = 0;
-  if (fillW > bw - 4) fillW = bw - 4;
-  if (fillW > 0) tft.fillRect(x + 2, y + 4, fillW, bh - 4, color);
+  drawBatteryFill(x, y, bw, bh, batteryPercentage, getBatteryColor());
+  // Błyskawica jak w drawBatteryIcon, ale "wycięta" kolorem tła nagłówka.
+  if (batteryCharging) drawBatteryBolt(x, y, bw, bh, bg);
 }
 
 void updateScreen1HeaderClock() {
@@ -4285,8 +4325,8 @@ static void updateScreen1HeaderClassic() {
   tft.setCursor(startX + part1W, textY);
   tft.print(logoPart2);
 
-  drawWifiSignalBars(screenW - 45, 8);
-  drawBatteryIcon(screenW - 82, 8);
+  drawWifiSignalBars(screenW - 45, 8, -1, TFT_RADIO_ORANGE);
+  drawBatteryIcon(screenW - 82, 8, -1, TFT_RADIO_ORANGE);
   drawGpsIconInHeader(true);
 
   drawHeaderTime(TFT_BLACK, TFT_RADIO_ORANGE);
@@ -4855,8 +4895,8 @@ static void hamClockModernHeader() {
   tft.setCursor((screenW - tft.textWidth(logo)) / 2, 12);
   tft.print(logo);
 
-  drawWifiSignalBars(screenW - 45, 8);
-  drawBatteryIcon(screenW - 82, 8);
+  drawWifiSignalBars(screenW - 45, 8, -1, HC_BG);
+  drawBatteryIcon(screenW - 82, 8, -1, HC_BG);
   drawGpsIconInHeader(false);
 
   drawHeaderTime(HC_CYAN, HC_BG);
@@ -6507,6 +6547,26 @@ void drawQrzPopup();
 void handleQrzPopupTouch(uint16_t x, uint16_t y);
 void openQrzPopup(const String &callsign);
 
+// Wspolna obsluga nawigacji ekranow (dotkniecie w rogu / pasie stopki).
+// Zwraca true, jesli przelaczono ekran. `cornerY` to wysokosc, od ktorej
+// dziala obszar nawigacji, `cornerX` - szerokosc strefy przy kazdej krawedzi.
+static bool handleScreenSwitchTouch(uint16_t x, uint16_t y, uint16_t cornerY, uint16_t cornerX) {
+  if (y < cornerY) return false;
+  if (x < cornerX) {
+    currentScreen = getNextScreenId(currentScreen);
+    drawScreen(currentScreen);
+    resetTftAutoSwitchTimer();
+    return true;
+  }
+  if (x >= (480 - cornerX)) {
+    currentScreen = getPrevScreenId(currentScreen);
+    drawScreen(currentScreen);
+    resetTftAutoSwitchTimer();
+    return true;
+  }
+  return false;
+}
+
 void handleTouchNavigation() {
   if (!tftInitialized) {
     return;
@@ -6796,6 +6856,11 @@ void handleTouchNavigation() {
         drawAprsSortMenu();
         return;
       }
+      // Nawigacja ekranow: pas stopki. Obszar jest wiekszy niz w innych ekranach
+      // (y>=296 zamiast 60), bo animacja smugi rysuje w kazdej iteracji UI_Task
+      // i przy pelnoekranowym obszarze "zajadala" tapniecia - im mniejszy
+      // fragment ekranu, tym mniejsze ryzyko trafienia w klatke animacji.
+      if (handleScreenSwitchTouch(x, y, 296, 80)) return;
     }
     if (currentScreen == SCREEN_HAM_CLOCK) {
       // Ikona GPS w naglowku (tylko gdy GPS wlaczony) - otwiera ekran satelitow.
@@ -6832,19 +6897,14 @@ void handleTouchNavigation() {
     // Zamienione kierunki: lewa strona = w prawo (next), prawa strona = w lewo (prev)
     // TYLKO gdy nie jesteĹ›my w ĹĽadnym menu i nie ma aktywnej klawiatury
     if (!inMenu && !brightnessMenuActive && !screenSaverMenuActive && !screenSleepMenuActive && !touchCalActive && !pskKeyboardActive && !stationKeyboardActive && !loggerKeyboardActive) {
-      const uint16_t cornerY = 60;
-      const uint16_t cornerX = 80;
-      if (y >= cornerY && x < cornerX) {
-        currentScreen = getNextScreenId(currentScreen);
-        drawScreen(currentScreen);
-        resetTftAutoSwitchTimer();
-        return;
-      } else if (y >= cornerY && x >= (480 - cornerX)) {
-        currentScreen = getPrevScreenId(currentScreen);
-        drawScreen(currentScreen);
-        resetTftAutoSwitchTimer();
-        return;
-      }
+      // Ekrany PSK / STACJA / LOGGER maja wlasne przyciski przy dolnej krawedzi
+      // (mapa, transceivery, przyciski akcji). Wspolna nawigacja w rogach
+      // (y>=60) przechwytywala te dotkniecia, wiec te ekrany obsluguja
+      // nawigacje same - tylko w pasie stopki (patrz ich handlery).
+      const bool screenHandlesOwnNav = (currentScreen == SCREEN_PSK_MAP ||
+                                        currentScreen == SCREEN_STATION ||
+                                        currentScreen == SCREEN_HAM_LOGGER);
+      if (!screenHandlesOwnNav && handleScreenSwitchTouch(x, y, 60, 80)) return;
     }
 
     // ObsĹ‚uga PSK map - na koĹ„cu, aby nie blokowaÄ‡ nawigacji w rogach
@@ -7070,8 +7130,8 @@ static void uiHeader(const char *title, bool showMenu) {
     tft.drawString(t, 240, 5, 2);
   }
   tft.setTextDatum(TL_DATUM);
-  drawWifiSignalBars(445, 1);
-  drawBatteryIcon(408, 1);
+  drawWifiSignalBars(445, 1, -1, bg);
+  drawBatteryIcon(408, 1, -1, bg);
 }
 
 // Naglowek MENU: nowoczesny = ciemna karta + teal linia, klasyczny =
@@ -7603,6 +7663,18 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
 
   // --- Panel zakresow na dole ---
   aprsRadarRangeTiles();
+
+  // --- Przyciski nawigacji ekranow w pasie stopki ---
+  // Ekran radaru jest pelnoekranowy (issFullBleed), wiec wspolny uiFooter() go
+  // pomija. Rysujemy wlasne strzalki do sprite'a - te same, ktore trafia
+  // hit-test w dispatcherze dotyku. Napis "SWITCH SCREEN" pomijamy, bo srodek
+  // dołu zajmuja kafelki zakresu.
+  {
+    const int arrowY = 309;
+    const int arrowSize = 10;
+    sp.fillTriangle(14, arrowY, 14 + arrowSize, arrowY - arrowSize, 14 + arrowSize, arrowY + arrowSize, ARP_COL_SWEEP);
+    sp.fillTriangle(466, arrowY, 466 - arrowSize, arrowY - arrowSize, 466 - arrowSize, arrowY + arrowSize, ARP_COL_SWEEP);
+  }
 
   // Krotka podpowiedz po zmianie zakresu (dotkniecie kafelka na dole).
   if (isScreen6RadarHintVisible()) {
@@ -8385,7 +8457,9 @@ void drawBrightnessMenu() {
   drawBrightnessSlider();
   drawThemeSlider();
 
-  const int langLabelY = 208;
+  // Etykieta jezyka lezy POD przyciskami (190..216) - przy 208 nachodzila na
+  // przycisk USPIENIE i byla zaslaniana.
+  const int langLabelY = 220;
   const int langTileW = 70;
   const int langTileH = 22;
   const int langGap = 10;
@@ -11895,11 +11969,16 @@ static void sysInfoUpdateDynamic(float currentTemp) {
   tft.setCursor(350, 88);  tft.print(b);
 
   bool conn = (WiFi.status() == WL_CONNECTED);
+  int rssi = conn ? WiFi.RSSI() : 0;
   tft.setTextColor(conn ? SYS_COL_GREEN : SYS_COL_RED, SYS_COL_CARD);
   tft.setCursor(350, 106); tft.print(conn ? "Connected" : "Connecting");
   tft.setTextColor(SYS_COL_TEXT, SYS_COL_CARD);
   tft.setCursor(350, 124);
-  if (conn) { snprintf(b, sizeof(b), "%d dBm", WiFi.RSSI()); tft.print(b); }
+  if (conn) {
+    // Ten sam prog co paski w naglowku (rssiToBars) - "N/4" ulatwia korelacje.
+    snprintf(b, sizeof(b), "%d dBm %d/4", rssi, rssiToBars(rssi));
+    tft.print(b);
+  }
   else tft.print("---");
   tft.setCursor(350, 142);
   tft.print(conn ? WiFi.localIP().toString() : String("0.0.0.0"));
@@ -13247,11 +13326,13 @@ static bool drawWeatherAlertIconFile(const String &path) {
   const int dxOff = (WX_ICON_TARGET_W - dw) / 2;
   const int dyOff = (WX_ICON_TARGET_H - dh) / 2;
 
-  // Szybka sciezka: obraz tozsamy z ekranem 480x320 - BMP rysujemy bezposrednio.
-  if (dw == iw && dh == ih && bmp24) {
-    if (drawBmpFromFS(path, dxOff, dyOff)) return true;
-  } else if (dw == iw && dh == ih && bmp16) {
-    if (drawBmp16FromFS(path, dxOff, dyOff)) return true;
+  // Szybka sciezka: obraz dokladnie 480x320 - BMP rysujemy bezposrednio (1:1,
+  // bez skalowania). Tylko dla obrazu rownego ekranowi; wieksze/mniejsze ida
+  // sciezka skalowana ponizej.
+  if (iw == WX_ICON_TARGET_W && ih == WX_ICON_TARGET_H && bmp24) {
+    if (drawBmpFromFS(path, 0, 0)) return true;
+  } else if (iw == WX_ICON_TARGET_W && ih == WX_ICON_TARGET_H && bmp16) {
+    if (drawBmp16FromFS(path, 0, 0)) return true;
   }
 
   uint16_t *canvas = wx_icon_canvas;
@@ -13261,28 +13342,40 @@ static bool drawWeatherAlertIconFile(const String &path) {
   if (bmp16 || bmp24) {
     fs::File f = LittleFS.open(path, "r");
     if (f) {
-      readBmp16(f); readBmp32(f);
+      // Naglowek BMP czytany DOKLADNIE tak jak przy pobieraniu wymiarow powyzej:
+      // sygnatura, rozmiar pliku, pole zarezerwowane, offset danych, rozmiar DIB,
+      // szerokosc, wysokosc, planes, bpp. Wczesniej brakowalo odczytu pola
+      // zarezerwowanego, wiec kazde kolejne pole bylo przesuniete o 4 bajty -
+      // "planes" wychodzilo rowne wysokosci obrazu i warunek planes==1 NIGDY nie
+      // byl spelniony. Caly skalowany odczyt BMP byl martwym kodem.
+      readBmp16(f); readBmp32(f); readBmp32(f);
       uint32_t off = readBmp32(f);
       readBmp32(f);
       int16_t bw = (int16_t)readBmp32(f);
       int16_t bh = (int16_t)readBmp32(f);
       uint16_t planes = readBmp16(f), bpp = readBmp16(f);
-      if (planes == 1 && bh > 0 && bw > 0 && (bpp == 16 || bpp == 24)) {
+      // Gorna granica wymiarow: chroni bmpRow/seek przed przepelnieniem dla
+      // uszkodzonego naglowka (w/h czytane wprost z pliku, bez walidacji).
+      if (planes == 1 && bw > 0 && bw <= 4096 && bh > 0 && bh <= 4096 &&
+          (bpp == 16 || bpp == 24)) {
         int bmpRow = ((bpp == 24 ? bw * 3 : bw * 2) + 3) & ~3;
         uint8_t *src = (uint8_t*)malloc(bmpRow);
         if (src) {
-          // Iterujemy po pikselach DOCELOWYCH i probkujemy zrodlo (nearest).
-          // Bezpieczne dla powiekszenia i pomniejszenia - nigdy nie wyjdziemy
-          // poza bufor docelowy dw x dh.
-          for (int y = 0; y < dh; y++) {
-            int sy = (int)((int32_t)y * bh / dh);
+          // Fit=cover: dw/dh moga byc WIEKSZE niz ekran, a dxOff/dyOff UJEMNE
+          // (grafika jest przycinana symetrycznie). Iterujemy po pikselach
+          // EKRANU (y 0..319, x 0..479) i wyliczamy piksel zrodla, wiec piszemy
+          // wylacznie w granicach bufora 480x320. Wczesniej petla szla po
+          // pikselach docelowych z ujemnym dxOff/dyOff i (uint32_t)(dyOff+y)
+          // dawalo dziki wskaznik -> wyjscie poza bufor PSRAM i restart ESP32.
+          for (int y = 0; y < WX_ICON_TARGET_H; y++) {
+            int sy = (int)((int32_t)(y - dyOff) * bh / dh);
             if (sy < 0) sy = 0;
             if (sy >= bh) sy = bh - 1;
             f.seek(off + (uint32_t)(bh - 1 - sy) * bmpRow);
             f.read(src, bmpRow);
-            uint16_t *dstRow = canvas + (uint32_t)(dyOff + y) * WX_ICON_TARGET_W + dxOff;
-            for (int x = 0; x < dw; x++) {
-              int sx = (int)((int32_t)x * bw / dw);
+            uint16_t *dstRow = canvas + (uint32_t)y * WX_ICON_TARGET_W;
+            for (int x = 0; x < WX_ICON_TARGET_W; x++) {
+              int sx = (int)((int32_t)(x - dxOff) * bw / dw);
               if (sx < 0) sx = 0;
               if (sx >= bw) sx = bw - 1;
               if (bpp == 16) {
@@ -20190,6 +20283,8 @@ void handleStationTouch(uint16_t x, uint16_t y) {
     stationStartKeyboard();
     return;
   }
+  // Nawigacja ekranow - tylko pas stopki (przyciski/transceivery zajmuja srodek).
+  if (handleScreenSwitchTouch(x, y, 296, 80)) return;
 }
 
 // ========== EKRAN "ESP32 HAM LOGGER" (dziennik lacznosci, ADIF) ==========
@@ -20837,6 +20932,9 @@ void handleLoggerTouch(uint16_t x, uint16_t y) {
     drawLoggerForm();
     return;
   }
+
+  // Nawigacja ekranow - tylko pas stopki (przyciski akcji zajmuja dol ekranu).
+  if (handleScreenSwitchTouch(x, y, 296, 80)) return;
 }
 
 // ========== MENU WYGASZACZA EKRANU ==========
@@ -21142,6 +21240,41 @@ void checkScreenSleepTimeout() {
 
 // ========== PREFERENCES ==========
 
+// Zapis/odczyt pozycji jako double (pelna precyzja, 8 miejsc po przecinku).
+// Preferencje udostepniaja tylko putFloat/getFloat, wiec zapisujemy bajty
+// (8 B) pod osobnym kluczem, a odczyt przyjmuje zarowno nowy klucz, jak i
+// stary float (zgodnosc ze starszymi zapisami).
+void prefPutPosDouble(const char *key, double value) {
+  if (preferences == nullptr) return;
+  preferences->putBytes(key, &value, sizeof(double));
+}
+
+bool prefGetPosDouble(const char *key, double &out) {
+  if (preferences == nullptr) return false;
+  size_t len = preferences->getBytesLength(key);
+  if (len != sizeof(double)) return false;
+  return preferences->getBytes(key, &out, sizeof(double)) == sizeof(double);
+}
+
+// Zapis pozycji uzytkownika: double (dokladny) + float (zgodnosc wstecz).
+void prefPutUserPos(double lat, double lon) {
+  if (preferences == nullptr) return;
+  prefPutPosDouble(NVS_KEY_USER_LAT_D, lat);
+  prefPutPosDouble(NVS_KEY_USER_LON_D, lon);
+  preferences->putFloat(NVS_KEY_USER_LAT, (float)lat);
+  preferences->putFloat(NVS_KEY_USER_LON, (float)lon);
+}
+
+// Odczyt pozycji: najpierw double, potem fallback na stary float.
+void prefGetUserPos(double &lat, double &lon) {
+  if (!prefGetPosDouble(NVS_KEY_USER_LAT_D, lat)) {
+    lat = preferences->getFloat(NVS_KEY_USER_LAT, 0.0f);
+  }
+  if (!prefGetPosDouble(NVS_KEY_USER_LON_D, lon)) {
+    lon = preferences->getFloat(NVS_KEY_USER_LON, 0.0f);
+  }
+}
+
 void loadPreferences() {
   if (preferences == nullptr) {
     preferences = new Preferences();
@@ -21221,9 +21354,7 @@ void loadPreferences() {
   yield();
   autoDst = preferences->getBool("dst_auto", true);
   yield();
-  userLat = preferences->getFloat("user_lat", 0.0f);
-  yield();
-  userLon = preferences->getFloat("user_lon", 0.0f);
+  prefGetUserPos(userLat, userLon);
   yield();
   userLatLonValid = preferences->getBool("user_ll_ok", false);
   yield();
@@ -21340,6 +21471,11 @@ void loadPreferences() {
   pskMqttCallsign = preferences->getString("psk_mqtt_call", "");
   // Tryb wyswietlania mapy PSK: false = jak dotychczas, true = pary lacznosci.
   pskShowLinks = preferences->getBool("psk_show_links", false);
+  // Kalibracja pomiaru baterii (NVS). Wartosci domyslne = brak korekty.
+  batteryDividerCal = preferences->getFloat("bat_div_cal", 1.0f);
+  batteryVoltOffset = preferences->getFloat("bat_off", 0.0f);
+  if (batteryDividerCal < 0.5f || batteryDividerCal > 2.0f) batteryDividerCal = 1.0f;
+  if (batteryVoltOffset < -1.0f || batteryVoltOffset > 1.0f) batteryVoltOffset = 0.0f;
   // Migracja v1.2b: MQTT jest teraz domyslnym, dzialajacym trybem (feed PSK
   // wrocil na pskr/filter/v2raw_1pc). Wlacz go RAZ i ZAPISZ w NVS, zeby po
   // restarcie byl aktywny od razu. Nie ruszamy, jesli uzytkownik ma wlasny
@@ -21439,8 +21575,7 @@ void loadPreferences() {
 
   if (!userLatLonValid && userLocator.length() >= 4) {
     updateUserLatLonFromLocator();
-    preferences->putFloat("user_lat", (float)userLat);
-    preferences->putFloat("user_lon", (float)userLon);
+    prefPutUserPos(userLat, userLon);
     preferences->putBool("user_ll_ok", userLatLonValid);
   }
   
@@ -21487,8 +21622,8 @@ void savePreferences() {
   preferences->putInt("gps_baud", gpsBaud);
   preferences->putInt("gps_rx", gpsRxPin);
   preferences->putInt("gps_tx", gpsTxPin);
-  preferences->putFloat("user_lat", (float)(gpsPositionOverrideActive ? userLatManual : userLat));
-  preferences->putFloat("user_lon", (float)(gpsPositionOverrideActive ? userLonManual : userLon));
+  prefPutUserPos(gpsPositionOverrideActive ? userLatManual : userLat,
+                 gpsPositionOverrideActive ? userLonManual : userLon);
   preferences->putBool("user_ll_ok", gpsPositionOverrideActive ? userLatLonValidManual : userLatLonValid);
   preferences->putString("qrz_user", qrzUsername);
   preferences->putString("qrz_pass", qrzPassword);
@@ -21550,6 +21685,9 @@ void savePreferences() {
   preferences->putInt("psk_mqtt_port", pskMqttPort);
   preferences->putString("psk_mqtt_call", pskMqttCallsign);
   preferences->putBool("psk_show_links", pskShowLinks);
+  // Kalibracja pomiaru baterii.
+  preferences->putFloat("bat_div_cal", batteryDividerCal);
+  preferences->putFloat("bat_off", batteryVoltOffset);
 
   // Konfiguracja wygaszacza ekranu (Matrix)
   preferences->putBool("ss_enabled", screenSaverEnabled);
@@ -21697,6 +21835,9 @@ static String rawUploadPath = "";       // sciezka docelowa w LittleFS
 static String rawUploadTarget = "";     // "splash"/"welcome"/"mapa"/"wxicon_*"
 static bool   rawUploadIsSplash = false;
 static bool   rawUploadActive = false;
+static bool   uploadNoSpace = false; // brak miejsca -> odpowiedz 507 zamiast 200
+static size_t rawSpaceLeft = 0;      // budzet bajtow na biezacy upload (O(1) kontrola)
+static bool   rawSpaceEnforce = false;
 static File   rawUploadFile;            // trzymany otwarty przez caly upload
 
 static String uploadExtOf(const String &name) {
@@ -21757,6 +21898,8 @@ static void rawUploadReset() {
   rawUploadTarget = "";
   rawUploadIsSplash = false;
   rawUploadActive = false;
+  uploadNoSpace = false;
+  rawSpaceEnforce = false;
 }
 
 static void rawUploadFinish() {
@@ -21799,6 +21942,7 @@ static void handleUpload(const String &targetForced) {
     HTTPUpload &upload = server->upload();
     if (upload.status == UPLOAD_FILE_START) {
       mpUploadActive = false;
+      uploadNoSpace = false;
       if (!littleFsReady) return;
       // Naglowek X-Upload-Target ma pierwszenstwo nad celem wymuszonym przez
       // trase - inaczej upload na /upload_splash z naglowkiem "splash" trafialby
@@ -21813,6 +21957,20 @@ static void handleUpload(const String &targetForced) {
       else if (target == "wxicon_wind") removeOldWxIconVariants(false);
       else if (target != "mapa") removeOldSplashVariants();
       if (target == "mapa") pskMapBgInvalidate();  // nowa mapa - przebuduj tlo w PSRAM
+      // Kontrola wolnego miejsca (patrz sciezka RAW): zapis do pelnego LittleFS
+      // konczy sie bledem, a w skrajnym przypadku panicem (IntegerDivideByZero)
+      // w littlefs i restartem ESP. Margines 64 kB pokrywa metadane/commit.
+      {
+        const size_t LFS_RESERVE_BYTES = 64 * 1024;
+        size_t freeBytes = LittleFS.totalBytes() - LittleFS.usedBytes();
+        int contentLen = (int)server->clientContentLength();
+        if (contentLen > 0 && (size_t)contentLen + LFS_RESERVE_BYTES > freeBytes) {
+          Serial.printf("[UPLOAD] Brak miejsca w LittleFS: potrzeba %d B, wolne %u B\n",
+                        contentLen, (unsigned)freeBytes);
+          uploadNoSpace = true;
+          return;
+        }
+      }
       LittleFS.remove(path);
       File f = LittleFS.open(path, "w");
       if (!f) { Serial.println("[UPLOAD] Nie moge otworzyc pliku"); return; }
@@ -21855,6 +22013,31 @@ static void handleUpload(const String &targetForced) {
     else if (target == "wxicon_wind") removeOldWxIconVariants(false);
     else if (target != "mapa") removeOldSplashVariants();
     if (target == "mapa") pskMapBgInvalidate();  // nowa mapa - przebuduj tlo w PSRAM
+    // Kontrola wolnego miejsca: zapis do pelnego LittleFS konczy sie bledem, a w
+    // skrajnym przypadku panicem (IntegerDivideByZero) w littlefs i restartem ESP.
+    // Margines 64 kB pokrywa metadane/commit; wolne liczymy po usunieciu starych
+    // wariantow (removeOld* powyzej).
+    //
+    // UWAGA: LittleFS.usedBytes() -> lfs_fs_size() -> lfs_fs_rawtraverse()
+    // przechodzi CALY system plikow (~2016 blokow po 4 kB). To kosztowne, wiec
+    // wolne miejsce liczymy TYLKO RAZ tutaj (O(1) w petli zapisu - patrz
+    // rawSpaceLeft/rawSpaceEnforce nizej).
+    {
+      const size_t LFS_RESERVE_BYTES = 64 * 1024;
+      size_t freeBytes = LittleFS.totalBytes() - LittleFS.usedBytes();
+      int contentLen = (int)server->clientContentLength();
+      if (contentLen > 0 && (size_t)contentLen + LFS_RESERVE_BYTES > freeBytes) {
+        Serial.printf("[UPLOAD] Brak miejsca w LittleFS: potrzeba %d B, wolne %u B\n",
+                      contentLen, (unsigned)freeBytes);
+        rawUploadActive = false;
+        uploadNoSpace = true;
+        return;
+      }
+      // Budzet dla kontroli w trakcie zapisu (chunked bez Content-Length).
+      // Rezerwa chroni takze warianty plikow zapisywane pozniej (metadane).
+      rawSpaceLeft = (freeBytes > LFS_RESERVE_BYTES) ? (freeBytes - LFS_RESERVE_BYTES) : 0;
+      rawSpaceEnforce = true;
+    }
     LittleFS.remove(path);
     rawUploadFile = LittleFS.open(path, "w");
     if (!rawUploadFile) { Serial.println("[UPLOAD] Nie moge otworzyc pliku (RAW)"); return; }
@@ -21865,10 +22048,50 @@ static void handleUpload(const String &targetForced) {
     Serial.printf("[UPLOAD] RAW: %s -> %s\n", fname.c_str(), path.c_str());
   } else if (raw.status == RAW_WRITE) {
     if (!rawUploadActive || !rawUploadFile) return;
+    // Duze binaria (~300 kB) przychodza w tysiacach blokow po 1436 B, a cala
+    // petla odbioru zyje w zadaniu loop(). Bez oddania procesora na dluzej niz
+    // okres watchdoga (WDT) dlugi upload potrafi wywolac reset w trakcie
+    // wysylania. Krotki yield co kilka blokow karmi WDT bez zauwazalnego
+    // spowolnienia.
+    static uint8_t rawWriteTicks = 0;
+    if (++rawWriteTicks >= 8) {
+      rawWriteTicks = 0;
+      yield();
+    }
+    // Kontrola miejsca w trakcie zapisu - O(1). Wczesniej wolalo
+    // LittleFS.usedBytes() co 8 blokow, a to pelny lfs_fs_traverse() po calym FS
+    // (~2016 blokow) => kilkadziesiat przejsc po 7.9 MB na jeden upload, co
+    // realnie spowalnialo zapis ikony (~300 kB). Teraz budzet jest wyliczony raz
+    // w RAW_START i tylko pomniejszany.
+    if (rawSpaceEnforce) {
+      if ((size_t)raw.currentSize > rawSpaceLeft) {
+        Serial.printf("[UPLOAD] Brak miejsca w LittleFS (RAW): blok %u B, budzet %u B\n",
+                      (unsigned)raw.currentSize, (unsigned)rawSpaceLeft);
+        rawUploadFile.close();
+        LittleFS.remove(rawUploadPath);
+        rawUploadReset();
+        uploadNoSpace = true;   // po reset() (reset czysci te flage)
+        return;
+      }
+      rawSpaceLeft -= raw.currentSize;
+    }
     rawUploadFile.write(raw.buf, raw.currentSize);
   } else if (raw.status == RAW_END || raw.status == RAW_ABORTED) {
     rawUploadFinish();
   }
+}
+
+// Wspolna odpowiedz po uploadzie. Gdy handleUpload() odrzucil plik z powodu
+// braku miejsca, zwracamy 507 (Insufficient Storage), zeby WWW pokazalo blad
+// zamiast "OK".
+static void sendUploadResult(const char *okBody, const char *okType = "application/json") {
+  if (uploadNoSpace) {
+    uploadNoSpace = false;
+    server->send(507, "application/json",
+                 "{\"status\":\"error\",\"message\":\"brak miejsca w LittleFS\"}");
+    return;
+  }
+  server->send(200, okType, okBody);
 }
 
 
@@ -22542,7 +22765,7 @@ void setupWebServer() {
     html += "                                                   |\n";
     html += "                                             Kondensator 100nF\n";
     html += "</pre>";
-    html += "<div class='note'><strong>Formuła:</strong> Vbat = Vadc x 2 (przy R1 = R2 = 100k).</div>";
+    html += "<div class='note'><strong>Formuła:</strong> Vbat = Vadc x 2 (przy R1 = R2 = 100k). Pomiar korzysta z kalibracji eFuse (analogReadMilliVolts), a tolerancję rezystorów koryguje mnożnik <em>bat_div_cal</em> (zakładka System -> Kalibracja baterii).</div>";
 
     html += "<h3>Podłączenie dotyku XPT2046 (opcjonalnie)</h3>";
     html += "<pre>";
@@ -23052,6 +23275,30 @@ void setupWebServer() {
         backlightPercent = doc["tft_backlight"].as<int>();
         if (backlightPercent < MIN_BACKLIGHT_PERCENT) backlightPercent = MIN_BACKLIGHT_PERCENT;
         if (backlightPercent > 100) backlightPercent = 100;
+      }
+      // Kalibracja pomiaru baterii. "bat_cal_v" = rzeczywiste napiecie zmierzone
+      // multimetrem na ogniwie; przelicza mnoznik tak, by odczyt firmware zgadzal
+      // sie z rzeczywistoscia (jednopunktowa kalibracja dzielnika).
+      if (doc["bat_cal_v"].is<float>() || doc["bat_cal_v"].is<double>() || doc["bat_cal_v"].is<int>()) {
+        float vref = doc["bat_cal_v"].as<float>();
+        float raw = readBatteryVoltage();
+        // Tylko gdy odczyt realnie odbiega od zmierzonego napiecia (prog 50 mV).
+        // Bez tego warunku kazdy kolejny "Zapisz" z tym samym polem kumulowalby
+        // korekte i rozjezdzal pomiar.
+        if (vref >= 3.0f && vref <= 4.5f && raw > 1.0f &&
+            fabsf(vref - raw) > 0.05f) {
+          batteryDividerCal *= vref / raw;
+          if (batteryDividerCal < 0.5f) batteryDividerCal = 0.5f;
+          if (batteryDividerCal > 2.0f) batteryDividerCal = 2.0f;
+        }
+      }
+      if (doc["bat_div_cal"].is<float>() || doc["bat_div_cal"].is<double>() || doc["bat_div_cal"].is<int>()) {
+        float v = doc["bat_div_cal"].as<float>();
+        if (v >= 0.5f && v <= 2.0f) batteryDividerCal = v;
+      }
+      if (doc["bat_off"].is<float>() || doc["bat_off"].is<double>() || doc["bat_off"].is<int>()) {
+        float v = doc["bat_off"].as<float>();
+        if (v >= -1.0f && v <= 1.0f) batteryVoltOffset = v;
       }
       if (doc["tft_night_dimming"].is<int>()) {
         tftNightDimmingPercent = doc["tft_night_dimming"].as<int>();
@@ -23816,6 +24063,8 @@ void setupWebServer() {
     doc["weather_key"] = weatherApiKey;
     doc["n2yo_key"] = n2yoApiKey;
     doc["openwebrx_url"] = openWebRxUrl;
+    doc["bat_div_cal"] = batteryDividerCal;
+    doc["bat_off"] = batteryVoltOffset;
     doc["tft_backlight"] = backlightPercent;
     doc["tft_night_dimming"] = tftNightDimmingPercent;
     doc["tft_invert"] = sanitizeTftInvertSetting(tftInvertColors);
@@ -23915,10 +24164,14 @@ void setupWebServer() {
     doc["sys_chip"] = ESP.getChipModel();
     doc["sys_cpu"] = ESP.getCpuFreqMHz();
     doc["sys_temp"] = temperatureRead();  // temperatura w Â°C
-    #ifdef ENABLE_BATTERY_MONITORING
-    doc["sys_vcc"] = readBatteryVoltage();  // napiÄ™cie baterii
+    #ifdef BATTERY_MONITORING_ENABLED
+    doc["sys_vcc"] = readBatteryVoltage();  // napiecie baterii (V)
+    doc["sys_batt_pct"] = batteryPercentage;  // procent naladowania
+    doc["sys_batt_chg"] = batteryCharging;    // true = ladowanie
     #else
     doc["sys_vcc"] = 0;
+    doc["sys_batt_pct"] = 0;
+    doc["sys_batt_chg"] = false;
     #endif
     // LittleFS info
     if (littleFsReady) {
@@ -24063,7 +24316,7 @@ void setupWebServer() {
   // Upload nowej mapy BMP (np. przez curl -X POST -F "file=@Mapa swiata.bmp" http://esp-ip/upload/bmp)
   // Obsluguje multipart ORAZ surowe cialo (RAW) - patrz handleUpload().
   server->on("/upload/bmp", HTTP_POST, []() {
-    server->send(200, "text/plain", "Upload complete");
+    sendUploadResult("Upload complete", "text/plain");
   }, []() {
     handleUpload("mapa");
   });
@@ -24071,7 +24324,7 @@ void setupWebServer() {
   // Upload tla mapy (BMP 16-bit RGB565) wygenerowanego w przegladarce WWW.
   // Zapisuje pod ta sama sciezka co /upload/bmp (PSK_MAP_BMP_PATH).
   server->on("/upload/mapa565", HTTP_POST, []() {
-    server->send(200, "text/plain", "Upload complete");
+    sendUploadResult("Upload complete", "text/plain");
   }, []() {
     handleUpload("mapa");
   });
@@ -24082,11 +24335,11 @@ void setupWebServer() {
   // Upload ekranu startowego (splash) - zachowany dla zakladki Linki.
   server->on("/upload_splash", HTTP_POST, []() {
     String accept = server->header("Accept");
-    if (accept.indexOf("text/html") >= 0) {
+    if (accept.indexOf("text/html") >= 0 && !uploadNoSpace) {
       server->sendHeader("Location", "/");
       server->send(303, "text/plain", "uploaded");
     } else {
-      server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"uploaded\"}");
+      sendUploadResult("{\"status\":\"ok\",\"message\":\"uploaded\"}");
     }
   }, []() {
     handleUpload("splash");
@@ -24095,11 +24348,11 @@ void setupWebServer() {
   // Upload ekranu powitalnego (zastepuje ekran z wersja/autorami).
   server->on("/upload_welcome", HTTP_POST, []() {
     String accept = server->header("Accept");
-    if (accept.indexOf("text/html") >= 0) {
+    if (accept.indexOf("text/html") >= 0 && !uploadNoSpace) {
       server->sendHeader("Location", "/");
       server->send(303, "text/plain", "uploaded");
     } else {
-      server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"uploaded\"}");
+      sendUploadResult("{\"status\":\"ok\",\"message\":\"uploaded\"}");
     }
   }, []() {
     handleUpload("welcome");
@@ -24108,12 +24361,12 @@ void setupWebServer() {
   // Upload ikony alertu pogodowego (burza/wiatr). Zapisuje /wxicon_storm.<ext>
   // albo /wxicon_wind.<ext> i aktualizuje sciezke w NVS.
   server->on("/upload_wxicon_storm", HTTP_POST, []() {
-    server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"uploaded\"}");
+    sendUploadResult("{\"status\":\"ok\",\"message\":\"uploaded\"}");
   }, []() {
     handleUpload("wxicon_storm");
   });
   server->on("/upload_wxicon_wind", HTTP_POST, []() {
-    server->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"uploaded\"}");
+    sendUploadResult("{\"status\":\"ok\",\"message\":\"uploaded\"}");
   }, []() {
     handleUpload("wxicon_wind");
   });
@@ -24399,8 +24652,8 @@ String getMainHTML() {
       <div class="row">
         <div class="field"><label>Callsign</label><input id="user_callsign" type="text"></div>
         <div class="field"><label>Locator (np. KN09)</label><input id="user_locator" type="text"></div>
-        <div class="field"><label>Szerokosc geo (lat)</label><input id="user_lat" type="number" step="0.0001" min="-90" max="90"></div>
-        <div class="field"><label>Dlugosc geo (lon)</label><input id="user_lon" type="number" step="0.0001" min="-180" max="180"></div>
+        <div class="field"><label>Szerokosc geo (lat)</label><input id="user_lat" type="number" step="any" min="-90" max="90"></div>
+        <div class="field"><label>Dlugosc geo (lon)</label><input id="user_lon" type="number" step="any" min="-180" max="180"></div>
         <div class="field"><label>Strefa czasowa (UTC offset)</label><input id="timezone" type="number" min="-12" max="14" step="1"></div>
         <div class="field"><label>OpenWebRX URL</label><input id="openwebrx_url" type="text" placeholder="http://..."></div>
       </div>
@@ -24712,6 +24965,17 @@ String getMainHTML() {
       </div>
     </div>
     <div class="panel">
+      <h2>Kalibracja baterii</h2>
+      <p>Pomiar przez dzielnik 100k/100k z kalibracja eFuse. Jesli wskazanie rozni sie od multimetru, wpisz rzeczywiste napiecie i zapisz (jednopunktowa kalibracja mnoznika).</p>
+      <div class="row">
+        <div class="field"><label>Aktualny odczyt (V)</label><input id="bat_now" type="text" readonly></div>
+        <div class="field"><label>Rzeczywiste napiecie (V)</label><input id="bat_cal_v" type="number" step="0.01" min="3" max="4.5" placeholder="np. 3.85"></div>
+        <div class="field"><label>Mnoznik dzielnika</label><input id="bat_div_cal" type="number" step="0.001" min="0.5" max="2"></div>
+        <div class="field"><label>Offset (V)</label><input id="bat_off" type="number" step="0.01" min="-1" max="1"></div>
+      </div>
+      <div class="hint" id="batStatus"></div>
+    </div>
+    <div class="panel">
       <h2>Wgraj mape BMP</h2>
       <p>Rozmiar: 480x320 px</p>
       <form id="bmpForm" enctype="multipart/form-data" style="margin-top:8px">
@@ -24747,6 +25011,7 @@ const $=id=>document.getElementById(id);
 const val=(id,v)=>{ $(id).value=v??''; };
 const chk=(id,v)=>{ $(id).checked=!!v; };
 const gint=(id,d)=>{const v=parseInt($(id).value,10);return isNaN(v)?d:v;};
+const gnum=(id,d)=>{const v=parseFloat($(id).value);return isNaN(v)?d:v;};
 const gstr=(id,d='')=>$(id).value??d;
 
 function applyClusterPreset(){
@@ -24780,6 +25045,8 @@ function fillForm(cfg){
   val('wifi_ssid2',cfg.wifi_ssid2); val('wifi_pass2',cfg.wifi_pass2);
   val('user_callsign',cfg.user_callsign); val('user_locator',cfg.user_locator);
   val('user_lat',cfg.user_lat); val('user_lon',cfg.user_lon);
+  val('bat_div_cal',cfg.bat_div_cal); val('bat_off',cfg.bat_off);
+  val('bat_now',(cfg.sys_vcc&&cfg.sys_vcc>1)?cfg.sys_vcc.toFixed(2)+' V':'-');
   val('timezone',cfg.timezone); val('openwebrx_url',cfg.openwebrx_url);
   val('weather_key',cfg.weather_key); val('n2yo_key',cfg.n2yo_key);
   chk('weather_alert_storm_enabled',cfg.weather_alert_storm_enabled);
@@ -24876,7 +25143,7 @@ function fillForm(cfg){
   $('s_temp').textContent=cfg.sys_temp?cfg.sys_temp.toFixed(1)+' C':'-';
   $('s_heap').textContent=cfg.sys_heap?(cfg.sys_heap/1024).toFixed(1)+' KB':'-';
   $('s_heapmax').textContent=cfg.sys_heap_max?(cfg.sys_heap_max/1024).toFixed(1)+' KB':'-';
-  $('s_vcc').textContent=cfg.sys_vcc?(cfg.sys_vcc+' V'):'N/A';
+  $('s_vcc').textContent=(cfg.sys_vcc&&cfg.sys_vcc>1)?(cfg.sys_vcc.toFixed(2)+' V | '+(cfg.sys_batt_pct??'?')+'%'+(cfg.sys_batt_chg?' [laduje]':'')):'N/A';
   $('s_littlefs').textContent=(cfg.sys_littlefs_free/1024).toFixed(1)+'/'+(cfg.sys_littlefs_total/1024).toFixed(1)+' KB';
   $('fwVer').textContent=cfg.fw_version||'';
   // JSON editor
@@ -24940,6 +25207,8 @@ function buildFromForm(){
     psk_mqtt_enabled:$('psk_mqtt_enabled').checked,
     psk_mqtt_server:gstr('psk_mqtt_server'), psk_mqtt_port:gint('psk_mqtt_port',1883),
     psk_mqtt_callsign:gstr('psk_mqtt_callsign'),
+    bat_div_cal:gnum('bat_div_cal',1.0), bat_off:gnum('bat_off',0.0),
+    bat_cal_v:gnum('bat_cal_v',0),
     tft_backlight:gint('tft_backlight',100), tft_rotation:gint('tft_rotation',1),
     tft_lang:gstr('tft_lang','pl'), table_size:gstr('table_size','normal'),
     tft_invert:$('tft_invert').checked, menu_hue:gint('menu_hue',128),
@@ -25241,6 +25510,13 @@ void uiTaskLoop(void *parameter) {
     }
 
     if (!restartRequested) {
+      // Paski WiFi odswiezane osobno (bez przerysowania naglowka - brak migotania):
+      // RSSI jest znane dopiero po polaczeniu, a naglowek rysuje sie raz, wiec bez
+      // tego ikona zostawala z wartoscia z momentu wejscia na ekran.
+      if (now - lastWifiBarsRefreshMs >= 5000) {
+        lastWifiBarsRefreshMs = now;
+        drawWifiBarsQuickUpdate();
+      }
       if (tftInitialized && currentScreen == SCREEN_HAM_CLOCK && !inMenu && !aprsAlertScreenActive && !gpsScreenActive) {
         if (screen1ClockStyle == 1) {
           updateScreen1ClockClassic();
@@ -25381,12 +25657,21 @@ void uiTaskLoop(void *parameter) {
       }
     }
 
+    // Drugi odczyt dotyku po animacji: pushSprite (~60 ms na 40 MHz) blokuje
+    // zadanie, wiec bez tego dotkniecie miedzy odczytami przepadalo.
+    if (tftInitialized) {
+      handleTouchNavigation();
+    }
+
     // Animacja smugi radaru APRS. Robimy to w UI_Task (a NIE w loopTask),
     // bo tylko to zadanie rysuje po TFT - dzieki temu pushSprite nigdy nie
     // jest wywolywany rownolegle z innego rdzenia (to powodowalo reset).
     // Wstrzymujemy animacje tuz po dotknieciu: XPT2046 dzieli magistrale SPI
     // z TFT, wiec ciagly pushSprite zaklocalby odczyt dotyku i "zjadal" tapniecia
-    // (przejscia na inny ekran / menu).
+    // (przejscia na inny ekran / menu). Animacje wykonujemy PO odczycie dotyku
+    // (nie przed), zeby klatka nie opozniala odczytu - przy ~50 ms na klatke
+    // (fillScreen + pushSprite 480x320) dotkniecie trafialo w okno, w ktorym
+    // XPT2046 nie byl odpytywany.
     if (currentScreen == SCREEN_APRS_RADAR && tftInitialized && !inMenu &&
         !screenSleepActive && !bootSequenceActive &&
         (millis() - screenSleepLastActivityMs) > 500) {
@@ -25395,11 +25680,6 @@ void uiTaskLoop(void *parameter) {
         lastAprsRadarTickMs = now;
         aprsRadarTick();
       }
-    }
-    // Drugi odczyt dotyku po animacji: pushSprite (~60 ms na 40 MHz) blokuje
-    // zadanie, wiec bez tego dotkniecie miedzy odczytami przepadalo.
-    if (tftInitialized) {
-      handleTouchNavigation();
     }
 
     // Diagnostyka: co 15 s potwierdz, ze zadanie UI zyje i na jakim ekranie.
@@ -26507,8 +26787,7 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       preferences->putBool("psk_show_links", pskShowLinks);
       preferences->putString("user_locator", userLocator);
       if (locatorChanged && !userLatLonValid && userLocator.length() >= 4) {
-        preferences->putFloat("user_lat", (float)userLat);
-        preferences->putFloat("user_lon", (float)userLon);
+        prefPutUserPos(userLat, userLon);
         preferences->putBool("user_ll_ok", userLatLonValid);
       }
       pskMapMenuOpen = false;
@@ -28502,8 +28781,8 @@ void setup() {
   if (batteryVoltage < 1.0f) { batteryVoltage = 0.0f; }  // brak akumulatora/dzielnika
   batteryPercentage = calculateBatteryPercentage(batteryVoltage);
   batteryCharging = (batteryVoltage > 4.25f);
-  Serial.printf("[BATTERY] Init: %.2fV (%d%%) %s\n", 
-                batteryVoltage, batteryPercentage, 
+  Serial.printf("[BATTERY] Init: %.3fV (%d%%) cal=%.4f off=%.3f %s\n",
+                batteryVoltage, batteryPercentage, batteryDividerCal, batteryVoltOffset,
                 batteryCharging ? "[CHARGING]" : "");
 #endif
   

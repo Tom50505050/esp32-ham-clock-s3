@@ -2,6 +2,39 @@
 
 Ostatnia aktualizacja: 2026-10-27. Wersja firmware: **v1.2d**.
 
+## Precyzyjny pomiar baterii — kalibracja ADC + krzywa Li-ion (27.10.2026)
+
+- **Kalibracja eFuse**: `readBatteryVoltage()` używa `analogReadMilliVolts()`
+  (kalibracja Two Point / Vref z eFuse) zamiast surowego `analogRead()`; w `setup()`
+  `analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db)`.
+- **Średnia obcięta** `batteryTrimmedMeanMv(12, 2)` — 12 próbek, sortowanie, odrzut
+  2 skrajnych z każdej strony.
+- **Korekcja dzielnika**: `batteryDividerCal` (NVS `bat_div_cal`),
+  `batteryVoltOffset` (NVS `bat_off`);
+  `Vbat = (Vpin_mV/1000) * 2.0 * bat_div_cal + bat_off`.
+- **Krzywa Li-ion**: `kBatteryCurve[]` (15 pkt, 3.40-4.20 V) + interpolacja w
+  `calculateBatteryPercentage()` (3.80 V → 47%, 3.70 V → 33%, 3.60 V → 18%).
+- **Histereza ładowania**: >4.25 V włącza, <4.10 V wyłącza `batteryCharging`.
+- **WWW**: zakładka System → „Kalibracja baterii" (`bat_cal_v`, `bat_div_cal`,
+  `bat_off`); `/api/config` eksportuje `bat_div_cal`, `bat_off`, `sys_batt_pct`,
+  `sys_batt_chg`. Naprawiona literówka `ENABLE_BATTERY_MONITORING`.
+- **Ikona (ujednolicona)**: jedna `drawBatteryIcon(x, y, percentage = -1,
+  bg = TFT_BLACK)` z wspólnymi `drawBatteryFill()` + `drawBatteryBolt()`; kolor z
+  `getBatteryColor()` (histereza ładowania), wnętrze czyszczone `bg` (poziom może
+  maleć bez starego wypełnienia), błyskawica przy ładowaniu. Układ zgodny z
+  `drawBatteryQuickUpdate` (ramka `y+2`, wnętrze `y+4`). Wywołania: zegar
+  klasyczny `TFT_RADIO_ORANGE`, nowoczesny `HC_BG`, `uiHeader` `bg`. Usunięto
+  martwe `drawBatteryIcon(x,y,w,h)` i `drawBatteryStatus()`.
+  `tools/render_header_preview.py` zsynchronizowany (`_batt_color`).
+- **Build**: `esp32-s3-n16r8` + `-notouch` SUCCESS (RAM 34.0%, Flash 38.7%).
+- **Pola dotyku (audyt)**: wspolny `handleScreenSwitchTouch()`; PSK/STACJA/
+  LOGGER nie sa juz przechwytywane przez nawigacje w rogach (przyciski dzialaja),
+  nawigacja tylko w pasie stopki `y>=296`; etykieta jezyka w menu jasnosci
+  208 -> 220.
+- **Paski WiFi**: `rssiToBars()` (progi -55/-67/-78/-88) wspolne dla naglowka i
+  monitora; `drawWifiSignalBars(x,y,strength,bg)` czysci tlo; `drawWifiBarsQuickUpdate()`
+  co 5 s w `loop()`; `RSSI==0` -> 1 kreska zamiast falszywego braku zasiegu.
+
 ## v1.2d — czcionki zegara, alert pogodowy, migotanie, pin baterii (23.10.2026)
 
 - **Grafika alertu (burza/wiatr) na całym ekranie**: `WX_ICON_TARGET_W` 408→**480**

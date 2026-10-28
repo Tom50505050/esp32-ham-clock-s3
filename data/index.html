@@ -1133,12 +1133,12 @@
                     </div>
                     <div class="form-group">
                         <label>Szerokość geograficzna (Latitude):</label>
-                        <input type="number" step="0.000001" id="user_lat" name="user_lat" placeholder="np. 52.4064">
+                        <input type="number" step="any" id="user_lat" name="user_lat" placeholder="np. 52.4064">
                         <small>Współrzędna szerokości geograficznej w formacie dziesiętnym (jak Google Maps). Przykład: 52.4064 dla Poznania</small>
                     </div>
                     <div class="form-group">
                         <label>Długość geograficzna (Longitude):</label>
-                        <input type="number" step="0.000001" id="user_lon" name="user_lon" placeholder="np. 16.9252">
+                        <input type="number" step="any" id="user_lon" name="user_lon" placeholder="np. 16.9252">
                         <small>Współrzędna długości geograficznej w formacie dziesiętnym (jak Google Maps). Przykład: 16.9252 dla Poznania</small>
                     </div>
                     <div class="form-group">
@@ -1454,6 +1454,17 @@
                         <small>Wczytuje ustawienia z pliku kopii zapasowej. Po imporcie możesz je od razu zapisać do urządzenia.</small>
                     </div>
                 </div>
+                    <div class="form-group" id="battery-calibration">
+                        <h3>Kalibracja baterii</h3>
+                        <p>Pomiar przez dzielnik 100k/100k z kalibracją eFuse (analogReadMilliVolts). Jeśli wskazanie różni się od multimetru, wpisz rzeczywiste napięcie i zapisz — firmware dopasuje mnożnik dzielnika.</p>
+                        <label>Aktualny odczyt (V): <span id="bat_now">-</span></label>
+                        <label>Rzeczywiste napięcie (V):</label>
+                        <input type="number" id="bat_cal_v" name="bat_cal_v" step="0.01" min="3" max="4.5" placeholder="np. 3.85">
+                        <label>Mnożnik dzielnika:</label>
+                        <input type="number" id="bat_div_cal" name="bat_div_cal" step="0.001" min="0.5" max="2" value="1">
+                        <label>Offset (V):</label>
+                        <input type="number" id="bat_off" name="bat_off" step="0.01" min="-1" max="1" value="0">
+                    </div>
             </form>
         </div>
     </div>
@@ -1941,7 +1952,7 @@
                     },
                     body: blob
                 })
-                    .then(r => r.ok ? r.text() : Promise.reject(r.status))
+                    .then(r => r.json().then(j => r.ok ? j : Promise.reject(j.message || r.status)))
                     .then(() => { statusEl.textContent = "OK - ikona zapisana na urządzeniu."; wxRefreshPreviews(); })
                     .catch(e => { statusEl.textContent = "Błąd wysyłania: " + e; })
                     .finally(() => { btn.disabled = false; });
@@ -2410,6 +2421,9 @@
             const backlightValue = (data.tft_backlight !== undefined && data.tft_backlight !== null) ? data.tft_backlight : 100;
             document.getElementById('tft_backlight').value = backlightValue;
             document.getElementById('tft_backlight_value').textContent = backlightValue;
+            if (data.bat_div_cal !== undefined && data.bat_div_cal !== null) document.getElementById('bat_div_cal').value = data.bat_div_cal;
+            if (data.bat_off !== undefined && data.bat_off !== null) document.getElementById('bat_off').value = data.bat_off;
+            if (data.sys_vcc && data.sys_vcc > 1) document.getElementById('bat_now').textContent = data.sys_vcc.toFixed(2) + ' V | ' + (data.sys_batt_pct ?? '?') + '%' + (data.sys_batt_chg ? ' [chg]' : '');
             const nightDimmingValue = (data.tft_night_dimming !== undefined && data.tft_night_dimming !== null) ? data.tft_night_dimming : 0;
             document.getElementById('tft_night_dimming').value = nightDimmingValue;
             document.getElementById('tft_night_dimming_value').textContent = nightDimmingValue;
@@ -3069,8 +3083,8 @@
         const d = data || {};
         const fixTxt = d.fix ? 'FIX' : (d.module_detected ? 'brak FIX' : 'brak modułu');
         const loc = (d.locator && String(d.locator).length) ? d.locator : '—';
-        const lat = (d.has_position && Number.isFinite(Number(d.lat))) ? Number(d.lat).toFixed(5) : '—';
-        const lon = (d.has_position && Number.isFinite(Number(d.lon))) ? Number(d.lon).toFixed(5) : '—';
+        const lat = (d.has_position && Number.isFinite(Number(d.lat))) ? Number(d.lat).toFixed(8) : '—';
+        const lon = (d.has_position && Number.isFinite(Number(d.lon))) ? Number(d.lon).toFixed(8) : '—';
         const alt = Number.isFinite(Number(d.alt_m)) ? Number(d.alt_m).toFixed(1) + ' m' : '—';
         const spd = Number.isFinite(Number(d.speed_kmh)) ? Number(d.speed_kmh).toFixed(1) + ' km/h' : '—';
         const hdop = Number.isFinite(Number(d.hdop)) ? Number(d.hdop).toFixed(1) : '—';
@@ -3696,6 +3710,9 @@
                 return select ? select.value : 'none';
             })(),
             tft_backlight: parseInt(document.getElementById('tft_backlight').value) || 100,
+            bat_div_cal: parseFloat(document.getElementById('bat_div_cal').value) || 1.0,
+            bat_off: parseFloat(document.getElementById('bat_off').value) || 0.0,
+            bat_cal_v: parseFloat(document.getElementById('bat_cal_v').value) || 0,
             tft_night_dimming: parseInt(document.getElementById('tft_night_dimming').value) || 0,
             tft_lang: (document.getElementById('tft_lang') ? document.getElementById('tft_lang').value : "pl"),
             tft_style: (document.getElementById('tft_style') ? document.getElementById('tft_style').value : "dark"),

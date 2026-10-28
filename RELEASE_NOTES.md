@@ -136,6 +136,59 @@ Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczy
   tematu v2raw; z HTTP: `receiverCallsign`/`receiverLocator`), a lista spotów
   pokazuje pary `TX>RX`. `/api/psk` zwraca dodatkowo `rx_call`/`rx_lat`/`rx_lon`.
 
+## Precyzyjny pomiar baterii — kalibracja i krzywa Li-ion
+- **Odczyt z kalibracją eFuse.** `readBatteryVoltage()` używa teraz
+  `analogReadMilliVolts()` (wykorzystuje kalibrację Two Point / Vref zapisaną w
+  eFuse każdego ESP32-S3) zamiast surowego `analogRead()` z ręcznym przeliczaniem
+  przez 3.3 V. To usuwa dominujący błąd — surowe kody ADC mają stały offset i
+  nieliniowość, przez co wskazania „pływały". Ustawiane też
+  `analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db)` (pełny zakres 0-3.3 V).
+- **Stabilniejszy odczyt.** Średnia obcięta z 12 próbek (odrzucane po 2 skrajne z
+  każdej strony) — pojedynczy błędny kod ADC nie rozciąga już wyniku.
+- **Korekcja dzielnika.** Mnożnik `bat_div_cal` (NVS) koryguje tolerancję
+  rezystorów 100k/100k, a `bat_off` (NVS) — stały offset w woltach. Wzór:
+  `Vbat = (Vpin_mV/1000) × 2.0 × bat_div_cal + bat_off`.
+- **Nieliniowa charakterystyka Li-ion.** Zamiast liniowej mapy 3.4-4.2 V tabela
+  15 punktów (`kBatteryCurve[]`) z interpolacją — procent oddaje realną krzywą
+  18650. Np. **3.80 V → 47%** (było 50%), **3.70 V → 33%** (było 37.5%),
+  **3.60 V → 18%** (było 25%).
+- **Histereza ładowania.** Stan „ładuje" włącza się >4.25 V i wyłącza <4.10 V —
+  w fazie CV (4.15-4.25 V) ikona nie miga.
+- **Ikona baterii — ujednolicona.** Były **dwie** funkcje `drawBatteryIcon`:
+  martwa `drawBatteryIcon(x,y,w,h)` (20×10, własna logika kolorów, bez błyskawicy)
+  oraz `drawBatteryIcon(x,y,percentage)` (20×10 w `(x, y+2)`) rysująca nagłówki na
+  WSZYSTKICH ekranach (zegar klasyczny/nowoczesny, `uiHeader`, splash). Nagłówki
+  używały tej drugiej, więc wcześniejsze prace nad ikoną ich **nie** obejmowały.
+  Teraz jest **jedna** `drawBatteryIcon(x, y, percentage = -1, bg = TFT_BLACK)`:
+  wspólne `drawBatteryFill()` i `drawBatteryBolt()`, kolor z `getBatteryColor()`
+  (histereza ładowania), wnętrze czyszczone kolorem tła nagłówka (`bg`), więc
+  poziom może maleć bez pozostawiania starego wypełnienia, a przy ładowaniu
+  rysowana jest błyskawica. Układ współrzędnych zgodny z `drawBatteryQuickUpdate`
+  (ramka na `y+2`, wnętrze od `y+4`) — brak skoku o 2 px przy szybkiej
+  aktualizacji. Wywołania przekazują `bg`: zegar klasyczny `TFT_RADIO_ORANGE`,
+  zegar nowoczesny `HC_BG`, `uiHeader` `bg`. Usunięto martwe
+  `drawBatteryIcon(x,y,w,h)` i `drawBatteryStatus()` (nigdzie niewołane).
+- **Panel WWW → zakładka System → „Kalibracja baterii".** Pole „Rzeczywiste
+  napięcie (V)" (`bat_cal_v`) przelicza mnożnik tak, by odczyt zgadzał się z
+  multimetrem (korekta tylko gdy różnica > 50 mV, żeby nie kumulowała się przy
+  kolejnych zapisach). Pola `bat_div_cal` i `bat_off` edytowalne wprost.
+- **API.** `/api/config` zwraca `bat_div_cal`, `bat_off` oraz na żywo `sys_vcc`,
+  `sys_batt_pct`, `sys_batt_chg`. Naprawiona literówka
+  `#ifdef ENABLE_BATTERY_MONITORING` → `BATTERY_MONITORING_ENABLED` (wcześniej
+  `sys_vcc` w WWW zawsze zwracał 0).
+
+## Paski WiFi — poprawny wskaz zasiegu
+- **Progi RSSI.** Zamiast `-50/-60/-70/-80 dBm` (1 kreska dopiero przy <= -70)
+  jest `rssiToBars()`: `>-55`=4, `>-67`=3, `>-78`=2, `>-88`=1, inaczej 0.
+  Typowy domowy sygnal `-60 dBm` daje teraz 3 kreski, nie 1.
+- **Brak falszywego "brak zasiegu" po polaczeniu.** `WiFi.RSSI()` tuz po
+  `GOT_IP` zwraca 0; traktowane jako "minimum" (1 kreska), nie 0 belek.
+- **Odswiezanie paskow.** `drawWifiBarsQuickUpdate()` co 5 s z `loop()` przerysowuje
+  same paski (bez pelnego naglowka — bez migotania), wiec ikona sledzi RSSI.
+- **Bez sladu po starym sygnale.** `drawWifiSignalBars(x, y, strength, bg)` czysci
+  obszar paskow kolorem tla naglowka.
+- **Monitor systemu** pokazuje `NN dBm N/4` z tego samego progu co ikona.
+
 ## Wersja
 - `FIRMWARE_VERSION`: `1.2c` → **`1.2d`**. Zaktualizowane też `data/index*.html`
   (PL/EN/DE/FR/ES/RU), `tools/lang_pages.json` i `platformio.ini`.

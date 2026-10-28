@@ -82,42 +82,54 @@ def wifi_bars(d, x, y, strength=4):
             d.rectangle([x + dx, y + dy, x + dx + w - 1, y + dy + h - 1], outline=empty)
 
 
-def battery_icon(d, x, y, percentage, bg):
-    """drawBatteryIcon(x,y): obudowa 20x10 @ (x, y+2) + terminal 3x6 @ (x+20, y+4)."""
-    if percentage <= 20:
-        col = c565(0xF800)
-    elif percentage <= 50:
-        col = c565(0xFD20)
-    elif percentage <= 75:
-        col = c565(0xFFE0)
-    else:
-        col = c565(0x07E0)
+def _bolt(d, x, y, w, h, col):
+    """drawBatteryBolt(): dwa trojkaty w ksztalcie pioruna (stan ladowania)."""
+    cx = x + w // 2
+    d.polygon([(cx + 3, y + 2), (cx - 2, y + h // 2 + 1), (cx + 1, y + h // 2 + 1)], fill=col)
+    d.polygon([(cx - 3, y + h - 2), (cx + 2, y + h // 2), (cx - 1, y + h // 2)], fill=col)
+
+
+def _batt_color(percentage, charging):
+    """getBatteryColor(): ladowanie=zielony, <=3.4V=czerwony, <=3.6V=pomaranczowy,
+    inaczej zielony. Progi napieciowe przyblizone procentem z krzywej Li-ion."""
+    if charging:
+        return c565(0x07E0)
+    if percentage <= 3:
+        return c565(0xF800)
+    if percentage <= 18:
+        return c565(0xFDA0)
+    return c565(0x07E0)
+
+
+def battery_icon(d, x, y, percentage, bg, charging=False):
+    """drawBatteryIcon(x,y,percentage,bg): obudowa 20x10 @ (x, y+2) + terminal 3x6
+    @ (x+20, y+4). Wnetrze czyszczone kolorem tla (bg), kolor z getBatteryColor(),
+    blyskawica przy ladowaniu."""
+    col = _batt_color(percentage, charging)
     bw, bh = 20, 10
+    d.rectangle([x + 2, y + 4, x + 2 + (bw - 4) - 1, y + 4 + (bh - 4) - 1], fill=bg)
     d.rectangle([x, y + 2, x + bw - 1, y + 2 + bh - 1], outline=WHITE)
     d.rectangle([x + bw, y + 4, x + bw + 2, y + 4 + 5], fill=WHITE)
     fillw = (bw - 4) * percentage // 100
     if fillw > 0:
         d.rectangle([x + 2, y + 4, x + 2 + fillw - 1, y + 4 + (bh - 4) - 1], fill=col)
+    if charging:
+        _bolt(d, x, y, bw, bh, bg)
 
 
-def battery_quick(d, screenW, percentage, bg):
+def battery_quick(d, screenW, percentage, bg, charging=False):
     """drawBatteryQuickUpdate(): x=screenW-82, y=8, obudowa 20x10 (bez tekstu %)."""
     x, y = screenW - 82, 8
     bw, bh = 20, 10
     d.rectangle([x + 2, y + 4, x + 2 + (bw - 4) - 1, y + 4 + (bh - 4) - 1], fill=bg)
-    if percentage <= 20:
-        col = c565(0xF800)
-    elif percentage <= 50:
-        col = c565(0xFD20)
-    elif percentage <= 75:
-        col = c565(0xFFE0)
-    else:
-        col = c565(0x07E0)
+    col = _batt_color(percentage, charging)
     d.rectangle([x, y + 2, x + bw - 1, y + 2 + bh - 1], outline=WHITE)
     d.rectangle([x + bw, y + 4, x + bw + 2, y + 4 + 5], fill=WHITE)
     fillw = (bw - 4) * percentage // 100
     if fillw > 0:
         d.rectangle([x + 2, y + 4, x + 2 + fillw - 1, y + 4 + (bh - 4) - 1], fill=col)
+    if charging:
+        _bolt(d, x, y, bw, bh, bg)
 
 
 GLCD = None
