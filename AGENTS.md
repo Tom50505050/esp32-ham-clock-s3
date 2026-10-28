@@ -376,6 +376,23 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
   Gdy pozycja dziala a TLE nie, to problem jest specyficzny dla danego hosta
   (blokada IP / geo / TLS), dlatego rozwiazaniem jest lancuch zrodel zapasowych.
 
+## PSK MAP: tryb "polaczenia" (TX>RX) zamiast linii od usera (27.10.2026)
+- Nowa opcja w menu ekranu PSK (przycisk "Lacza: TAK/NIE" w prawym gornym rogu
+  menu) oraz pole NVS `psk_show_links`. Domyslnie WYLACZONE = dotychczasowe
+  zachowanie (kropka stacji + linia od pozycji uzytkownika, kolor wg dystansu DX).
+- Wlaczone: dla kazdego spotu rysowana jest linia **nadawca -> odbiorca** z
+  dwoch koncow raportu PSKReporter (kropka TX wieksza, RX mniejsza), bez linii
+  od usera. Lista spotow pokazuje pare `TX>RX` zamiast `CALL band mode`.
+- Zrodlo odbiorcy:
+  - MQTT (v2raw): JSON `rc`/`rl`, a gdy brak - segment 6 (znak) i 8 (lokator)
+    tematu `pskr/filter/v2raw_1pc/<pasmo>/<tryb>/<nad>/<odb>/<lokN>/<lokO>/...`.
+  - HTTP (`pskreporter.info/query`): pola `receiverCallsign`/`receiverLocator`
+    (dodane do filtra deserializacji; wczesniej nie byly pobierane).
+- `PskSpot` i `PskSpotMqtt` rozszerzone o `rxCall`/`rxLat`/`rxLon`; dedup
+  pozostaje znak+pasmo+tryb. `/api/psk` zwraca dodatkowo `rx_call`/`rx_lat`/`rx_lon`.
+- Wspolny rysunek jednego spotu: `drawPskSpotGlyph()` (uzywany przez pelne i
+  przyrostowe odswiezanie).
+
 ## PSK MAP: ramka spotow przeniesiona na lewa strone (16.10.2026)
 - Ramka `drawPskSpotListPanel()` byla po prawej (x=360..476, y=40..290) i
   zaslaniala Azje oraz Australie (ok. 31% pikseli tego obszaru to lad).

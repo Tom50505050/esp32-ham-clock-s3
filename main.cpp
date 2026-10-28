@@ -176,6 +176,11 @@ struct PskSpot {
   String mode;
   unsigned long timestamp;
   int snr;        // opcjonalnie
+  // Odbiorca raportu (PSKReporter: kazdy spot to para nadawca->odbiorca).
+  // Puste dla zrodel, ktore nie podaja odbiorcy (np. brak pola w JSON).
+  String rxCall;
+  float rxLat;
+  float rxLon;
 };
 
 const int PSK_MAX_SPOTS = 200;
@@ -190,7 +195,8 @@ int lastPskSpotCount = 0;
 // automatycznie po osiagnieciu PSK_MAX_SPOTS (auto-RESET: licznik wraca do 0,
 // a pierwszy spot z kolejnej porcji startuje nowy cykl).
 static bool pskAddSpot(const String &call, float lat, float lon, int band,
-                       const String &mode, int snr, unsigned long ts) {
+                       const String &mode, int snr, unsigned long ts,
+                       const String &rxCall = "", float rxLat = 0, float rxLon = 0) {
   if (call.length() == 0) return false;
   for (int i = 0; i < pskSpotCount; i++) {
     if (pskSpots[i].callsign == call && pskSpots[i].band == band &&
@@ -212,6 +218,9 @@ static bool pskAddSpot(const String &call, float lat, float lon, int band,
   pskSpots[pskSpotCount].mode = mode;
   pskSpots[pskSpotCount].snr = snr;
   pskSpots[pskSpotCount].timestamp = ts;
+  pskSpots[pskSpotCount].rxCall = rxCall;
+  pskSpots[pskSpotCount].rxLat = rxLat;
+  pskSpots[pskSpotCount].rxLon = rxLon;
   pskSpotCount++;
   return true;
 }
@@ -283,11 +292,17 @@ bool pskTempMqttEnabled = false;
 String pskTempMqttServer = "";
 String pskTempMqttCallsign = "";
 String pskTempLocator = "";
+// Tryb wyswietlania mapy PSK: false = jak dotychczas (kropki stacji + linie od
+// pozycji uzytkownika), true = pary lacznosci (linia nadawca->odbiorca z dwoch
+// koncow raportu PSKReporter). Wybor w menu ekranu i panelu WWW.
+bool pskShowLinks = false;
+bool pskTempShowLinks = false;
 String pskKeyboardBuffer = "";  // Bufor dla klawiatury ekranowej
 int pskKeyboardTarget = 0;        // 1=znak, 2=max, 3=mqtt_server, 4=mqtt_call, 5=lokator
 enum PskMenuField { PSK_FIELD_NONE, PSK_FIELD_CALL, PSK_FIELD_BAND, PSK_FIELD_MODE, PSK_FIELD_MAXSPOTS,
                     PSK_FIELD_MQTT_MODE, PSK_FIELD_MQTT_SERVER, PSK_FIELD_MQTT_CALL, PSK_FIELD_DAYS,
-                    PSK_FIELD_LOCATOR, PSK_FIELD_KEYBOARD, PSK_FIELD_BAND_SELECT, PSK_FIELD_MODE_SELECT };
+                    PSK_FIELD_LOCATOR, PSK_FIELD_KEYBOARD, PSK_FIELD_BAND_SELECT, PSK_FIELD_MODE_SELECT,
+                    PSK_FIELD_SHOW_LINKS };
 PskMenuField pskActiveField = PSK_FIELD_NONE;
 bool pskKeyboardActive = false;  // Czy klawiatura PSK jest widoczna (blokuje nawigacjÄ™)
 
@@ -2656,6 +2671,8 @@ void writeQrzNegativeCache(const String &callsign);
 void drawSystemInfo();
 void drawPskMap();
 void drawPskMapSpotsOnly();
+static uint16_t getPskBandColor(int band);
+static uint16_t getDxColor(float distance);
 bool pskFetchAllowed(unsigned long now);
 void drawIssPassTracking();
 
@@ -21321,6 +21338,8 @@ void loadPreferences() {
   pskMqttPort = preferences->getInt("psk_mqtt_port", 1883);
   if (pskMqttPort <= 0 || pskMqttPort > 65535) pskMqttPort = 1883;
   pskMqttCallsign = preferences->getString("psk_mqtt_call", "");
+  // Tryb wyswietlania mapy PSK: false = jak dotychczas, true = pary lacznosci.
+  pskShowLinks = preferences->getBool("psk_show_links", false);
   // Migracja v1.2b: MQTT jest teraz domyslnym, dzialajacym trybem (feed PSK
   // wrocil na pskr/filter/v2raw_1pc). Wlacz go RAZ i ZAPISZ w NVS, zeby po
   // restarcie byl aktywny od razu. Nie ruszamy, jesli uzytkownik ma wlasny
@@ -21530,6 +21549,7 @@ void savePreferences() {
   preferences->putString("psk_mqtt_srv", pskMqttServer);
   preferences->putInt("psk_mqtt_port", pskMqttPort);
   preferences->putString("psk_mqtt_call", pskMqttCallsign);
+  preferences->putBool("psk_show_links", pskShowLinks);
 
   // Konfiguracja wygaszacza ekranu (Matrix)
   preferences->putBool("ss_enabled", screenSaverEnabled);
@@ -22715,7 +22735,7 @@ void setupWebServer() {
   
   // API - pobierz spoty PSK Reporter
   server->on("/api/psk", HTTP_GET, []() {
-    DynamicJsonDocument doc(10000);
+    DynamicJsonDocument doc(20000);
     JsonArray spotsArray = doc.createNestedArray("spots");
 
     for (int i = 0; i < pskSpotCount; i++) {
@@ -22726,6 +22746,10 @@ void setupWebServer() {
       spotObj["band"] = pskSpots[i].band;
       spotObj["mode"] = pskSpots[i].mode;
       spotObj["snr"] = pskSpots[i].snr;
+      // Para lacznosci (dla trybu "polaczenia").
+      spotObj["rx_call"] = pskSpots[i].rxCall;
+      spotObj["rx_lat"] = pskSpots[i].rxLat;
+      spotObj["rx_lon"] = pskSpots[i].rxLon;
     }
     
     String json;
@@ -23470,6 +23494,9 @@ void setupWebServer() {
         pskMqttCallsign.trim();
         pskMqttCallsign.toUpperCase();
       }
+      if (doc["psk_show_links"].is<bool>()) {
+        pskShowLinks = doc["psk_show_links"].as<bool>();
+      }
 
       // Sanitizacja (najczĂ„â„˘stsza przyczyna: spacje na koĂ„â€¦cu SSID/hasĂ„â€¦a)
       wifiSSID.trim();
@@ -23919,6 +23946,7 @@ void setupWebServer() {
     doc["psk_mqtt_server"] = pskMqttServer;
     doc["psk_mqtt_port"] = pskMqttPort;
     doc["psk_mqtt_callsign"] = pskMqttCallsign;
+    doc["psk_show_links"] = pskShowLinks;
 
     JsonArray orderArr = doc.createNestedArray("screen_order");
     for (int i = 0; i < SCREEN_ORDER_COUNT; i++) {
@@ -25530,6 +25558,8 @@ bool fetchPskReporterData() {
   filter["message"] = true;
   filter["receptionReport"][0]["senderCallsign"] = true;
   filter["receptionReport"][0]["senderLocator"] = true;
+  filter["receptionReport"][0]["receiverCallsign"] = true;
+  filter["receptionReport"][0]["receiverLocator"] = true;
   filter["receptionReport"][0]["mode"] = true;
   filter["receptionReport"][0]["sNR"] = true;
   filter["receptionReport"][0]["frequency"] = true;
@@ -25587,6 +25617,8 @@ bool fetchPskReporterData() {
     for (JsonObject report : reports) {
       const char* callsign = report["senderCallsign"];
       const char* locator = report["senderLocator"];
+      const char* rxCallJson = report["receiverCallsign"];
+      const char* rxLocJson = report["receiverLocator"];
       const char* mode = report["mode"];
       int snr = report["sNR"] | 0;
       int frequency = report["frequency"] | 0;
@@ -25621,8 +25653,20 @@ bool fetchPskReporterData() {
         double lat, lon;
         locatorToLatLon(String(locator), lat, lon);
 
+        // Odbiorca (para lacznosci) - z pola JSON; lokator odbiorcy -> lat/lon.
+        String rxCall = rxCallJson ? String(rxCallJson) : String();
+        rxCall.trim();
+        rxCall.toUpperCase();
+        double rxLat = 0, rxLon = 0;
+        bool rxHasPos = false;
+        if (rxLocJson && strlen(rxLocJson) >= 4) {
+          locatorToLatLon(String(rxLocJson), rxLat, rxLon);
+          rxHasPos = true;
+        }
+
         // Kumuluj (dedup: znak+pasmo+tryb); kolejne pobrania uzupelniaja mape.
-        pskAddSpot(String(callsign), (float)lat, (float)lon, band, modeStr, snr, millis());
+        pskAddSpot(String(callsign), (float)lat, (float)lon, band, modeStr, snr, millis(),
+                   rxCall, rxHasPos ? (float)rxLat : 0.0f, rxHasPos ? (float)rxLon : 0.0f);
       }
     }
   }
@@ -25691,6 +25735,43 @@ static void drawPskMapHeader() {
       tft.print("Brak spotow - tap: odswiez");
     }
   }
+}
+
+// Rysuje jeden spot PSK. Tryb zwykly: kropka stacji + linia od pozycji
+// uzytkownika. Tryb "polaczenia" (pskShowLinks): linia nadawca->odbiorca i
+// kropki obu koncow raportu (bez linii od uzytkownika).
+static void drawPskSpotGlyph(int i, bool userOnMap, int userX, int userY,
+                             double pskUserLat, double pskUserLon) {
+  const PskSpot &s = pskSpots[i];
+  if (s.lat < MAP_LAT_MIN || s.lat > MAP_LAT_MAX ||
+      s.lon < MAP_LON_MIN || s.lon > MAP_LON_MAX) return;
+  int x, y;
+  latLonToScreen(s.lat, s.lon, x, y);
+  uint16_t color = getPskBandColor(s.band);
+
+  if (pskShowLinks) {
+    // Para lacznosci: linia nadawca->odbiorca, gdy znamy oba konce.
+    bool rxOnMap = s.rxLat >= MAP_LAT_MIN && s.rxLat <= MAP_LAT_MAX &&
+                   s.rxLon >= MAP_LON_MIN && s.rxLon <= MAP_LON_MAX;
+    if (rxOnMap) {
+      int rxX, rxY;
+      latLonToScreen(s.rxLat, s.rxLon, rxX, rxY);
+      tft.drawLine(x, y, rxX, rxY, color);
+      tft.fillCircle(rxX, rxY, 2, color);
+      tft.drawCircle(rxX, rxY, 2, TFT_BLACK);
+    }
+    tft.fillCircle(x, y, 3, color);
+    tft.drawCircle(x, y, 3, TFT_BLACK);
+    return;
+  }
+
+  // Tryb domyslny: linia od uzytkownika do stacji (kolor wg odleglosci DX).
+  if (userOnMap) {
+    float dist = calculateDistance(pskUserLat, pskUserLon, s.lat, s.lon);
+    tft.drawLine(userX, userY, x, y, getDxColor(dist));
+  }
+  tft.fillCircle(x, y, 3, color);
+  tft.drawCircle(x, y, 3, TFT_BLACK);
 }
 
 // Rysowanie przycisku menu w lewym gĂłrnym rogu
@@ -25860,8 +25941,17 @@ static void drawPskSettingsMenu() {
   // TytuĹ‚
   tft.setTextSize(2);
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(140, 50);
-  tft.print("PSK Reporter - Filtry");
+  tft.setCursor(55, 50);
+  tft.print("PSKReporter - Filtry");
+
+  // Przelacznik trybu mapy: dotychczasowy (linie od Twojej pozycji) vs pary
+  // lacznosci (linia nadawca->odbiorca z raportu). Gorna prawa strona menu.
+  tft.setTextSize(1);
+  tft.fillRect(305, 48, 125, 20, pskActiveField == PSK_FIELD_SHOW_LINKS ? TFT_DARKGREY : TFT_BLACK);
+  tft.drawRect(305, 48, 125, 20, TFT_WHITE);
+  tft.setTextColor(pskTempShowLinks ? TFT_GREEN : TFT_WHITE);
+  tft.setCursor(311, 54);
+  tft.print(pskTempShowLinks ? "Lacza: TAK" : "Lacza: NIE");
   
   // Linia podziaĹ‚u
   tft.drawLine(50, 70, 430, 70, TFT_WHITE);
@@ -26021,14 +26111,27 @@ static void drawPskSpotListPanel() {
     int ry = py + 18 + shown * 10;
     tft.fillRect(px + 3, ry + 1, 6, 6, getPskBandColor(pskSpots[i].band));
 
-    // Znak skrocony do 8 znakow - szersze nie mieszcza sie w ramce.
-    String row = pskSpots[i].callsign;
-    if (row.length() > 8) row = row.substring(0, 8);
-    while (row.length() < 8) row += " ";
-    row += " " + String(pskSpots[i].band) + "m";
-    String m = pskSpots[i].mode;
-    if (m.length() > 3) m = m.substring(0, 3);
-    if (m.length() > 0) row += " " + m;
+    String row;
+    if (pskShowLinks && pskSpots[i].rxCall.length() > 0) {
+      // Tryb polaczen: pokaz pare nadawca>odbiorca (skrocone do 6 znakow).
+      String tx = pskSpots[i].callsign;
+      if (tx.length() > 6) tx = tx.substring(0, 6);
+      String rx = pskSpots[i].rxCall;
+      if (rx.length() > 6) rx = rx.substring(0, 6);
+      row = tx + ">" + rx;
+      if (row.length() > 13) row = row.substring(0, 13);
+      while (row.length() < 13) row += " ";
+      row += " " + String(pskSpots[i].band) + "m";
+    } else {
+      // Tryb domyslny: znak (8 znakow) + pasmo + tryb.
+      row = pskSpots[i].callsign;
+      if (row.length() > 8) row = row.substring(0, 8);
+      while (row.length() < 8) row += " ";
+      row += " " + String(pskSpots[i].band) + "m";
+      String m = pskSpots[i].mode;
+      if (m.length() > 3) m = m.substring(0, 3);
+      if (m.length() > 0) row += " " + m;
+    }
 
     tft.setTextColor(TFT_WHITE, bg);
     tft.setCursor(px + 11, ry);
@@ -26050,6 +26153,11 @@ static void drawPskMapLegend() {
   tft.setTextColor(TFT_YELLOW);
   tft.setCursor(300, y);
   tft.print("Tap: Refresh");
+  if (pskShowLinks) {
+    tft.setTextColor(TFT_GREEN);
+    tft.setCursor(150, y);
+    tft.print("LACZA TX>RX");
+  }
 }
 
 // GĹ‚Ăłwna funkcja rysujÄ…ca
@@ -26121,23 +26229,7 @@ void drawPskMap() {
   }
 
   for (int i = 0; i < pskSpotCount; i++) {
-    if (pskSpots[i].lat >= MAP_LAT_MIN && pskSpots[i].lat <= MAP_LAT_MAX &&
-        pskSpots[i].lon >= MAP_LON_MIN && pskSpots[i].lon <= MAP_LON_MAX) {
-      int x, y;
-      latLonToScreen(pskSpots[i].lat, pskSpots[i].lon, x, y);
-      uint16_t color = getPskBandColor(pskSpots[i].band);
-      
-      // Rysuj liniÄ™ od uĹĽytkownika do stacji jeĹ›li oba sÄ… na mapie
-      // Kolor zaleĹĽy od odlegĹ‚oĹ›ci DX
-      if (userOnMap) {
-        float dist = calculateDistance(pskUserLat, pskUserLon, pskSpots[i].lat, pskSpots[i].lon);
-        uint16_t lineColor = getDxColor(dist);
-        tft.drawLine(userX, userY, x, y, lineColor);
-      }
-      
-      tft.fillCircle(x, y, 3, color);
-      tft.drawCircle(x, y, 3, TFT_BLACK);
-    }
+    drawPskSpotGlyph(i, userOnMap, userX, userY, pskUserLat, pskUserLon);
   }
 
   // Rysuj czerwonÄ… kropkÄ™ na pozycji uĹĽytkownika (na wierzchu)
@@ -26190,16 +26282,7 @@ void drawPskMapSpotsOnly() {
   }
 
   for (int i = lastPskSpotCount; i < pskSpotCount; i++) {
-    if (pskSpots[i].lat < MAP_LAT_MIN || pskSpots[i].lat > MAP_LAT_MAX ||
-        pskSpots[i].lon < MAP_LON_MIN || pskSpots[i].lon > MAP_LON_MAX) continue;
-    int x, y;
-    latLonToScreen(pskSpots[i].lat, pskSpots[i].lon, x, y);
-    if (userOnMap) {
-      float dist = calculateDistance(pskUserLat, pskUserLon, pskSpots[i].lat, pskSpots[i].lon);
-      tft.drawLine(userX, userY, x, y, getDxColor(dist));
-    }
-    tft.fillCircle(x, y, 3, getPskBandColor(pskSpots[i].band));
-    tft.drawCircle(x, y, 3, TFT_BLACK);
+    drawPskSpotGlyph(i, userOnMap, userX, userY, pskUserLat, pskUserLon);
   }
 
   // Panel po prawej musi pokazac nowe spoty - przerysowujemy tylko jego obszar.
@@ -26400,6 +26483,7 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       pskMqttEnabled = pskTempMqttEnabled;
       pskMqttServer = pskTempMqttServer;
       pskMqttCallsign = pskTempMqttCallsign;
+      pskShowLinks = pskTempShowLinks;
       // Lokator z menu dotykowego jest tym samym ustawieniem co w WWW (Stacja).
       // Gdy nie podano wprost LAT/LON, przelicz z niego pozycje - inaczej mapa
       // PSK nie wie, gdzie jest uzytkownik (i filtr MQTT nie ma kwadratu).
@@ -26420,6 +26504,7 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       preferences->putBool("psk_mqtt_en", pskMqttEnabled);
       preferences->putString("psk_mqtt_srv", pskMqttServer);
       preferences->putString("psk_mqtt_call", pskMqttCallsign);
+      preferences->putBool("psk_show_links", pskShowLinks);
       preferences->putString("user_locator", userLocator);
       if (locatorChanged && !userLatLonValid && userLocator.length() >= 4) {
         preferences->putFloat("user_lat", (float)userLat);
@@ -26476,6 +26561,13 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
       pskMapMenuOpen = false;
       pskActiveField = PSK_FIELD_NONE;
       drawPskMap();
+      return;
+    }
+    // SprawdĹş czy dotkniÄ™to przelacznik "Lacza" (305,48,125,20)
+    if (x >= 305 && x < 430 && y >= 48 && y < 70) {
+      pskTempShowLinks = !pskTempShowLinks;
+      pskActiveField = PSK_FIELD_NONE;
+      drawPskSettingsMenu();
       return;
     }
     // SprawdĹş czy dotkniÄ™to pole ZNAK (120,85,100,20) - otwĂłrz klawiaturÄ™
@@ -26579,6 +26671,7 @@ void handlePskMapTouch(uint16_t x, uint16_t y) {
     pskTempMqttEnabled = pskMqttEnabled;
     pskTempMqttServer = pskMqttServer;
     pskTempMqttCallsign = pskMqttCallsign;
+    pskTempShowLinks = pskShowLinks;
     pskTempLocator = userLocator;
     drawPskMap();
     return;
@@ -27966,6 +28059,10 @@ typedef struct {
   uint8_t band;
   String mode;
   unsigned long receivedAt;
+  // Odbiorca raportu (para nadawca->odbiorca). Puste, gdy feed nie podal.
+  String rxCall;
+  float rxLat;
+  float rxLon;
 } PskSpotMqtt;
 
 #define PSK_MQTT_SPOT_BUFFER_SIZE 30
@@ -28059,6 +28156,29 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
 
   if (!sender || !senderLocator) return;
 
+  // Odbiorca (para lacznosci). Segment 6 tematu = znak odbiorcy, segment 8 =
+  // lokator odbiorcy. JSON v2raw ma krotkie klucze "rc"/"rl" - probujemy je
+  // najpierw, a gdy brak, bierzemy z tematu. Dzieki temu tryb "polaczenia"
+  // dziala nawet gdy payload nie zawiera odbiorcy.
+  String rxCall;
+  const char* rcJson = doc["rc"];
+  if (rcJson && rcJson[0]) rxCall = String(rcJson);
+  if (rxCall.length() == 0) rxCall = pskMqttTopicSegment(topic, 6);
+  rxCall.trim();
+  rxCall.toUpperCase();
+
+  double rxLat = 0, rxLon = 0;
+  bool rxHasPos = false;
+  const char* rlJson = doc["rl"];
+  String rxLoc;
+  if (rlJson && rlJson[0]) rxLoc = String(rlJson);
+  if (rxLoc.length() == 0) rxLoc = pskMqttTopicSegment(topic, 8);
+  rxLoc.trim();
+  if (rxLoc.length() >= 4) {
+    locatorToLatLon(rxLoc, rxLat, rxLon);
+    rxHasPos = true;
+  }
+
   // Na mapie rysujemy NADAWCE (DX) - tak jak tryb HTTP. Feed v2raw nie ma
   // segmentow lokatora, wiec nie da sie zawezic po polu odbiorcy; jesli
   // uzytkownik podal wlasny znak odbiornika, odsiewamy po nim juz na poziomie
@@ -28114,6 +28234,9 @@ void pskMqttCallback(char* topic, byte* payload, unsigned int length) {
   entry.band = band;
   entry.mode = modeStr;
   entry.receivedAt = millis();
+  entry.rxCall = rxCall;
+  entry.rxLat = rxHasPos ? (float)rxLat : 0.0f;
+  entry.rxLon = rxHasPos ? (float)rxLon : 0.0f;
 
   if (pskMqttBufferMutex != NULL &&
       xSemaphoreTake(pskMqttBufferMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
@@ -28245,7 +28368,9 @@ void copyPskMqttToDisplay() {
       pskAddSpot(pskMqttSpotBuffer[i].callsign,
                  pskMqttSpotBuffer[i].lat, pskMqttSpotBuffer[i].lon,
                  pskMqttSpotBuffer[i].band, pskMqttSpotBuffer[i].mode,
-                 0, pskMqttSpotBuffer[i].receivedAt);
+                 0, pskMqttSpotBuffer[i].receivedAt,
+                 pskMqttSpotBuffer[i].rxCall,
+                 pskMqttSpotBuffer[i].rxLat, pskMqttSpotBuffer[i].rxLon);
     }
     pskMqttSpotCount = 0; // czysc bufor MQTT
     xSemaphoreGive(pskMqttBufferMutex);

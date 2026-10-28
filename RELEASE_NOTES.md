@@ -113,7 +113,7 @@ Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczy
   (wcześniej przerysowywał w każdej iteracji `loop()`).
 - Podgląd QA: `tools/render_clock_flicker_preview.py`.
 
-## Poprawki ekranu DX SPOTS i pin dzielnika baterii
+## Poprawki ekranu DX SPOTS, tryb łączności PSK i pin dzielnika baterii
 - **Nazwy krajów na ekranie DX SPOTS (`dxspots.com`).** Cluster telnet nie
   przesyła pola kraju, a dotychczas kolumna „Country" opierała się wyłącznie na
   (wolnym, opcjonalnym) zapytaniu QRZ — bez skonfigurowanego QRZ pozostawała
@@ -128,6 +128,13 @@ Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczy
   `README_S3.md` i `INSTRUKCJA.md`.
 - `tools/make_zip.py` jawnie pomija lokalny serwer-atrapę `mock_openmeteo.py`
   (nie trafia do paczki wydania).
+- **PSK MAP — tryb „połączenia" (TX→RX).** Nowy przełącznik w menu ekranu PSK
+  („Lacza: TAK/NIE") i pole NVS `psk_show_links`. Domyślnie WYŁĄCZONY =
+  dotychczasowy widok (kropki stacji + linie od Twojej pozycji, kolor wg
+  odległości DX). Po włączeniu mapa rysuje **linie nadawca→odbiorca** z dwóch
+  końców każdego raportu PSKReporter (odbiorca z MQTT: `rc`/`rl` lub segmentów
+  tematu v2raw; z HTTP: `receiverCallsign`/`receiverLocator`), a lista spotów
+  pokazuje pary `TX>RX`. `/api/psk` zwraca dodatkowo `rx_call`/`rx_lat`/`rx_lon`.
 
 ## Wersja
 - `FIRMWARE_VERSION`: `1.2c` → **`1.2d`**. Zaktualizowane też `data/index*.html`

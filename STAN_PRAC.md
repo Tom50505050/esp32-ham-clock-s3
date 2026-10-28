@@ -33,6 +33,10 @@ Ostatnia aktualizacja: 2026-10-27. Wersja firmware: **v1.2d**.
   `BATTERY_ADC_PIN` = **7** w `main.cpp`, zaktualizowane `PINOUT.md`, `README.md`,
   `README_S3.md`, `INSTRUKCJA.md` i schemat na stronie WWW.
 - `tools/make_zip.py` pomija lokalny `mock_openmeteo.py` (nie trafia do paczki).
+- **PSK MAP — tryb „połączenia" (TX→RX)**: przełącznik „Lacza: TAK/NIE" w menu
+  ekranu PSK + NVS `psk_show_links` (domyślnie NIE). Włączony rysuje linie
+  nadawca→odbiorca z raportów PSKReporter (MQTT: `rc`/`rl` lub segmenty tematu;
+  HTTP: `receiverCallsign`/`receiverLocator`) i pary `TX>RX` na liście.
 
 ## v1.2c — poprawki PSK MQTT i nagłówka (18.10.2026)
 
