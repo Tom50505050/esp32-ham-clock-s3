@@ -6,19 +6,28 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 - **Ekran „Informacje systemowe" (ESP32-S3 MONITOR)**: karta HARDWARE pokazuje
   teraz dodatkowo **moduł GPS** (z profilu `gps_module_profile`) i **moduł
   ładowania**; karta MEMORY & POWER pokazuje **napięcie + % + pojemność
-  akumulatora**. Funkcje pomocnicze `gpsModuleName()`, `chargerModuleName()`;
-  karty poszerzone do 7 wierszy, wykres i logi przesunięte niżej (y=200..310).
+  akumulatora + typ akumulatora**. Funkcje pomocnicze `gpsModuleName()`,
+  `chargerModuleName()`; karty poszerzone do 7/8 wierszy, wykres i logi
+  przesunięte niżej (y=200..310).
 - **Nowe zmienne konfiguracyjne (NVS)**: `chargerModuleType` (int, klucz
-  `chg_type`, 0=TP4056/1=TP4100/2=IP2312/3=CN3065/4=inny) oraz
-  `batteryCapacityMah` (int, klucz `bat_mah`, domyślnie 3000). Ładowane w
-  `loadPreferences`, zapisywane w `savePreferences`, wystawione w API JSON jako
-  `charger_module` i `battery_mah` (GET `/api/config` + POST `/api/save`).
-- **WWW – konfiguracja**: dodano sekcję „🔋 Akumulator i moduł ładowania"
-  (pojemność mAh + wybór modułu ładowania) oraz **przycisk „Zapisz
-  Konfigurację" przeniesiono na sam dół formularza** (za sekcjami kopii
-  ustawień i kalibracji baterii). Zmiana we wszystkich stronach: `data/index.html`
-  (PL) oraz `indexEN/DE/FR/ES/RU.html` (regenerowane z `tools/gen_pages.py` +
-  nowe wpisy w `tools/lang_pages.json`) i w awaryjnym HTML w `main.cpp`.
+  `chg_type`, 0=TP4056/1=TP4100/2=IP2312/3=CN3065/4=inny), `batteryCapacityMah`
+  (int, klucz `bat_mah`, domyślnie 3000) oraz `batteryType` (String, klucz
+  `bat_type`, dowolny opis typu/chemii ogniwa, maks. 24 znaki, domyślnie
+  „18650 Li-ion"). Ładowane w `loadPreferences`, zapisywane w `savePreferences`,
+  wystawione w API JSON jako `charger_module`, `battery_mah` i `battery_type`
+  (GET `/api/config` + POST `/api/save`).
+- **WWW – zakładka „Moduły"**: sekcja „🔋 Akumulator i moduł ładowania"
+  (pojemność mAh + typ akumulatora + wybór modułu ładowania) znajduje się w
+  zakładce **Moduły** (`ensureModulesTab*()`), a nie w formularzu głównym.
+  Przycisk „Zapisz Konfigurację" pozostał na samym dole formularza głównego;
+  zakładka Moduły ma własny „Zapisz ustawienia Moduły". Pola są czytane
+  null-safe w `collectConfigPayload` (elementy mogą nie istnieć, gdy
+  zakładka Moduły nie została jeszcze zbudowana).
+- **Zakładka „Linki"**: usunięto kafelek „🖼 Wgraj ekran startowy"; wiersz
+  „Postaw kawę ☕" nie zawiera już linku (puste pole). Zmiany we wszystkich
+  stronach: `data/index.html` (PL) oraz `indexEN/DE/FR/ES/RU.html`
+  (regenerowane z `tools/gen_pages.py` + `tools/lang_pages.json`) i w awaryjnym
+  HTML w `main.cpp` (tam także nowa zakładka „Moduly" w `showTab`).
 
 ## Ustawienia TFT: usunięty KOLOR ZEGARA + kafelka KALIBRACJA (30.10.2026)
 - **Usunięto suwak KOLOR ZEGARA** z ekranu ustawień TFT (`drawBrightnessMenu`,

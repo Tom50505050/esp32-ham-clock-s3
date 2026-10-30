@@ -582,7 +582,9 @@
     "Charger module type &mdash; displayed on the ESP32-S3 monitor screen.": "Typ des Lademoduls &mdash; wird auf dem ESP32-S3-Monitorbildschirm angezeigt.",
     "🔋 Battery &amp; charger module": "🔋 Akku &amp; Lademodul",
     "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, Schutz DW01A)",
-    "Other / none": "Andere / keine"
+    "Other / none": "Andere / keine",
+    "Battery type:": "Akkutyp:",
+    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Freitextbeschreibung des Zelltyps/der Chemie (max. 24 Zeichen). Sichtbar auf dem ESP32-S3-Monitorbildschirm."
   },
   "es": {
     " (storm) and": " (tormenta) y",
@@ -1168,7 +1170,9 @@
     "Charger module type &mdash; displayed on the ESP32-S3 monitor screen.": "Tipo de módulo de carga &mdash; mostrado en la pantalla de monitor ESP32-S3.",
     "🔋 Battery &amp; charger module": "🔋 Batería y módulo de carga",
     "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, protección DW01A)",
-    "Other / none": "Otro / ninguno"
+    "Other / none": "Otro / ninguno",
+    "Battery type:": "Tipo de batería:",
+    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Descripción libre del tipo/química de la celda (máx. 24 car.). Mostrada en la pantalla de monitor ESP32-S3."
   },
   "fr": {
     " (storm) and": " (orage) et",
@@ -1755,7 +1759,9 @@
     "Charger module type &mdash; displayed on the ESP32-S3 monitor screen.": "Type de module de charge &mdash; affiché sur l'écran moniteur ESP32-S3.",
     "🔋 Battery &amp; charger module": "🔋 Batterie &amp; module de charge",
     "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, protection DW01A)",
-    "Other / none": "Autre / aucun"
+    "Other / none": "Autre / aucun",
+    "Battery type:": "Type de batterie:",
+    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Description libre du type/de la chimie de la cellule (max 24 car.). Affichée sur l'écran moniteur ESP32-S3."
   },
   "ru": {
     " (storm) and": " (гроза) и",
@@ -2340,6 +2346,8 @@
     "Charger module type &mdash; displayed on the ESP32-S3 monitor screen.": "Тип модуля зарядки &mdash; отображается на экране монитора ESP32-S3.",
     "🔋 Battery &amp; charger module": "🔋 Аккумулятор и модуль зарядки",
     "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, защита DW01A)",
-    "Other / none": "Другое / нет"
+    "Other / none": "Другое / нет",
+    "Battery type:": "Тип аккумулятора:",
+    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Свободное описание типа/химии ячейки (макс. 24 симв.). Отображается на экране монитора ESP32-S3."
   }
 }

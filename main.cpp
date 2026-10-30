@@ -2539,8 +2539,11 @@ bool batteryCharging = false;  // Rozpoznawanie ładowania (napięcie > 4.25V)
 int chargerModuleType = 0;
 // Pojemnosc akumulatora w mAh (0 = nieznana).
 int batteryCapacityMah = 3000;
+// Typ/chemia akumulatora (tekst wpisywany z WWW, np. "18650 Li-ion", "LiPo").
+String batteryType = "18650 Li-ion";
 const char *NVS_KEY_CHARGER_TYPE = "chg_type";
 const char *NVS_KEY_BAT_MAH = "bat_mah";
+const char *NVS_KEY_BAT_TYPE = "bat_type";
 
 // Czytelne nazwy modulow (uzywane na ekranie monitora i w WWW).
 const char* chargerModuleName(int type) {
@@ -3063,7 +3066,7 @@ static void uiWelcomeText(int y, const char *txt, uint8_t font, uint16_t color) 
 }
 
 // Ekran startowy z grafika (splash). Wczytuje PLIK, ktory wrzucisz do data/
-// lub wgrasz przez WWW (zakladka Linki -> "Wgraj ekran startowy").
+// (np. splash.png / splash.bmp) lub przez upload na urzadzenie.
 // Obsluguje: BMP 24/16-bit, PNG, JPG (przez drawImageFromFS -> dekodery).
 void drawSplashScreen() {
   if (!tftInitialized) {
@@ -11865,7 +11868,7 @@ static void drawSystemInfoStatic() {
   tft.setCursor(18, 17);
   tft.print("ESP32-S3 MONITOR // N16R8 + ILI9488 (480x320)");
 
-  tft.fillRect(10, 38, 225, 158, SYS_COL_CARD);
+  tft.fillRect(10, 38, 225, 166, SYS_COL_CARD);
   tft.setTextColor(SYS_COL_ACCENT, SYS_COL_CARD);
   tft.setCursor(18, 48); tft.print("HARDWARE & PROCESSOR");
   tft.setTextColor(SYS_COL_MUTED, SYS_COL_CARD);
@@ -11877,7 +11880,7 @@ static void drawSystemInfoStatic() {
   tft.setCursor(18, 158); tft.print("GPS module:");
   tft.setCursor(18, 176); tft.print("Charger:");
 
-  tft.fillRect(245, 38, 225, 158, SYS_COL_CARD);
+  tft.fillRect(245, 38, 225, 166, SYS_COL_CARD);
   tft.setTextColor(SYS_COL_ACCENT, SYS_COL_CARD);
   tft.setCursor(253, 48); tft.print("MEMORY & POWER (2.4G)");
   tft.setTextColor(SYS_COL_MUTED, SYS_COL_CARD);
@@ -11888,26 +11891,27 @@ static void drawSystemInfoStatic() {
   tft.setCursor(253, 140); tft.print("IP Address:");
   tft.setCursor(253, 158); tft.print("Battery:");
   tft.setCursor(253, 176); tft.print("Capacity:");
+  tft.setCursor(253, 194); tft.print("Type:");
 
-  tft.fillRect(10, 200, 235, 110, SYS_COL_CARD);
+  tft.fillRect(10, 208, 235, 106, SYS_COL_CARD);
   tft.setTextColor(SYS_COL_ACCENT, SYS_COL_CARD);
-  tft.setCursor(18, 210); tft.print("CPU TEMP HISTORY");
+  tft.setCursor(18, 218); tft.print("CPU TEMP HISTORY");
 
-  tft.fillRect(255, 200, 215, 110, SYS_COL_CARD);
+  tft.fillRect(255, 208, 215, 106, SYS_COL_CARD);
   tft.setTextColor(SYS_COL_ACCENT, SYS_COL_CARD);
-  tft.setCursor(263, 210); tft.print("SYSTEM LOGS");
+  tft.setCursor(263, 218); tft.print("SYSTEM LOGS");
 }
 
 // Wykres temperatury CPU (os 40..60 C).
 static void sysInfoDrawChart() {
-  tft.fillRect(18, 224, 220, 80, SYS_COL_CARD);
-  tft.drawFastHLine(18, 242, 220, SYS_COL_GRID);
-  tft.drawFastHLine(18, 264, 220, SYS_COL_GRID);
-  tft.drawFastHLine(18, 286, 220, SYS_COL_GRID);
+  tft.fillRect(18, 230, 220, 76, SYS_COL_CARD);
+  tft.drawFastHLine(18, 248, 220, SYS_COL_GRID);
+  tft.drawFastHLine(18, 270, 220, SYS_COL_GRID);
+  tft.drawFastHLine(18, 292, 220, SYS_COL_GRID);
 
   if (sysInfoHistoryCount < 2) return;
   const float minT = 40.0f, maxT = 60.0f;
-  const int chartX = 20, chartY = 300, chartW = 210, chartH = 70;
+  const int chartX = 20, chartY = 302, chartW = 210, chartH = 68;
   for (int i = 0; i < sysInfoHistoryCount - 1; i++) {
     int x1 = chartX + (i * chartW) / (SYSINFO_CHART_POINTS - 1);
     int y1 = chartY - (int)(((sysInfoTempHistory[i] - minT) / (maxT - minT)) * chartH);
@@ -11943,7 +11947,7 @@ static void sysInfoUpdateDynamic(float currentTemp) {
   tft.setCursor(115, 176); tft.print(chargerModuleName(chargerModuleType));
 
   // --- Karta 2: Pamiec, Siec & Zasilanie ---
-  tft.fillRect(350, 66, 115, 124, SYS_COL_CARD);
+  tft.fillRect(350, 66, 115, 132, SYS_COL_CARD);
   tft.setTextColor(SYS_COL_GREEN, SYS_COL_CARD);
   snprintf(b, sizeof(b), "%lu KB", (unsigned long)(ESP.getFreeHeap() / 1024));
   tft.setCursor(350, 68);  tft.print(b);
@@ -11980,22 +11984,24 @@ static void sysInfoUpdateDynamic(float currentTemp) {
   tft.setCursor(350, 176);
   snprintf(b, sizeof(b), "%d mAh", batteryCapacityMah);
   tft.print(b);
+  tft.setCursor(350, 194);
+  tft.print(batteryType);
 
   // --- Karta 3: Wykres ---
   sysInfoDrawChart();
 
   // --- Karta 4: Logi ---
-  tft.fillRect(263, 224, 199, 80, SYS_COL_CARD);
+  tft.fillRect(263, 230, 199, 76, SYS_COL_CARD);
   tft.setTextSize(1);
   tft.setTextColor(SYS_COL_MUTED, SYS_COL_CARD);
   unsigned long up = millis() / 1000UL;
   snprintf(b, sizeof(b), "[%02lu:%02lu] Boot nominal.", up / 60, up % 60);
-  tft.setCursor(263, 226); tft.print(b);
+  tft.setCursor(263, 232); tft.print(b);
   snprintf(b, sizeof(b), "[%02lu:%02lu] WiFi %s.", up / 60, up % 60, conn ? "OK" : "--");
-  tft.setCursor(263, 244); tft.print(b);
+  tft.setCursor(263, 250); tft.print(b);
   snprintf(b, sizeof(b), "[%02lu:%02lu] Chart online.", up / 60, up % 60);
-  tft.setCursor(263, 262); tft.print(b);
-  tft.setCursor(263, 280);
+  tft.setCursor(263, 268); tft.print(b);
+  tft.setCursor(263, 286);
   tft.setTextColor(SYS_COL_GREEN, SYS_COL_CARD);
   snprintf(b, sizeof(b), "[OK] Temp %.1f C", currentTemp);
   tft.print(b);
@@ -21479,6 +21485,9 @@ void loadPreferences() {
   if (chargerModuleType < 0 || chargerModuleType > 4) chargerModuleType = 0;
   batteryCapacityMah = preferences->getInt(NVS_KEY_BAT_MAH, 3000);
   if (batteryCapacityMah < 100 || batteryCapacityMah > 50000) batteryCapacityMah = 3000;
+  batteryType = preferences->getString(NVS_KEY_BAT_TYPE, "18650 Li-ion");
+  batteryType.trim();
+  if (batteryType.length() > 24) batteryType = batteryType.substring(0, 24);
   // Migracja v1.2b: MQTT jest teraz domyslnym, dzialajacym trybem (feed PSK
   // wrocil na pskr/filter/v2raw_1pc). Wlacz go RAZ i ZAPISZ w NVS, zeby po
   // restarcie byl aktywny od razu. Nie ruszamy, jesli uzytkownik ma wlasny
@@ -21693,6 +21702,7 @@ void savePreferences() {
   preferences->putFloat("bat_off", batteryVoltOffset);
   preferences->putInt(NVS_KEY_CHARGER_TYPE, chargerModuleType);
   preferences->putInt(NVS_KEY_BAT_MAH, batteryCapacityMah);
+  preferences->putString(NVS_KEY_BAT_TYPE, batteryType);
 
   // Konfiguracja wygaszacza ekranu (Matrix)
   preferences->putBool("ss_enabled", screenSaverEnabled);
@@ -23313,6 +23323,12 @@ void setupWebServer() {
         int v = doc["battery_mah"].as<int>();
         if (v >= 100 && v <= 50000) batteryCapacityMah = v;
       }
+      if (doc["battery_type"].is<String>()) {
+        String v = doc["battery_type"].as<String>();
+        v.trim();
+        if (v.length() > 24) v = v.substring(0, 24);
+        if (v.length() > 0) batteryType = v;
+      }
       if (doc["tft_night_dimming"].is<int>()) {
         tftNightDimmingPercent = doc["tft_night_dimming"].as<int>();
         if (tftNightDimmingPercent < 0) tftNightDimmingPercent = 0;
@@ -24080,6 +24096,7 @@ void setupWebServer() {
     doc["bat_off"] = batteryVoltOffset;
     doc["charger_module"] = chargerModuleType;
     doc["battery_mah"] = batteryCapacityMah;
+    doc["battery_type"] = batteryType;
     doc["tft_backlight"] = backlightPercent;
     doc["tft_night_dimming"] = tftNightDimmingPercent;
     doc["tft_invert"] = sanitizeTftInvertSetting(tftInvertColors);
@@ -24584,6 +24601,7 @@ String getMainHTML() {
     <button class="tab" onclick="showTab('psk')">PSK Reporter</button>
     <button class="tab" onclick="showTab('display')">Wyswietlacz</button>
     <button class="tab" onclick="showTab('touch')">Dotyk</button>
+    <button class="tab" onclick="showTab('modules')">Moduly</button>
     <button class="tab" onclick="showTab('system')">System</button>
   </div>
 
@@ -24957,6 +24975,42 @@ String getMainHTML() {
     </div>
   </div>
 
+  <!-- ========== TAB: MODULY ========== -->
+  <div class="tabcontent" id="tab-modules">
+    <div class="panel">
+      <h2>Moduly</h2>
+      <p>Wybierz podlaczony modul i ustaw parametry. Ustawienia zapiszesz na dole strony.</p>
+      <div class="row">
+        <div class="field"><label>Podlaczony modul</label>
+          <select id="connectedModule">
+            <option value="none">brak</option>
+            <option value="gps">GPS</option>
+            <option value="aprs_tnc">APRS TNC2 (RX Only)</option>
+            <option value="aprs_tnc_kiss">APRS_TNC-KISS (TCPIP TNC / LoRa / Digi)</option>
+            <option value="esp32_bridge">ESP32-BRIDGE</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Pojemnosc akumulatora (mAh)</label><input id="battery_mah" type="number" min="100" max="50000" step="50" value="3000"></div>
+        <div class="field"><label>Typ akumulatora</label><input id="battery_type" type="text" maxlength="24" placeholder="np. 18650 Li-ion"></div>
+        <div class="field"><label>Modul ladowania</label>
+          <select id="charger_module">
+            <option value="0">TP4056 (5V 1A, ochrona DW01A)</option>
+            <option value="1">TP4100</option>
+            <option value="2">IP2312</option>
+            <option value="3">CN3065</option>
+            <option value="4">Inny / brak</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint">Pojemnosc, typ akumulatora i modul ladowania sa wyswietlane na ekranie monitora ESP32-S3.</div>
+      <div class="toolbar">
+        <button class="sec" onclick="saveConfig()">Zapisz ustawienia Moduly</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ========== TAB: SYSTEM ========== -->
   <div class="tabcontent" id="tab-system">
     <div class="panel">
@@ -24989,22 +25043,6 @@ String getMainHTML() {
         <div class="field"><label>Offset (V)</label><input id="bat_off" type="number" step="0.01" min="-1" max="1"></div>
       </div>
       <div class="hint" id="batStatus"></div>
-    </div>
-    <div class="panel">
-      <h2>🔋 Akumulator i moduł ładowania</h2>
-      <div class="row">
-        <div class="field"><label>Pojemność akumulatora (mAh)</label><input id="battery_mah" type="number" min="100" max="50000" step="50" value="3000"></div>
-        <div class="field"><label>Moduł ładowania</label>
-          <select id="charger_module">
-            <option value="0">TP4056 (5V 1A, ochrona DW01A)</option>
-            <option value="1">TP4100</option>
-            <option value="2">IP2312</option>
-            <option value="3">CN3065</option>
-            <option value="4">Inny / brak</option>
-          </select>
-        </div>
-      </div>
-      <div class="hint">Pojemność i typ modułu ładowania są wyświetlane na ekranie monitora ESP32-S3.</div>
     </div>
     <div class="panel">
       <h2>Wgraj mape BMP</h2>
@@ -25058,7 +25096,7 @@ function showTab(name){
   const el=$('tab-'+name); if(el) el.classList.add('active');
   document.querySelectorAll('.tab').forEach(t=>{ if(t.textContent.toLowerCase().includes(getTabKeyword(name))) t.classList.add('active'); });
 }
-function getTabKeyword(n){return{dashboard:'pulpit',station:'stacja',services:'uslugi',aprs:'aprs',psk:'psk',display:'wyswietlacz',touch:'dotyk',system:'system'}[n]||'';}
+function getTabKeyword(n){return{dashboard:'pulpit',station:'stacja',services:'uslugi',aprs:'aprs',psk:'psk',display:'wyswietlacz',touch:'dotyk',modules:'modul',system:'system'}[n]||'';}
 
 function buildScreenOrderSelects(){
   const c=$('screenOrderRow'); c.innerHTML='';
@@ -25078,6 +25116,7 @@ function fillForm(cfg){
   val('user_lat',cfg.user_lat); val('user_lon',cfg.user_lon);
   val('bat_div_cal',cfg.bat_div_cal); val('bat_off',cfg.bat_off);
   val('battery_mah',cfg.battery_mah); val('charger_module',cfg.charger_module);
+  val('battery_type',cfg.battery_type);
   val('bat_now',(cfg.sys_vcc&&cfg.sys_vcc>1)?cfg.sys_vcc.toFixed(2)+' V':'-');
   val('timezone',cfg.timezone); val('openwebrx_url',cfg.openwebrx_url);
   val('weather_key',cfg.weather_key); val('n2yo_key',cfg.n2yo_key);
@@ -25241,6 +25280,7 @@ function buildFromForm(){
     psk_mqtt_callsign:gstr('psk_mqtt_callsign'),
     bat_div_cal:gnum('bat_div_cal',1.0), bat_off:gnum('bat_off',0.0),
     battery_mah:gint('battery_mah',3000), charger_module:gint('charger_module',0),
+    battery_type:(()=>{const e=$('battery_type');return e?String(e.value||'').trim().slice(0,24):'';})(),
     bat_cal_v:gnum('bat_cal_v',0),
     tft_backlight:gint('tft_backlight',100), tft_rotation:gint('tft_rotation',1),
     tft_lang:gstr('tft_lang','pl'), table_size:gstr('table_size','normal'),

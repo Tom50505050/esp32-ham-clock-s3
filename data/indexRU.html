@@ -1455,21 +1455,6 @@
                         <label>Offset (V):</label>
                         <input type="number" id="bat_off" name="bat_off" step="0.01" min="-1" max="1" value="0">
                     </div>
-                    <div class="form-group" id="battery-config">
-                        <h3>🔋 Аккумулятор и модуль зарядки</h3>
-                        <label>Ёмкость аккумулятора (мАч):</label>
-                        <input type="number" id="battery_mah" name="battery_mah" min="100" max="50000" step="50" value="3000">
-                        <small>Ёмкость ячейки, отображаемая на экране монитора ESP32-S3 (напр. 18650 = 3000 мАч).</small>
-                        <label>Модуль зарядки:</label>
-                        <select id="charger_module" name="charger_module">
-                            <option value="0">TP4056 (5V 1A, защита DW01A)</option>
-                            <option value="1">TP4100</option>
-                            <option value="2">IP2312</option>
-                            <option value="3">CN3065</option>
-                            <option value="4">Другое / нет</option>
-                        </select>
-                        <small>Тип модуля зарядки &mdash; отображается на экране монитора ESP32-S3.</small>
-                    </div>
                 <button type="submit" class="save-btn">💾 Сохранить конфигурацию</button>
             </form>
         </div>
@@ -1595,14 +1580,6 @@
                     <div class="github-release-label">&#9889; Прошить прошивку через браузер</div>
                     <a href="https://jason2866.github.io/WebSerial_ESPTool/" target="_blank" rel="noopener" class="github-link">jason2866.github.io/WebSerial_ESPTool</a>
                 </div>
-                <div class="github-release-box splash-upload-box">
-                    <div class="github-release-label">&#128444; Загрузить экран загрузки</div>
-                    <div class="github-release-text">PNG / JPG / BMP &mdash; изображение хранится на устройстве и показывается на TFT.</div>
-                    <div class="splash-preview-wrap"><img id="splash-preview" class="splash-preview" alt="Boot screen preview" src="/splash_preview" onerror="this.style.display='none'"></div>
-                    <input type="file" id="splash-file" accept=".png,.jpg,.jpeg,.bmp" class="splash-file-input">
-                    <button type="button" id="splash-upload-btn" class="splash-upload-btn">Загрузить экран загрузки</button>
-                    <div id="splash-upload-status" class="github-release-text"></div>
-                </div>
                 <h3 class="prop-section-title prop-section-title-secondary">Рекомендуется</h3>
                 <table class="prop-metrics-table links-desc-table">
                     <tbody>
@@ -1628,7 +1605,7 @@
                         <tr><th>Solar Ham</th><td><a href="https://www.solarham.net" target="_blank" rel="noopener">solarham.net</a></td></tr>
                         <tr><th>Tropo F5LEN</th><td><a href="https://tropo.f5len.org/" target="_blank" rel="noopener">tropo.f5len.org</a></td></tr>
                         <tr><th>ISS Tracker</th><td><a href="https://isstracker.pl/" target="_blank" rel="noopener">isstracker.pl</a></td></tr>
-                        <tr><th>Угостите меня кофе ☕</th><td><a href="https://buycoffee.to/esp32hamclock" target="_blank" rel="noopener">buycoffee.to/esp32hamclock</a></td></tr>
+                        <tr><th>Угостите меня кофе ☕</th><td></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -2520,6 +2497,7 @@
             if (data.bat_div_cal !== undefined && data.bat_div_cal !== null) document.getElementById('bat_div_cal').value = data.bat_div_cal;
             if (data.bat_off !== undefined && data.bat_off !== null) document.getElementById('bat_off').value = data.bat_off;
             if (data.battery_mah !== undefined && data.battery_mah !== null) document.getElementById('battery_mah').value = data.battery_mah;
+            if (data.battery_type !== undefined && data.battery_type !== null) document.getElementById('battery_type').value = data.battery_type;
             if (data.charger_module !== undefined && data.charger_module !== null) document.getElementById('charger_module').value = data.charger_module;
             if (data.sys_vcc && data.sys_vcc > 1) document.getElementById('bat_now').textContent = data.sys_vcc.toFixed(2) + ' V | ' + (data.sys_batt_pct ?? '?') + '%' + (data.sys_batt_chg ? ' [chg]' : '');
             const nightDimmingValue = (data.tft_night_dimming !== undefined && data.tft_night_dimming !== null) ? data.tft_night_dimming : 0;
@@ -3261,8 +3239,9 @@
             tft_backlight: parseInt(document.getElementById('tft_backlight').value) || 100,
             bat_div_cal: parseFloat(document.getElementById('bat_div_cal').value) || 1.0,
             bat_off: parseFloat(document.getElementById('bat_off').value) || 0.0,
-            battery_mah: (() => { const v = parseInt(document.getElementById('battery_mah').value, 10); return Number.isFinite(v) ? Math.min(50000, Math.max(100, v)) : 3000; })(),
-            charger_module: (() => { const v = parseInt(document.getElementById('charger_module').value, 10); return Number.isFinite(v) ? v : 0; })(),
+            battery_mah: (() => { const el = document.getElementById('battery_mah'); const v = el ? parseInt(el.value, 10) : NaN; return Number.isFinite(v) ? Math.min(50000, Math.max(100, v)) : 3000; })(),
+            battery_type: (() => { const el = document.getElementById('battery_type'); const v = el ? (el.value || '').trim() : ''; return v.slice(0, 24); })(),
+            charger_module: (() => { const el = document.getElementById('charger_module'); const v = el ? parseInt(el.value, 10) : NaN; return Number.isFinite(v) ? v : 0; })(),
             bat_cal_v: parseFloat(document.getElementById('bat_cal_v').value) || 0,
             tft_night_dimming: parseInt(document.getElementById('tft_night_dimming').value) || 0,
             tft_lang: (document.getElementById('tft_lang') ? document.getElementById('tft_lang').value : "pl"),
@@ -3845,6 +3824,30 @@
                 '    </div>' +
                 '    <div id="bridge-bt-list" style="display:flex; flex-direction:column; gap:8px; margin-top:8px;"></div>' +
                 '    <div id="bridge-bt-paired" style="margin-top:10px; color:#e0e0e0; font-size:13px;"></div>' +
+                '  </div>' +
+                '  <div id="battery-config" class="config-section">' +
+                '    <h3>🔋 Аккумулятор и модуль зарядки</h3>' +
+                '    <div class="form-group">' +
+                '      <label>Battery capacity (mAh):</label>' +
+                '      <input type="number" id="battery_mah" name="battery_mah" min="100" max="50000" step="50" value="3000">' +
+                '      <small>Cell capacity shown on the ESP32-S3 monitor screen (e.g. 18650 = 3000 mAh).</small>' +
+                '    </div>' +
+                '    <div class="form-group">' +
+                '      <label>Battery type:</label>' +
+                '      <input type="text" id="battery_type" name="battery_type" maxlength="24" placeholder="e.g. 18650 Li-ion, LiPo, LiFePO4">' +
+                '      <small>Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.</small>' +
+                '    </div>' +
+                '    <div class="form-group">' +
+                '      <label>Charger module:</label>' +
+                '      <select id="charger_module" name="charger_module">' +
+                '        <option value="0">TP4056 (5V 1A, DW01A protection)</option>' +
+                '        <option value="1">TP4100</option>' +
+                '        <option value="2">IP2312</option>' +
+                '        <option value="3">CN3065</option>' +
+                '        <option value="4">Other / none</option>' +
+                '      </select>' +
+                '      <small>Charger module type &mdash; displayed on the ESP32-S3 monitor screen.</small>' +
+                '    </div>' +
                 '  </div>' +
                 '  <button type="button" class="save-btn" onclick="saveConfig()">💾 Сохранить настройки модулей</button>' +
                 '</div>';
