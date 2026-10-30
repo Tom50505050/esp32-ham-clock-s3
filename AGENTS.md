@@ -5,13 +5,17 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 ## Ustawienia TFT: usunięty KOLOR ZEGARA + kafelka KALIBRACJA (30.10.2026)
 - **Usunięto suwak KOLOR ZEGARA** z ekranu ustawień TFT (`drawBrightnessMenu`,
   otwierany 3 s przytrzymaniem ekranu). Zostaje tylko JASNOŚĆ + KOLOR MOTYWU
-  (`menuThemeHue`, zapisywany w NVS jako `menu_hue`). Usunięto też całe menu
-  koloru cyfr zegara (otwierane 1.2 s przytrzymaniem zegara na ekranie HAM
-  CLOCK): `drawClockColorMenu`, `handleClockColorMenuTouch`,
-  `openClockColorMenu`, `drawClockColorPreview`, `redrawClockColorControls`
-  oraz zmienne `clockColorMenu*`/`clockColorMenuActive`. Kolor cyfr zegara
+  (`menuThemeHue`, zapisywany w NVS jako `menu_hue`). Kolor cyfr zegara
   (`clockDigitsColor`) pozostaje w NVS (`clock_color`) i nadal jest ustawiany
-  z WWW („Kolor zegara", `clock_color_picker`) — tylko sterowanie z TFT znika.
+  z WWW („Kolor zegara", `clock_color_picker`) oraz z menu na ekranie.
+- **Menu koloru cyfr zegara (TFT) — PRZYWRÓCONE**: długie przytrzymanie
+  (>=1,2 s) NA ZEGARZE na ekranie HAM CLOCK otwiera `openClockColorMenu()`
+  (suwaki HUE/SAT/VALUE + podglad + ZAPISZ/DOMYSLNE/ZAMKNIJ). Funkcje:
+  `drawClockColorMenu`, `handleClockColorMenuTouch`, `openClockColorMenu`,
+  `drawClockColorPreview`, `redrawClockColorControls` i zmienne
+  `clockColorMenu*`/`clockColorMenuActive`. Zapisywane do NVS `clock_color`.
+  Uwaga: ten suwak istnieje TYLKO w menu przytrzymania — w ekranie ustawień
+  TFT go nie ma (tam zostaje KOLOR MOTYWU).
 - **Dodano kafelkę KALIBRACJA** na ekranie ustawień TFT (obok ZAPISZ/DOMYŚLNE/
   UŚPIENIE/ZAMKNIJ; przyciski zwężone do 86 px, 5 w jednym rzędzie, ZAMKNIJ
   na końcu). Wejście w nią uruchamia `startTouchCalibration()` (4 punkty).
