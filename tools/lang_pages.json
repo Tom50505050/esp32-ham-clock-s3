@@ -575,7 +575,14 @@
     "🖼️ Alert icons (storm / wind)": "🖼️ Alarm-Symbole (Sturm / Wind)",
     "🖼️ Convert to RGB565": "🖼️ In RGB565 konvertieren",
     "🖼️ On-screen graphics (JPG / PNG / BMP)": "🖼️ Bildschirmgrafiken (JPG / PNG / BMP)",
-    "🚨 APRS ALERT": "🚨 APRS-ALARM"
+    "🚨 APRS ALERT": "🚨 APRS-ALARM",
+    "Battery capacity (mAh):": "Akkukapazität (mAh):",
+    "Cell capacity shown on the ESP32-S3 monitor screen (e.g. 18650 = 3000 mAh).": "Kapazität der Zelle, angezeigt auf dem ESP32-S3-Monitorbildschirm (z. B. 18650 = 3000 mAh).",
+    "Charger module:": "Lademodul:",
+    "Charger module type &mdash; displayed on the ESP32-S3 monitor screen.": "Typ des Lademoduls &mdash; wird auf dem ESP32-S3-Monitorbildschirm angezeigt.",
+    "🔋 Battery &amp; charger module": "🔋 Akku &amp; Lademodul",
+    "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, Schutz DW01A)",
+    "Other / none": "Andere / keine"
   },
   "es": {
     " (storm) and": " (tormenta) y",
@@ -1154,7 +1161,14 @@
     "🖼️ Alert icons (storm / wind)": "🖼️ Iconos de alerta (tormenta / viento)",
     "🖼️ Convert to RGB565": "🖼️ Convertir a RGB565",
     "🖼️ On-screen graphics (JPG / PNG / BMP)": "🖼️ Gráficos en pantalla (JPG / PNG / BMP)",
-    "🚨 APRS ALERT": "🚨 ALERTA APRS"
+    "🚨 APRS ALERT": "🚨 ALERTA APRS",
+    "Battery capacity (mAh):": "Capacidad de la batería (mAh):",
+    "Cell capacity shown on the ESP32-S3 monitor screen (e.g. 18650 = 3000 mAh).": "Capacidad de la celda mostrada en la pantalla de monitor ESP32-S3 (p. ej. 18650 = 3000 mAh).",
+    "Charger module:": "Módulo de carga:",
+    "Charger module type &mdash; displayed on the ESP32-S3 monitor screen.": "Tipo de módulo de carga &mdash; mostrado en la pantalla de monitor ESP32-S3.",
+    "🔋 Battery &amp; charger module": "🔋 Batería y módulo de carga",
+    "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, protección DW01A)",
+    "Other / none": "Otro / ninguno"
   },
   "fr": {
     " (storm) and": " (orage) et",
@@ -1734,7 +1748,14 @@
     "🖼️ Alert icons (storm / wind)": "🖼️ Icônes d'alerte (orage / vent)",
     "🖼️ Convert to RGB565": "🖼️ Convertir en RGB565",
     "🖼️ On-screen graphics (JPG / PNG / BMP)": "🖼️ Graphiques à l'écran (JPG / PNG / BMP)",
-    "🚨 APRS ALERT": "🚨 ALERTE APRS"
+    "🚨 APRS ALERT": "🚨 ALERTE APRS",
+    "Battery capacity (mAh):": "Capacité de la batterie (mAh):",
+    "Cell capacity shown on the ESP32-S3 monitor screen (e.g. 18650 = 3000 mAh).": "Capacité de la cellule affichée sur l'écran moniteur ESP32-S3 (ex. 18650 = 3000 mAh).",
+    "Charger module:": "Module de charge:",
+    "Charger module type &mdash; displayed on the ESP32-S3 monitor screen.": "Type de module de charge &mdash; affiché sur l'écran moniteur ESP32-S3.",
+    "🔋 Battery &amp; charger module": "🔋 Batterie &amp; module de charge",
+    "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, protection DW01A)",
+    "Other / none": "Autre / aucun"
   },
   "ru": {
     " (storm) and": " (гроза) и",
@@ -2312,6 +2333,13 @@
     "🖼️ Alert icons (storm / wind)": "🖼️ Значки оповещения (гроза / ветер)",
     "🖼️ Convert to RGB565": "🖼️ Конвертировать в RGB565",
     "🖼️ On-screen graphics (JPG / PNG / BMP)": "🖼️ Экранная графика (JPG / PNG / BMP)",
-    "🚨 APRS ALERT": "🚨 ТРЕВОГА APRS"
+    "🚨 APRS ALERT": "🚨 ТРЕВОГА APRS",
+    "Battery capacity (mAh):": "Ёмкость аккумулятора (мАч):",
+    "Cell capacity shown on the ESP32-S3 monitor screen (e.g. 18650 = 3000 mAh).": "Ёмкость ячейки, отображаемая на экране монитора ESP32-S3 (напр. 18650 = 3000 мАч).",
+    "Charger module:": "Модуль зарядки:",
+    "Charger module type &mdash; displayed on the ESP32-S3 monitor screen.": "Тип модуля зарядки &mdash; отображается на экране монитора ESP32-S3.",
+    "🔋 Battery &amp; charger module": "🔋 Аккумулятор и модуль зарядки",
+    "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, защита DW01A)",
+    "Other / none": "Другое / нет"
   }
 }

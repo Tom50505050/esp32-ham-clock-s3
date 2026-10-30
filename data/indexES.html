@@ -1432,7 +1432,6 @@
                     </div>
                 </div>
                 
-                <button type="submit" class="save-btn">💾 Guardar configuración</button>
                 <div class="config-section" style="margin-top: 20px;">
                     <h3>📁 Copia de ajustes</h3>
                     <div class="form-group">
@@ -1456,6 +1455,22 @@
                         <label>Offset (V):</label>
                         <input type="number" id="bat_off" name="bat_off" step="0.01" min="-1" max="1" value="0">
                     </div>
+                    <div class="form-group" id="battery-config">
+                        <h3>🔋 Batería y módulo de carga</h3>
+                        <label>Capacidad de la batería (mAh):</label>
+                        <input type="number" id="battery_mah" name="battery_mah" min="100" max="50000" step="50" value="3000">
+                        <small>Capacidad de la celda mostrada en la pantalla de monitor ESP32-S3 (p. ej. 18650 = 3000 mAh).</small>
+                        <label>Módulo de carga:</label>
+                        <select id="charger_module" name="charger_module">
+                            <option value="0">TP4056 (5V 1A, protección DW01A)</option>
+                            <option value="1">TP4100</option>
+                            <option value="2">IP2312</option>
+                            <option value="3">CN3065</option>
+                            <option value="4">Otro / ninguno</option>
+                        </select>
+                        <small>Tipo de módulo de carga &mdash; mostrado en la pantalla de monitor ESP32-S3.</small>
+                    </div>
+                <button type="submit" class="save-btn">💾 Guardar configuración</button>
             </form>
         </div>
     </div>
@@ -2504,6 +2519,8 @@
             document.getElementById('tft_backlight_value').textContent = backlightValue;
             if (data.bat_div_cal !== undefined && data.bat_div_cal !== null) document.getElementById('bat_div_cal').value = data.bat_div_cal;
             if (data.bat_off !== undefined && data.bat_off !== null) document.getElementById('bat_off').value = data.bat_off;
+            if (data.battery_mah !== undefined && data.battery_mah !== null) document.getElementById('battery_mah').value = data.battery_mah;
+            if (data.charger_module !== undefined && data.charger_module !== null) document.getElementById('charger_module').value = data.charger_module;
             if (data.sys_vcc && data.sys_vcc > 1) document.getElementById('bat_now').textContent = data.sys_vcc.toFixed(2) + ' V | ' + (data.sys_batt_pct ?? '?') + '%' + (data.sys_batt_chg ? ' [chg]' : '');
             const nightDimmingValue = (data.tft_night_dimming !== undefined && data.tft_night_dimming !== null) ? data.tft_night_dimming : 0;
             document.getElementById('tft_night_dimming').value = nightDimmingValue;
@@ -3244,6 +3261,8 @@
             tft_backlight: parseInt(document.getElementById('tft_backlight').value) || 100,
             bat_div_cal: parseFloat(document.getElementById('bat_div_cal').value) || 1.0,
             bat_off: parseFloat(document.getElementById('bat_off').value) || 0.0,
+            battery_mah: (() => { const v = parseInt(document.getElementById('battery_mah').value, 10); return Number.isFinite(v) ? Math.min(50000, Math.max(100, v)) : 3000; })(),
+            charger_module: (() => { const v = parseInt(document.getElementById('charger_module').value, 10); return Number.isFinite(v) ? v : 0; })(),
             bat_cal_v: parseFloat(document.getElementById('bat_cal_v').value) || 0,
             tft_night_dimming: parseInt(document.getElementById('tft_night_dimming').value) || 0,
             tft_lang: (document.getElementById('tft_lang') ? document.getElementById('tft_lang').value : "pl"),

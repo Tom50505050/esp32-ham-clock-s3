@@ -2,6 +2,24 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Monitor ESP32-S3: GPS/ładowanie/pojemność + WWW (13.11.2026)
+- **Ekran „Informacje systemowe" (ESP32-S3 MONITOR)**: karta HARDWARE pokazuje
+  teraz dodatkowo **moduł GPS** (z profilu `gps_module_profile`) i **moduł
+  ładowania**; karta MEMORY & POWER pokazuje **napięcie + % + pojemność
+  akumulatora**. Funkcje pomocnicze `gpsModuleName()`, `chargerModuleName()`;
+  karty poszerzone do 7 wierszy, wykres i logi przesunięte niżej (y=200..310).
+- **Nowe zmienne konfiguracyjne (NVS)**: `chargerModuleType` (int, klucz
+  `chg_type`, 0=TP4056/1=TP4100/2=IP2312/3=CN3065/4=inny) oraz
+  `batteryCapacityMah` (int, klucz `bat_mah`, domyślnie 3000). Ładowane w
+  `loadPreferences`, zapisywane w `savePreferences`, wystawione w API JSON jako
+  `charger_module` i `battery_mah` (GET `/api/config` + POST `/api/save`).
+- **WWW – konfiguracja**: dodano sekcję „🔋 Akumulator i moduł ładowania"
+  (pojemność mAh + wybór modułu ładowania) oraz **przycisk „Zapisz
+  Konfigurację" przeniesiono na sam dół formularza** (za sekcjami kopii
+  ustawień i kalibracji baterii). Zmiana we wszystkich stronach: `data/index.html`
+  (PL) oraz `indexEN/DE/FR/ES/RU.html` (regenerowane z `tools/gen_pages.py` +
+  nowe wpisy w `tools/lang_pages.json`) i w awaryjnym HTML w `main.cpp`.
+
 ## Ustawienia TFT: usunięty KOLOR ZEGARA + kafelka KALIBRACJA (30.10.2026)
 - **Usunięto suwak KOLOR ZEGARA** z ekranu ustawień TFT (`drawBrightnessMenu`,
   otwierany 3 s przytrzymaniem ekranu). Zostaje tylko JASNOŚĆ + KOLOR MOTYWU
