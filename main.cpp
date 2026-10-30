@@ -18645,11 +18645,35 @@ static volatile int g_lastWifiReason = 0;
 static uint8_t g_targetBssid[6] = {0};
 static bool g_haveBssid = false;
 
+// Kanal + BSSID zapamietane z ostatniego udanego polaczenia (NVS: wifi_ch,
+// wifi_bssid). Pozwalaja pominac pelny skan wszystkich kanalow przy starcie -
+// to skan (kilka sekund) dominuje w czasie laczenia z WiFi.
+static int g_cachedChannel = 0;
+static uint8_t g_cachedBssid[6] = {0};
+static bool g_haveCachedBssid = false;
+
+// Zapisuje kanal/BSSID udanego polaczenia do NVS (kolejny start polaczy sie
+// bezposrednio, bez skanu). Wywolywane tylko po sukcesie, wiec nie spamuje NVS.
+static void persistWifiChannel() {
+  if (preferences == nullptr) return;
+  int ch = WiFi.channel();
+  if (ch <= 0) return;
+  uint8_t *bssid = WiFi.BSSID();
+  preferences->putInt("wifi_ch", ch);
+  if (bssid != nullptr) {
+    preferences->putBytes("wifi_bssid", bssid, 6);
+    memcpy(g_cachedBssid, bssid, 6);
+    g_haveCachedBssid = true;
+  }
+  g_cachedChannel = ch;
+  Serial.printf("[WIFI] Zapamietano kanal %d do szybkiego reconnectu.\n", ch);
+}
+
 // Jedna proba polaczenia STA przy danej mocy nadawania.
 // AUTH_EXPIRE (2) powtarzane przy pelnej mocy to czesto problem zasilania
 // (skok pradu przy TX) albo routera - dlatego probujemy kilku poziomow mocy.
 static bool wifiAttemptAtPower(const String &ssid, const String &pass, int channel,
-                               wifi_power_t power, int timeoutMs) {
+                               const uint8_t *bssid, wifi_power_t power, int timeoutMs) {
   g_lastWifiReason = 0;
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
@@ -18657,8 +18681,8 @@ static bool wifiAttemptAtPower(const String &ssid, const String &pass, int chann
   WiFi.mode(WIFI_STA);
   delay(50);
   WiFi.setTxPower(power);
-  if (channel > 0 && g_haveBssid) {
-    WiFi.begin(ssid.c_str(), pass.c_str(), channel, g_targetBssid);
+  if (channel > 0 && bssid != nullptr) {
+    WiFi.begin(ssid.c_str(), pass.c_str(), channel, (uint8_t *)bssid);
   } else if (channel > 0) {
     WiFi.begin(ssid.c_str(), pass.c_str(), channel);
   } else {
@@ -18753,7 +18777,7 @@ bool connectToWiFi() {
     return found;
   };
 
-  auto attemptConnect = [](const WiFiCred &cred, int channel) -> bool {
+  auto attemptConnect = [](const WiFiCred &cred, int channel, const uint8_t *bssid) -> bool {
     Serial.println("=== WiFi connect ===");
     Serial.print("SSID: '");
     Serial.print(cred.ssid);
@@ -18774,13 +18798,25 @@ bool connectToWiFi() {
     WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
     WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
 
+    // SZYBKA SCIEZKA: znamy kanal (z NVS lub ze skanu) -> laczymy sie wprost,
+    // bez wewnetrznego skanu begin(). Jedna proba przy pelnej mocy wystarcza w
+    // praktyce; pelna drabinka mocy ponizej tylko gdy szybka proba padnie.
+    if (channel > 0) {
+      Serial.printf("[WIFI] Szybkie laczenie: kanal=%d\n", channel);
+      if (wifiAttemptAtPower(cred.ssid, cred.pass, channel, bssid,
+                             WIFI_POWER_19_5dBm, 6000)) {
+        return true;
+      }
+      Serial.printf("[WIFI] Szybka proba nieudana, reason=%d\n", (int)g_lastWifiReason);
+    }
+
     // Drabinka mocy TX. Powtarzane AUTH_EXPIRE (reason 2) przy pelnej mocy to
     // typowy objaw problemu zasilania (skok pradu przy TX) albo routera -
     // obnizenie mocy czesto dziala. 0 = pelna moc (domyslna).
     wifi_power_t powers[] = {WIFI_POWER_19_5dBm, WIFI_POWER_15dBm, WIFI_POWER_11dBm};
     for (int p = 0; p < 3; p++) {
       Serial.printf("[WIFI] Proba, moc=%d (idx %d)\n", (int)powers[p], p);
-      if (wifiAttemptAtPower(cred.ssid, cred.pass, channel, powers[p], 9000)) {
+      if (wifiAttemptAtPower(cred.ssid, cred.pass, channel, bssid, powers[p], 9000)) {
         return true;
       }
       Serial.printf("[WIFI] Nieudane przy mocy idx %d, reason=%d\n", p, (int)g_lastWifiReason);
@@ -18788,7 +18824,7 @@ bool connectToWiFi() {
       // na tym samym poziomie mocy raz jeszcze, zanim obnizymy moc.
       if (g_lastWifiReason == 201) {
         delay(500);
-        if (wifiAttemptAtPower(cred.ssid, cred.pass, channel, powers[p], 9000)) {
+        if (wifiAttemptAtPower(cred.ssid, cred.pass, channel, bssid, powers[p], 9000)) {
           return true;
         }
       }
@@ -18839,11 +18875,35 @@ bool connectToWiFi() {
 
     int knownChannel = 0;
     int knownAuth = -1;
-    findNetwork(cred.ssid, knownChannel, knownAuth);
+    const uint8_t *knownBssid = nullptr;
+    bool channelFromCache = false;
 
-    bool ok = attemptConnect(cred, knownChannel);
+    // SZYBKA SCIEZKA: dla sieci glownej mamy zapamietany kanal/BSSID z NVS.
+    // Pomijamy wtedy pelny skan (oszczednosc kilku sekund przy starcie).
+    if (i == 0 && g_cachedChannel > 0) {
+      knownChannel = g_cachedChannel;
+      knownBssid = g_haveCachedBssid ? g_cachedBssid : nullptr;
+      channelFromCache = true;
+      Serial.printf("[WIFI] Uzywam zapamietanego kanalu %d (bez skanu).\n", knownChannel);
+    } else {
+      findNetwork(cred.ssid, knownChannel, knownAuth);
+      if (g_haveBssid) knownBssid = g_targetBssid;
+    }
+
+    bool ok = attemptConnect(cred, knownChannel, knownBssid);
+    if (!ok && channelFromCache) {
+      // Zapamietany kanal mogl sie zmienic (restart routera) - zrob skan i
+      // ponow probe z aktualnym kanalem, zanim uznasz siec za niedostepna.
+      Serial.println("[WIFI] Nieudane na zapamietanym kanale - pelny skan i ponowna proba.");
+      g_cachedChannel = 0;
+      g_haveCachedBssid = false;
+      findNetwork(cred.ssid, knownChannel, knownAuth);
+      ok = attemptConnect(cred, knownChannel, g_haveBssid ? g_targetBssid : nullptr);
+    }
+
     if (ok) {
       wifiConnected = true;
+      persistWifiChannel();
       Serial.print("PoĂ„Ä…Ă˘â‚¬ĹˇÄ‚â€žĂ˘â‚¬Â¦czono z SSID: ");
       Serial.println(cred.ssid);
       Serial.print("IP: ");
@@ -21321,6 +21381,16 @@ void loadPreferences() {
   yield();
   wifiPassword2 = preferences->getString("wifi_pass2", "");
   yield();
+
+  // Zapamietany kanal/BSSID ostatniego udanego polaczenia - pozwala pominac
+  // pelny skan przy starcie (patrz connectToWiFi).
+  g_cachedChannel = preferences->getInt("wifi_ch", 0);
+  g_haveCachedBssid = false;
+  if (preferences->getBytesLength("wifi_bssid") == 6) {
+    preferences->getBytes("wifi_bssid", g_cachedBssid, 6);
+    g_haveCachedBssid = true;
+  }
+  yield();
   
   clusterHost = preferences->getString("cluster_host", DEFAULT_CLUSTER_HOST);
   yield();
@@ -21815,6 +21885,42 @@ static bool streamLittleFsFile(const char *path, const char *contentType) {
   if (!f) {
     return false;
   }
+  server->streamFile(f, contentType);
+  f.close();
+  return true;
+}
+
+// Czy klient przyjmie gzip (naglowek Accept-Encoding).
+static bool clientAcceptsGzip() {
+  if (server == nullptr) return false;
+  String ae = server->header("Accept-Encoding");
+  ae.toLowerCase();
+  return ae.indexOf("gzip") >= 0;
+}
+
+// Serwuje statyczny zasob tekstowy (HTML/CSS/JS) z LittleFS.
+// Jesli istnieje wersja "<plik>.gz" i klient akceptuje gzip, wysylamy ja -
+// WebServer sam doda "Content-Encoding: gzip" (rozpoznaje rozszerzenie .gz).
+// Kompresja ~5x dla index.html i ~3x dla satellite.js skraca czas ladowania WWW.
+// Naglowek Cache-Control pozwala przegladarce nie pobierac zasobu ponownie.
+static bool streamStaticAsset(const char *path, const char *contentType, int maxAgeSec) {
+  if (!littleFsReady) return false;
+  if (maxAgeSec > 0) {
+    server->sendHeader("Cache-Control", String("public, max-age=") + String(maxAgeSec));
+  }
+  String gzPath = String(path) + ".gz";
+  if (clientAcceptsGzip() && LittleFS.exists(gzPath.c_str())) {
+    File f = LittleFS.open(gzPath.c_str(), "r");
+    if (f) {
+      server->sendHeader("Vary", "Accept-Encoding");
+      server->streamFile(f, contentType);
+      f.close();
+      return true;
+    }
+  }
+  if (!LittleFS.exists(path)) return false;
+  File f = LittleFS.open(path, "r");
+  if (!f) return false;
   server->streamFile(f, contentType);
   f.close();
   return true;
@@ -22498,50 +22604,51 @@ void setupWebServer() {
 
   // Naglowki potrzebne do uploadu RAW (nazwa pliku + cel) i rozpoznania trybu.
   // MUSI byc przed begin(). Content-Type decyduje: multipart vs surowe cialo.
-  static const char *uploadHdrKeys[] = {"Content-Type", "X-Filename", "X-Upload-Target", "Content-Length"};
-  server->collectHeaders(uploadHdrKeys, 4);
+  // Accept-Encoding potrzebny do wyboru wersji .gz dla statycznych zasobow.
+  static const char *uploadHdrKeys[] = {"Content-Type", "X-Filename", "X-Upload-Target", "Content-Length", "Accept-Encoding"};
+  server->collectHeaders(uploadHdrKeys, 5);
 
 
   
   // Strona glowna - LittleFS jesli plik istnieje i jest kompletny, inaczej wbudowany HTML.
   server->on("/", HTTP_GET, []() {
-    if (!streamLittleFsFile("/index.html", "text/html; charset=utf-8")) {
+    if (!streamStaticAsset("/index.html", "text/html; charset=utf-8", 600)) {
       server->send(200, "text/html; charset=utf-8", getMainHTML());
     }
   });
 
   // Strona glowna (alias /index.html)
   server->on("/index.html", HTTP_GET, []() {
-    if (!streamLittleFsFile("/index.html", "text/html; charset=utf-8")) {
+    if (!streamStaticAsset("/index.html", "text/html; charset=utf-8", 600)) {
       server->send(200, "text/html; charset=utf-8", getMainHTML());
     }
   });
 
   // Strona glowna (EN) - jesli LittleFS ma indexEN.html
   server->on("/indexEN.html", HTTP_GET, []() {
-    if (!streamLittleFsFile("/indexEN.html", "text/html; charset=utf-8")) {
+    if (!streamStaticAsset("/indexEN.html", "text/html; charset=utf-8", 600)) {
       server->send(200, "text/html; charset=utf-8", getMainHTML());
     }
   });
 
   // Strony jezykowe (DE/FR/ES/RU) - jesli LittleFS ma odpowiedni plik.
   server->on("/indexDE.html", HTTP_GET, []() {
-    if (!streamLittleFsFile("/indexDE.html", "text/html; charset=utf-8")) {
+    if (!streamStaticAsset("/indexDE.html", "text/html; charset=utf-8", 600)) {
       server->send(200, "text/html; charset=utf-8", getMainHTML());
     }
   });
   server->on("/indexFR.html", HTTP_GET, []() {
-    if (!streamLittleFsFile("/indexFR.html", "text/html; charset=utf-8")) {
+    if (!streamStaticAsset("/indexFR.html", "text/html; charset=utf-8", 600)) {
       server->send(200, "text/html; charset=utf-8", getMainHTML());
     }
   });
   server->on("/indexES.html", HTTP_GET, []() {
-    if (!streamLittleFsFile("/indexES.html", "text/html; charset=utf-8")) {
+    if (!streamStaticAsset("/indexES.html", "text/html; charset=utf-8", 600)) {
       server->send(200, "text/html; charset=utf-8", getMainHTML());
     }
   });
   server->on("/indexRU.html", HTTP_GET, []() {
-    if (!streamLittleFsFile("/indexRU.html", "text/html; charset=utf-8")) {
+    if (!streamStaticAsset("/indexRU.html", "text/html; charset=utf-8", 600)) {
       server->send(200, "text/html; charset=utf-8", getMainHTML());
     }
   });
@@ -22694,32 +22801,32 @@ void setupWebServer() {
 
   // Arkusze stylow CSS pelnego UI (LittleFS). Bez nich index.html nie ma wygladu.
   server->on("/style.css", HTTP_GET, []() {
-    if (!streamLittleFsFile("/style.css", "text/css; charset=utf-8")) {
+    if (!streamStaticAsset("/style.css", "text/css; charset=utf-8", 3600)) {
       server->send(404, "text/plain", "style.css missing in LittleFS");
     }
   });
   server->on("/style.base.css", HTTP_GET, []() {
-    if (!streamLittleFsFile("/style.base.css", "text/css; charset=utf-8")) {
+    if (!streamStaticAsset("/style.base.css", "text/css; charset=utf-8", 3600)) {
       server->send(404, "text/plain", "style.base.css missing in LittleFS");
     }
   });
   server->on("/style.desktop.css", HTTP_GET, []() {
-    if (!streamLittleFsFile("/style.desktop.css", "text/css; charset=utf-8")) {
+    if (!streamStaticAsset("/style.desktop.css", "text/css; charset=utf-8", 3600)) {
       server->send(404, "text/plain", "style.desktop.css missing in LittleFS");
     }
   });
   server->on("/style.mobile.css", HTTP_GET, []() {
-    if (!streamLittleFsFile("/style.mobile.css", "text/css; charset=utf-8")) {
+    if (!streamStaticAsset("/style.mobile.css", "text/css; charset=utf-8", 3600)) {
       server->send(404, "text/plain", "style.mobile.css missing in LittleFS");
     }
   });
   server->on("/style.modern.css", HTTP_GET, []() {
-    if (!streamLittleFsFile("/style.modern.css", "text/css; charset=utf-8")) {
+    if (!streamStaticAsset("/style.modern.css", "text/css; charset=utf-8", 3600)) {
       server->send(404, "text/plain", "style.modern.css missing in LittleFS");
     }
   });
   server->on("/satellite.js", HTTP_GET, []() {
-    if (!streamLittleFsFile("/satellite.js", "application/javascript; charset=utf-8")) {
+    if (!streamStaticAsset("/satellite.js", "application/javascript; charset=utf-8", 3600)) {
       server->send(404, "text/plain", "satellite.js missing in LittleFS");
     }
   });
@@ -22879,7 +22986,7 @@ void setupWebServer() {
 
   // Strona konfiguracji - LittleFS jesli istnieje, potem wbudowany HTML
   server->on("/config", HTTP_GET, []() {
-    if (!streamLittleFsFile("/index.html", "text/html; charset=utf-8")) {
+    if (!streamStaticAsset("/index.html", "text/html; charset=utf-8", 600)) {
       server->send(200, "text/html; charset=utf-8", getConfigHTML());
     }
   });
@@ -23932,6 +24039,12 @@ void setupWebServer() {
       }
       
             bool wifiChanged = (wifiSSID != prevSsid) || (wifiSSID2 != prevSsid2);
+      // Zmiana sieci unieważnia zapamietany kanal/BSSID - inaczej po restarcie
+      // pierwsza proba poszlaby na nieaktualny kanal (i tak wrocilaby do skanu).
+      if (wifiChanged) {
+        g_cachedChannel = 0;
+        g_haveCachedBssid = false;
+      }
       // Kazdy zapis z WWW (TFT, APRS, pogoda, konfiguracja/WiFi) restartuje ESP.
       // Gwarantuje czysty stan wyswietlacza, dotyku i uslug po zmianie ustawien.
       (void)wifiChanged;

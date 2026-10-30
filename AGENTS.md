@@ -2,6 +2,30 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Szybsze łączenie z WiFi i szybsze ładowanie WWW (13.11.2026)
+- **Szybki reconnect WiFi (bez pełnego skanu).** Po udanym połączeniu STA
+  firmware zapamiętuje kanał i BSSID AP w NVS (`wifi_ch`, `wifi_bssid`,
+  `persistWifiChannel()`). Przy następnym starcie `connectToWiFi()` łączy się
+  wprost na tym kanale (`WiFi.begin(ssid,pass,channel,bssid)`) — bez skanu
+  wszystkich kanałów (oszczędność kilku sekund). Gdy zapamiętany kanał nie
+  zadziała (restart routera), robi jeden pełny skan i ponawia próbę. Zmiana
+  SSID w WWW (`/api/save`) unieważnia zapamiętany kanał.
+- **Szybsza drabinka mocy TX.** Najpierw jedna szybka próba przy pełnej mocy
+  (6 s) na znanym kanale; pełna drabinka 19,5/15/11 dBm (3×9 s) uruchamia się
+  dopiero gdy szybka próba padnie. `wifiAttemptAtPower()` przyjmuje teraz BSSID
+  jako argument (wcześniej globalne `g_targetBssid`).
+- **gzip dla statycznych zasobów WWW.** `tools/make_gz.py` tworzy w `data/`
+  wersje `*.gz` (index*.html, style*.css, satellite.js) — kompresja ~5×.
+  Firmware (`streamStaticAsset()` w main.cpp) serwuje `.gz`, gdy klient wyśle
+  `Accept-Encoding: gzip`; WebServer sam dodaje `Content-Encoding: gzip`
+  (rozpoznaje rozszerzenie). Do tego `Cache-Control` (HTML 10 min, CSS/JS 1 h).
+  Nagłówek `Accept-Encoding` jest zbierany przez `collectHeaders()`.
+  **Uwaga:** po każdej zmianie `data/*.html|css|js` uruchom `tools/make_gz.py`
+  przed `pio run -t buildfs` — inaczej LittleFS poda nieaktualny `.gz`.
+  `tools/make_release.sh` robi to automatycznie.
+- Efekt: pierwsze załadowanie strony ~1,6 MB → ~300 kB transferu, a powrót do
+  strony (bez zmian zasobów) nie pobiera CSS/JS ponownie.
+
 ## Moduły ładowania (pełna lista) + kolor linków „Przydatne zasoby" (13.11.2026)
 - **Lista modułów ładowania rozszerzona** z 4 na 14 układów. `chargerModuleName()`
   (main.cpp) zwraca teraz: 0=TP4056, 1=TP4100, 2=IP2312, 3=CN3065, 4=TP4054,

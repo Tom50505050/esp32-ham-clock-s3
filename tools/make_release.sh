@@ -2,6 +2,9 @@
 # Scala obrazy dla obu env (esp32-s3-n16r8, esp32-s3-n16r8-notouch) do dist/.
 set -u
 cd "$(dirname "$0")/.."
+# Statyczne zasoby WWW skompresowane (index*.html.gz, style*.css.gz, satellite.js.gz)
+# - firmware serwuje je gdy klient wysle Accept-Encoding: gzip (streamStaticAsset).
+python3 tools/make_gz.py
 ESPTOOL=~/.platformio/packages/tool-esptoolpy/esptool.py
 BOOT_APP0=~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin
 
