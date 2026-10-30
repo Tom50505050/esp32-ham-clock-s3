@@ -2535,7 +2535,7 @@ bool batteryLowWarningShown = false;
 bool batteryCharging = false;  // Rozpoznawanie ładowania (napięcie > 4.25V)
 
 // --- Konfiguracja z WWW (informacyjna) ---
-// Typ modulu ladowania akumulatora. 0=TP4056, 1=TP4100, 2=IP2312, 3=CN3065, 4=inny.
+// Typ modulu ladowania akumulatora (lista dostepnych ukladow ladowania).
 int chargerModuleType = 0;
 // Pojemnosc akumulatora w mAh (0 = nieznana).
 int batteryCapacityMah = 3000;
@@ -2545,13 +2545,26 @@ const char *NVS_KEY_CHARGER_TYPE = "chg_type";
 const char *NVS_KEY_BAT_MAH = "bat_mah";
 const char *NVS_KEY_BAT_TYPE = "bat_type";
 
+// Maksymalny indeks obslugiwanego modulu ladowania (patrz chargerModuleName).
+static const int CHARGER_MODULE_MAX = 14;
+
 // Czytelne nazwy modulow (uzywane na ekranie monitora i w WWW).
 const char* chargerModuleName(int type) {
   switch (type) {
-    case 0: return "TP4056";
-    case 1: return "TP4100";
-    case 2: return "IP2312";
-    case 3: return "CN3065";
+    case 0:  return "TP4056";
+    case 1:  return "TP4100";
+    case 2:  return "IP2312";
+    case 3:  return "CN3065";
+    case 4:  return "TP4054";
+    case 5:  return "TP4057";
+    case 6:  return "TP5000";
+    case 7:  return "MCP73831";
+    case 8:  return "MCP73833";
+    case 9:  return "BQ24074";
+    case 10: return "BQ24075";
+    case 11: return "CN3791";
+    case 12: return "IP5306";
+    case 13: return "IP5328";
     default: return "Inny";
   }
 }
@@ -21482,7 +21495,7 @@ void loadPreferences() {
   if (batteryVoltOffset < -1.0f || batteryVoltOffset > 1.0f) batteryVoltOffset = 0.0f;
   // Typ modulu ladowania + pojemnosc akumulatora (informacyjne, z WWW).
   chargerModuleType = preferences->getInt(NVS_KEY_CHARGER_TYPE, 0);
-  if (chargerModuleType < 0 || chargerModuleType > 4) chargerModuleType = 0;
+  if (chargerModuleType < 0 || chargerModuleType > CHARGER_MODULE_MAX) chargerModuleType = 0;
   batteryCapacityMah = preferences->getInt(NVS_KEY_BAT_MAH, 3000);
   if (batteryCapacityMah < 100 || batteryCapacityMah > 50000) batteryCapacityMah = 3000;
   batteryType = preferences->getString(NVS_KEY_BAT_TYPE, "18650 Li-ion");
@@ -23317,7 +23330,7 @@ void setupWebServer() {
       }
       if (doc["charger_module"].is<int>()) {
         int v = doc["charger_module"].as<int>();
-        if (v >= 0 && v <= 4) chargerModuleType = v;
+        if (v >= 0 && v <= CHARGER_MODULE_MAX) chargerModuleType = v;
       }
       if (doc["battery_mah"].is<int>()) {
         int v = doc["battery_mah"].as<int>();
@@ -25000,7 +25013,17 @@ String getMainHTML() {
             <option value="1">TP4100</option>
             <option value="2">IP2312</option>
             <option value="3">CN3065</option>
-            <option value="4">Inny / brak</option>
+            <option value="4">TP4054</option>
+            <option value="5">TP4057</option>
+            <option value="6">TP5000</option>
+            <option value="7">MCP73831</option>
+            <option value="8">MCP73833</option>
+            <option value="9">BQ24074</option>
+            <option value="10">BQ24075</option>
+            <option value="11">CN3791</option>
+            <option value="12">IP5306</option>
+            <option value="13">IP5328</option>
+            <option value="14">Inny / brak</option>
           </select>
         </div>
       </div>

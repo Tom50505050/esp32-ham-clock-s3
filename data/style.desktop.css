@@ -418,15 +418,15 @@ td {
 }
 
 .links-mobile-shell .prop-metrics-table td a {
-    color: #4ed8ff;
+    color: var(--accent-2, #4ea8ff);
     text-decoration: none;
 }
 
 .links-mobile-shell .prop-metrics-table td a:visited {
-    color: #3aabcc;
+    color: var(--accent-2, #4ea8ff);
 }
 
 .links-mobile-shell .prop-metrics-table td a:hover {
     text-decoration: underline;
-    color: #7ee8ff;
+    color: var(--accent-2, #4ea8ff);
 }

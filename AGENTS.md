@@ -2,6 +2,22 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Moduły ładowania (pełna lista) + kolor linków „Przydatne zasoby" (13.11.2026)
+- **Lista modułów ładowania rozszerzona** z 4 na 14 układów. `chargerModuleName()`
+  (main.cpp) zwraca teraz: 0=TP4056, 1=TP4100, 2=IP2312, 3=CN3065, 4=TP4054,
+  5=TP4057, 6=TP5000, 7=MCP73831, 8=MCP73833, 9=BQ24074, 10=BQ24075, 11=CN3791,
+  12=IP5306, 13=IP5328, 14=„Inny". Dodano `CHARGER_MODULE_MAX = 14`; walidacja
+  w `loadPreferences` i POST `/api/save` używa tej stałej (wcześniej sztywne 4).
+- **WWW – zakładka „Moduły", sekcja „🔋 Akumulator i moduł ładowania"**: select
+  `charger_module` ma wszystkie 15 pozycji (PL `data/index.html` + EN
+  `data/indexEN.html`, regenerowane DE/FR/ES/RU przez `tools/gen_pages.py`) oraz
+  w awaryjnym HTML w `main.cpp`. Etykiety układów to nazwy własne (nie tłumaczone).
+- **Kolor linków**: w zakładce „Linki" linki w tabeli „Przydatne zasoby"
+  (`.links-mobile-shell .prop-metrics-table td a`) mają teraz ten sam kolor co
+  linki w tabeli „Polecane" (aprst.pl): `var(--accent-2, #4ea8ff)` = #4ea8ff
+  (stan normalny, `:visited`, `:hover`). Zmiana w `data/style.desktop.css` i
+  `data/style.mobile.css`.
+
 ## Monitor ESP32-S3: GPS/ładowanie/pojemność + WWW (13.11.2026)
 - **Ekran „Informacje systemowe" (ESP32-S3 MONITOR)**: karta HARDWARE pokazuje
   teraz dodatkowo **moduł GPS** (z profilu `gps_module_profile`) i **moduł
@@ -10,7 +26,7 @@ Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
   `chargerModuleName()`; karty poszerzone do 7/8 wierszy, wykres i logi
   przesunięte niżej (y=200..310).
 - **Nowe zmienne konfiguracyjne (NVS)**: `chargerModuleType` (int, klucz
-  `chg_type`, 0=TP4056/1=TP4100/2=IP2312/3=CN3065/4=inny), `batteryCapacityMah`
+  `chg_type`, patrz pełna lista w sekcji „Moduły ładowania" wyżej), `batteryCapacityMah`
   (int, klucz `bat_mah`, domyślnie 3000) oraz `batteryType` (String, klucz
   `bat_type`, dowolny opis typu/chemii ogniwa, maks. 24 znaki, domyślnie
   „18650 Li-ion"). Ładowane w `loadPreferences`, zapisywane w `savePreferences`,
