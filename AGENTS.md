@@ -2,6 +2,27 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Ustawienia TFT: usunięty KOLOR ZEGARA + kafelka KALIBRACJA (30.10.2026)
+- **Usunięto suwak KOLOR ZEGARA** z ekranu ustawień TFT (`drawBrightnessMenu`,
+  otwierany 3 s przytrzymaniem ekranu). Zostaje tylko JASNOŚĆ + KOLOR MOTYWU
+  (`menuThemeHue`, zapisywany w NVS jako `menu_hue`). Usunięto też całe menu
+  koloru cyfr zegara (otwierane 1.2 s przytrzymaniem zegara na ekranie HAM
+  CLOCK): `drawClockColorMenu`, `handleClockColorMenuTouch`,
+  `openClockColorMenu`, `drawClockColorPreview`, `redrawClockColorControls`
+  oraz zmienne `clockColorMenu*`/`clockColorMenuActive`. Kolor cyfr zegara
+  (`clockDigitsColor`) pozostaje w NVS (`clock_color`) i nadal jest ustawiany
+  z WWW („Kolor zegara", `clock_color_picker`) — tylko sterowanie z TFT znika.
+- **Dodano kafelkę KALIBRACJA** na ekranie ustawień TFT (obok ZAPISZ/DOMYŚLNE/
+  UŚPIENIE/ZAMKNIJ; przyciski zwężone do 86 px, 5 w jednym rzędzie, ZAMKNIJ
+  na końcu). Wejście w nią uruchamia `startTouchCalibration()` (4 punkty).
+- **Stara kalibracja usunięta**: długie przytrzymanie (>=5 s) na ekranie
+  ustawień już NIE startuje kalibracji.
+- **Wynik kalibracji jest teraz zapisywany trwale**: po 4. punkcie firmware
+  przypisuje `touchXMin/Max`, `touchYMin/Max` i woła `savePreferences()`
+  (NVS `touch_xmin/xmax/ymin/ymax`), a ekran podsumowania pokazuje
+  „Saved. Touch to close". Wcześniej kalibracja nic nie zapisywała
+  (był tylko podgląd surowych wartości + podpowiedź „Use WWW panel").
+
 ## v1.2d — czcionki zegara, alert pogodowy, migotanie (23.10.2026)
 Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.2d**):
 - **Wybór czcionki znaku i zegara** — 14 krojów VLW + wbudowana, menu TIME MODE
