@@ -9490,8 +9490,8 @@ static const int ALM_PREVIEW_TIME_Y = 56;   // srodek duzego podgladu GG:MM
 static const int ALM_PREVIEW_NAME_Y = 78;   // nazwa melodii pod godzina
 static const int ALM_ROW_Y = 90;            // gorny brzeg przyciskow -/+
 static const int ALM_BTN_W = 46, ALM_BTN_H = 26;
-static const int ALM_HOUR_MINUS_X = 108, ALM_HOUR_PLUS_X = 196;
-static const int ALM_MIN_MINUS_X = 238,  ALM_MIN_PLUS_X = 326;
+static const int ALM_HOUR_MINUS_X = 104, ALM_HOUR_PLUS_X = 192;
+static const int ALM_MIN_MINUS_X = 242,  ALM_MIN_PLUS_X = 330;
 static const int ALM_ROW_LABEL_Y = 118;
 static const int ALM_DAYS_LABEL_Y = 132;
 static const int ALM_DAYS_Y = 142, ALM_DAY_TILE_W = 54, ALM_DAY_TILE_H = 26, ALM_DAY_GAP = 8;
@@ -9630,18 +9630,48 @@ void handleAlarmMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   if (now - alarmMenuOpenedMs < 400) {
     return;  // ignoruj dotkniecie, ktore otworzylo menu (trzymanie 5 s)
   }
+  // Kafelki i przyciski zmieniamy TYLKO przy nowym dotknieciu. Bez tego guardu
+  // palec przeciagany po ekranie przelatywal po kafelkach melodii i zmienial
+  // wybor + restartowal podglad dzwieku (dotyk "zle dzialal").
+  if (!isNewTap) return;
 
   const int btnW = ALM_BTN_W, btnH = ALM_BTN_H, rowY = ALM_ROW_Y;
   const int hourMinusX = ALM_HOUR_MINUS_X, hourPlusX = ALM_HOUR_PLUS_X;
   const int minMinusX = ALM_MIN_MINUS_X, minPlusX = ALM_MIN_PLUS_X;
 
+  // Przyciski +/- : przytrzymanie powtarza zmiane (jak spinner). Sluzy do tego
+  // alarmMenuLastAdjustMs (aktualizowany rowniez w galezi !isNewTap ponizej).
+  static unsigned long alarmMenuLastAdjustMs = 0;
   bool changed = false;
   if (isPointInRect(x, y, hourMinusX, rowY, btnW, btnH)) { alarmMenuHour = (alarmMenuHour + 23) % 24; changed = true; }
   if (isPointInRect(x, y, hourPlusX, rowY, btnW, btnH))  { alarmMenuHour = (alarmMenuHour + 1) % 24;  changed = true; }
   if (isPointInRect(x, y, minMinusX, rowY, btnW, btnH))  { alarmMenuMinute = (alarmMenuMinute + 59) % 60; changed = true; }
   if (isPointInRect(x, y, minPlusX, rowY, btnW, btnH))   { alarmMenuMinute = (alarmMenuMinute + 1) % 60;  changed = true; }
   if (changed) {
+    alarmMenuLastAdjustMs = now;
     alarmDrawPreview();
+    return;
+  }
+  // Nie jestesmy na +/- : nastepne dotkniecie (nawet bez puszczenia palca) ma
+  // zadzialac od razu, wiec zerujemy znacznik powtarzania.
+  alarmMenuLastAdjustMs = 0;
+
+  // Kafelki (dni, melodia) i przyciski dolne: tylko przy nowym dotknieciu.
+  // Bez tego guardu palec przeciagany po ekranie zmienial wybor i restartowal
+  // podglad dzwieku (dotyk "zle dzialal").
+  if (!isNewTap) {
+    // Trzymanie palca na +/- powtarza zmiane co 150 ms.
+    if (alarmMenuLastAdjustMs != 0 && (now - alarmMenuLastAdjustMs) >= 150) {
+      bool rep = false;
+      if (isPointInRect(x, y, hourMinusX, rowY, btnW, btnH)) { alarmMenuHour = (alarmMenuHour + 23) % 24; rep = true; }
+      if (isPointInRect(x, y, hourPlusX, rowY, btnW, btnH))  { alarmMenuHour = (alarmMenuHour + 1) % 24;  rep = true; }
+      if (isPointInRect(x, y, minMinusX, rowY, btnW, btnH))  { alarmMenuMinute = (alarmMenuMinute + 59) % 60; rep = true; }
+      if (isPointInRect(x, y, minPlusX, rowY, btnW, btnH))   { alarmMenuMinute = (alarmMenuMinute + 1) % 60;  rep = true; }
+      if (rep) {
+        alarmMenuLastAdjustMs = now;
+        alarmDrawPreview();
+      }
+    }
     return;
   }
 

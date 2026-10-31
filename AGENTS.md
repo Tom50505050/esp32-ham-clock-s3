@@ -46,6 +46,13 @@ warunku), żeby oba gesty się nie kłóciły.
 `ALARM: WL/WYL`, `ZAPISZ`, `ZAMKNIJ`. Układ trzymają wspólne stałe `ALM_*`
 (używane i przy rysowaniu, i w hit-testach). Obsługa: `handleAlarmMenuTouch()`
 + `alarmMelodyTileAt()` dla siatki melodii.
+
+**Dotyk w menu alarmu:** kafelki (dni, melodia) i przyciski dolne zmieniają się
+**tylko przy `isNewTap`** — bez tego palec przeciągany po ekranie przelatywał po
+kafelkach melodii i restartował podgląd dźwięku (dotyk „źle działał"). Przyciski
++/- mają natomiast **powtarzanie przy przytrzymaniu** (co 150 ms), ale **bez**
+500 ms zwłoki (pierwsze naciśnięcie działa natychmiast). Przyciski +/- godzin i
+minut są rozsunięte (H-104/H+192, M-242/M+330), żeby się nie nakładały.
 Zapis do NVS: klucze `alarm_en/alarm_hour/alarm_min/alarm_days/alarm_mel`
 (`savePreferences()`/`loadPreferences()`), domyślnie alarm WYŁĄCZONY, dni
 0x7F (wszystkie).
