@@ -22057,6 +22057,20 @@ static void rawUploadFinish() {
   if (currentScreen == SCREEN_PSK_MAP) drawPskMap();
 }
 
+// Przerywa biezacy upload RAW z powodu braku miejsca: zamyka i usuwa czesciowy
+// plik oraz ustawia flage, dzieki ktorej sendUploadResult() zwroci HTTP 507.
+// Bez tego zapis do pelnego LittleFS trafia w sciezke bledu littlefs i konczy sie
+// panicem (IntegerDivideByZero) + restartem ESP - przegladarka widzi wtedy
+// "TypeError: Failed to fetch" zamiast czytelnego bledu braku miejsca.
+static void rawUploadAbortNoSpace(const char *why) {
+  Serial.printf("[UPLOAD] Brak miejsca w LittleFS (RAW, %s) - przerywam upload\n", why);
+  String path = rawUploadPath;
+  if (rawUploadFile) rawUploadFile.close();
+  rawUploadReset();                 // czysci rawUploadActive i uploadNoSpace
+  if (path.length() > 0) LittleFS.remove(path);
+  uploadNoSpace = true;             // ustawiane PO reset(), ktory zeruje flage
+}
+
 // Stan uploadu multipart (stara sciezka - zachowana dla kompatybilnosci).
 static String mpUploadPath = "";
 static bool   mpUploadIsSplash = false;
@@ -22199,18 +22213,28 @@ static void handleUpload(const String &targetForced) {
     // w RAW_START i tylko pomniejszany.
     if (rawSpaceEnforce) {
       if ((size_t)raw.currentSize > rawSpaceLeft) {
-        Serial.printf("[UPLOAD] Brak miejsca w LittleFS (RAW): blok %u B, budzet %u B\n",
-                      (unsigned)raw.currentSize, (unsigned)rawSpaceLeft);
-        rawUploadFile.close();
-        LittleFS.remove(rawUploadPath);
-        rawUploadReset();
-        uploadNoSpace = true;   // po reset() (reset czysci te flage)
+        rawUploadAbortNoSpace("blok przekracza budzet");
         return;
       }
       rawSpaceLeft -= raw.currentSize;
     }
-    rawUploadFile.write(raw.buf, raw.currentSize);
+    size_t wrote = rawUploadFile.write(raw.buf, raw.currentSize);
+    // Krotki zapis = LittleFS odrzucil dane (np. brak miejsca mimo budzetu).
+    // Dalszy zapis do pelnego FS to sciezka paniki, wiec przerywamy od razu.
+    if (wrote != raw.currentSize) {
+      rawUploadAbortNoSpace("krotki zapis");
+      return;
+    }
   } else if (raw.status == RAW_END || raw.status == RAW_ABORTED) {
+    // RAW_ABORTED (klient zerwal polaczenie w polowie) tez sprzata czesciowy plik.
+    if (raw.status == RAW_ABORTED && rawUploadActive) {
+      Serial.println("[UPLOAD] RAW przerwany przez klienta - usuwam czesciowy plik");
+      String path = rawUploadPath;
+      if (rawUploadFile) rawUploadFile.close();
+      rawUploadReset();
+      if (path.length() > 0) LittleFS.remove(path);
+      return;
+    }
     rawUploadFinish();
   }
 }

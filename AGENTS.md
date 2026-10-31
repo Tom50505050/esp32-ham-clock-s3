@@ -2,6 +2,41 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## „Błąd wysyłania: TypeError: Failed to fetch" — nieaktualne binarki na stronie wgrywania (31.10.2026)
+Zgłoszenie (po naprawie 507): wgranie ikony burzy w WWW kończyło się
+`TypeError: Failed to fetch` (a dla splash: „Blad wgrywania (format/siec)").
+To NIE jest odpowiedź 507 — `Failed to fetch` to błąd sieciowy: przeglądarka nie
+dostała żadnej odpowiedzi, bo urządzenie zresetowało się w trakcie zapisu
+(`IntegerDivideByZero` w littlefs — patrz sekcja „Grafiki alertu pogodowego").
+Handler zwracał 507 tylko przy `Content-Length` większym niż wolne miejsce; przy
+pewnych ścieżkach zapis do pełnego FS i tak trafiał w panikę.
+
+**Główna przyczyna: rozjechane binarki na serwerze.** Strona wgrywania
+(`/flash/`, Web Serial) oraz `/merged-flash.bin` serwowały **stare** obrazy
+(2026-10-29 i 2026-10-15) — sprzed naprawy 507. `share/flash/merged-flash.bin`
+był z 15.10: bez sprawdzania miejsca, bez `wxicon_*`, wolne ~3,6 MB, splash
+24-bit. `share/merged-flash.bin` z 29.10 miał kontrolę miejsca, ale wolne
+610 kB. Dopiero `dist/merged-flash.bin` (31.10) ma wolne 876 kB i splash 16-bit.
+Użytkownik wgrywał więc firmware, w którym ikona 307 kB nie mieściła się z
+zapasem → panic → `Failed to fetch`.
+
+**Naprawa:** skopiowano aktualne `dist/merged-flash*.bin` oraz
+`esp32-ham-clock-s3.zip` do `share/` **oraz** `share/flash/` (strona wgrywania
+`/flash/` linkuje pliki po nazwach względnych, więc wystarczy podmienić binarki
+pod tymi samymi nazwami — bez zmian w `index.html`). Wcześniejszy deploy pomijał
+`share/flash/` — po każdym wydaniu trzeba podmienić **oba** katalogi.
+
+**Utwardzenie firmware (main.cpp, ścieżka RAW):**
+- `rawUploadAbortNoSpace()` — wspólne przerwanie uploadu przy braku miejsca
+  (zamyka i usuwa częściowy plik, ustawia flagę → `sendUploadResult()` zwraca 507).
+- kontrola pojedynczego zapisu: `rawUploadFile.write()` zwracający mniej bajtów
+  niż `raw.currentSize` natychmiast przerywa upload (zamiast pchać dalej zapis do
+  pełnego FS, co jest ścieżką paniki).
+- `RAW_ABORTED` (klient zerwał połączenie w połowie) usuwa częściowy plik.
+
+Efekt: brak miejsca daje czytelne HTTP 507 („brak miejsca w LittleFS") zamiast
+restartu i `Failed to fetch`.
+
 ## Naprawa „Błąd wysyłania: brak miejsca w LittleFS" — ikona burzy (31.10.2026)
 Zgłoszenie: wgranie grafiki burzy z panelu WWW kończyło się odpowiedzią 507
 (`uploadNoSpace`) — brak miejsca w LittleFS.
