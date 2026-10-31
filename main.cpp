@@ -2284,7 +2284,7 @@ int clockHitX = 40, clockHitY = 125, clockHitW = 400, clockHitH = 70;
 #endif
 #define BUZZER_DUTY 512             // ~50% z 10 bitow - glosnosc piezo
 #define ALARM_DAYS 7                // 0=niedziela ... 6=sobota (zgodnie z tm_wday)
-#define ALARM_MELODY_COUNT 4
+#define ALARM_MELODY_COUNT 12
 
 bool alarmEnabled = false;          // czy alarm w ogole dziala
 int alarmHour = 7;                  // godzina alarmu (0..23)
@@ -9244,6 +9244,7 @@ struct AlarmNote { uint16_t freq; uint8_t units; };
 struct AlarmMelody { const char *name; const AlarmNote *notes; int count; };
 
 // Krotkie, rozpoznawalne motywy (freq Hz, czas w jednostkach ~150 ms).
+// freq == 0 to pauza. Kolejnosc = kolejnosc kafelkow w menu.
 static const AlarmNote MEL0_NOTES[] = {  // Klasyczny budzik
   {880,2},{0,1},{880,2},{0,1},{880,3},{0,2},{1047,4},{0,4},
 };
@@ -9256,11 +9257,50 @@ static const AlarmNote MEL2_NOTES[] = {  // Pobudka (fanfara)
 static const AlarmNote MEL3_NOTES[] = {  // Pikanie (alarm cyfrowy)
   {1568,1},{0,1},{1568,1},{0,1},{1568,1},{0,1},{1568,1},{0,3},
 };
+static const AlarmNote MEL4_NOTES[] = {  // MORS CQ (-.-. --.-) - znak wywolawczy
+  {700,3},{0,1},{700,1},{0,1},{700,3},{0,1},{700,1},{0,3},
+  {700,3},{0,1},{700,3},{0,1},{700,1},{0,1},{700,3},{0,4},
+};
+static const AlarmNote MEL5_NOTES[] = {  // MORS SOS (... --- ...)
+  {700,1},{0,1},{700,1},{0,1},{700,1},{0,3},
+  {700,3},{0,1},{700,3},{0,1},{700,3},{0,3},
+  {700,1},{0,1},{700,1},{0,1},{700,1},{0,4},
+};
+static const AlarmNote MEL6_NOTES[] = {  // Syrena (narastanie/opadanie)
+  {400,1},{550,1},{700,1},{850,1},{1000,1},{1150,1},{1300,1},
+  {1300,1},{1150,1},{1000,1},{850,1},{700,1},{550,1},{400,2},{0,2},
+};
+static const AlarmNote MEL7_NOTES[] = {  // Nokia (Gran Vals - melodia PD)
+  {659,1},{587,1},{370,2},{415,2},{554,1},{494,1},{587,2},{659,2},
+  {440,1},{554,1},{659,1},{880,2},{0,3},
+};
+static const AlarmNote MEL8_NOTES[] = {  // Tetris (Korobeiniki - melodia ludowa)
+  {659,2},{494,1},{523,1},{587,2},{523,1},{494,1},{440,2},{440,1},{523,1},
+  {659,2},{587,1},{523,1},{494,3},{523,1},{587,2},{659,2},{523,2},{440,2},{440,2},{0,3},
+};
+static const AlarmNote MEL9_NOTES[] = {  // Kukulka (ku-ku)
+  {880,1},{660,2},{0,2},{880,1},{660,2},{0,4},
+};
+static const AlarmNote MEL10_NOTES[] = {  // Pips (sygnal czasu)
+  {1000,1},{0,1},{1000,1},{0,1},{1000,1},{0,1},{1000,1},{0,1},
+  {1000,1},{0,1},{1000,3},{0,4},
+};
+static const AlarmNote MEL11_NOTES[] = {  // Kurant (dzwon)
+  {660,3},{0,1},{880,3},{0,1},{660,3},{0,1},{660,4},{0,4},
+};
 static const AlarmMelody ALARM_MELODIES[ALARM_MELODY_COUNT] = {
-  {"BUDZIK",  MEL0_NOTES, (int)(sizeof(MEL0_NOTES)/sizeof(MEL0_NOTES[0]))},
-  {"DZWONEK", MEL1_NOTES, (int)(sizeof(MEL1_NOTES)/sizeof(MEL1_NOTES[0]))},
-  {"POBUDKA", MEL2_NOTES, (int)(sizeof(MEL2_NOTES)/sizeof(MEL2_NOTES[0]))},
-  {"PIKANIE", MEL3_NOTES, (int)(sizeof(MEL3_NOTES)/sizeof(MEL3_NOTES[0]))},
+  {"BUDZIK",  MEL0_NOTES,  (int)(sizeof(MEL0_NOTES)/sizeof(MEL0_NOTES[0]))},
+  {"DZWONEK", MEL1_NOTES,  (int)(sizeof(MEL1_NOTES)/sizeof(MEL1_NOTES[0]))},
+  {"POBUDKA", MEL2_NOTES,  (int)(sizeof(MEL2_NOTES)/sizeof(MEL2_NOTES[0]))},
+  {"PIKANIE", MEL3_NOTES,  (int)(sizeof(MEL3_NOTES)/sizeof(MEL3_NOTES[0]))},
+  {"MORS CQ", MEL4_NOTES,  (int)(sizeof(MEL4_NOTES)/sizeof(MEL4_NOTES[0]))},
+  {"MORS SOS",MEL5_NOTES,  (int)(sizeof(MEL5_NOTES)/sizeof(MEL5_NOTES[0]))},
+  {"SYRENA",  MEL6_NOTES,  (int)(sizeof(MEL6_NOTES)/sizeof(MEL6_NOTES[0]))},
+  {"NOKIA",   MEL7_NOTES,  (int)(sizeof(MEL7_NOTES)/sizeof(MEL7_NOTES[0]))},
+  {"TETRIS",  MEL8_NOTES,  (int)(sizeof(MEL8_NOTES)/sizeof(MEL8_NOTES[0]))},
+  {"KUKULKA", MEL9_NOTES,  (int)(sizeof(MEL9_NOTES)/sizeof(MEL9_NOTES[0]))},
+  {"PIPS",    MEL10_NOTES, (int)(sizeof(MEL10_NOTES)/sizeof(MEL10_NOTES[0]))},
+  {"KURANT",  MEL11_NOTES, (int)(sizeof(MEL11_NOTES)/sizeof(MEL11_NOTES[0]))},
 };
 static const uint16_t ALARM_UNIT_MS = 150;  // dlugosc jednej jednostki nuty
 
@@ -9421,47 +9461,78 @@ void alarmRingTimeoutCheck() {
 // --- Rysowanie menu alarmu (480x320, styl jak menu koloru znaku) ---
 static const char *ALARM_DAY_SHORT[ALARM_DAYS] = {"ND","PN","WT","SR","CZ","PT","SB"};
 
+// Uklad menu alarmu - wspolny dla rysowania i obslugi dotyku.
+static const int ALM_PREVIEW_TIME_Y = 56;   // srodek duzego podgladu GG:MM
+static const int ALM_PREVIEW_NAME_Y = 78;   // nazwa melodii pod godzina
+static const int ALM_ROW_Y = 90;            // gorny brzeg przyciskow -/+
+static const int ALM_BTN_W = 46, ALM_BTN_H = 26;
+static const int ALM_HOUR_MINUS_X = 108, ALM_HOUR_PLUS_X = 196;
+static const int ALM_MIN_MINUS_X = 238,  ALM_MIN_PLUS_X = 326;
+static const int ALM_ROW_LABEL_Y = 118;
+static const int ALM_DAYS_LABEL_Y = 132;
+static const int ALM_DAYS_Y = 142, ALM_DAY_TILE_W = 54, ALM_DAY_TILE_H = 26, ALM_DAY_GAP = 8;
+static const int ALM_MEL_LABEL_Y = 174;
+static const int ALM_MEL_GRID_Y = 184;
+static const int ALM_BTN_ROW_Y = 256, ALM_BTN_ROW_H = 30, ALM_BTN_ROW_W = 118, ALM_BTN_ROW_GAP = 12;
+
 static void alarmDrawBox(int x, int y, int w, int h, uint16_t fill, uint16_t border) {
   tft.fillRect(x, y, w, h, fill);
   tft.drawRect(x, y, w, h, border);
 }
 
-// Duzy podglad godziny (HH:MM) + dni + wybrany dzwiek.
+// Duzy podglad godziny (HH:MM) + wybrany dzwiek.
 static void alarmDrawPreview() {
   const uint16_t bg = uiStyleClassic() ? TFT_BLACK : UI_COL_BG;
-  tft.fillRect(0, 36, 480, 66, bg);
+  tft.fillRect(0, 34, 480, 52, bg);
   char buf[8];
   snprintf(buf, sizeof(buf), "%02d:%02d", alarmMenuHour, alarmMenuMinute);
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(uiStyleClassic() ? TFT_RADIO_ORANGE : UI_COL_ACCENT, bg);
-  tft.setTextSize(4);
-  tft.drawString(buf, 240, 68, 1);
+  tft.setTextSize(3);
+  tft.drawString(buf, 240, ALM_PREVIEW_TIME_Y, 1);
   tft.setTextDatum(TL_DATUM);
   tft.setTextSize(1);
   tft.setTextColor(UI_COL_DIM, bg);
   const char *mel = ALARM_MELODIES[alarmMenuMelody].name;
   int mw = tft.textWidth(mel);
-  tft.setCursor((480 - mw) / 2, 92);
+  tft.setCursor((480 - mw) / 2, ALM_PREVIEW_NAME_Y);
   tft.print(mel);
 }
 
 static void alarmRedrawDaysRow() {
-  const int tileW = 54, tileH = 30, gap = 8;
+  const int tileW = ALM_DAY_TILE_W, tileH = ALM_DAY_TILE_H, gap = ALM_DAY_GAP;
   const int startX = (480 - (ALARM_DAYS * tileW + (ALARM_DAYS - 1) * gap)) / 2;
-  const int y = 158;
+  const int y = ALM_DAYS_Y;
   for (int i = 0; i < ALARM_DAYS; i++) {
     bool on = (alarmMenuDays & (1u << i));
     drawFilterTile(startX + i * (tileW + gap), y, tileW, tileH, ALARM_DAY_SHORT[i], on);
   }
 }
 
-static void alarmRedrawMelodyRow() {
-  const int tileW = 104, tileH = 30, gap = 10;
-  const int startX = (480 - (ALARM_MELODY_COUNT * tileW + (ALARM_MELODY_COUNT - 1) * gap)) / 2;
-  const int y = 214;
+// Melodie: 12 kafelkow w dwoch rzedach po 6 (2x6). alarmMelodyTileAt() zwraca
+// indeks kafelka trafionego w (x,y) albo -1.
+static const int MEL_COLS = 6;
+static const int MEL_TILE_W = 72, MEL_TILE_H = 30, MEL_GAP = 6;
+static int alarmMelodyTileAt(int x, int y) {
+  const int gridW = MEL_COLS * MEL_TILE_W + (MEL_COLS - 1) * MEL_GAP;
+  const int startX = (480 - gridW) / 2;
   for (int i = 0; i < ALARM_MELODY_COUNT; i++) {
-    drawFilterTile(startX + i * (tileW + gap), y, tileW, tileH,
-                   ALARM_MELODIES[i].name, alarmMenuMelody == i);
+    int col = i % MEL_COLS, row = i / MEL_COLS;
+    int tx = startX + col * (MEL_TILE_W + MEL_GAP);
+    int ty = ALM_MEL_GRID_Y + row * (MEL_TILE_H + MEL_GAP);
+    if (x >= tx && x <= tx + MEL_TILE_W && y >= ty && y <= ty + MEL_TILE_H) return i;
+  }
+  return -1;
+}
+
+static void alarmRedrawMelodyRow() {
+  const int gridW = MEL_COLS * MEL_TILE_W + (MEL_COLS - 1) * MEL_GAP;
+  const int startX = (480 - gridW) / 2;
+  for (int i = 0; i < ALARM_MELODY_COUNT; i++) {
+    int col = i % MEL_COLS, row = i / MEL_COLS;
+    int tx = startX + col * (MEL_TILE_W + MEL_GAP);
+    int ty = ALM_MEL_GRID_Y + row * (MEL_TILE_H + MEL_GAP);
+    drawFilterTile(tx, ty, MEL_TILE_W, MEL_TILE_H, ALARM_MELODIES[i].name, alarmMenuMelody == i);
   }
 }
 
@@ -9475,9 +9546,9 @@ void drawAlarmMenu() {
 
   // Wiersz +/- dla godzin i minut.
   tft.setTextSize(1);
-  const int btnW = 46, btnH = 34, rowY = 116;
-  const int hourMinusX = 108, hourPlusX = 196;
-  const int minMinusX = 238, minPlusX = 326;
+  const int btnW = ALM_BTN_W, btnH = ALM_BTN_H, rowY = ALM_ROW_Y;
+  const int hourMinusX = ALM_HOUR_MINUS_X, hourPlusX = ALM_HOUR_PLUS_X;
+  const int minMinusX = ALM_MIN_MINUS_X, minPlusX = ALM_MIN_PLUS_X;
   alarmDrawBox(hourMinusX, rowY, btnW, btnH, classic ? TFT_DARKGREY : UI_COL_CARD, TFT_WHITE);
   alarmDrawBox(hourPlusX, rowY, btnW, btnH, classic ? TFT_DARKGREY : UI_COL_CARD, TFT_WHITE);
   alarmDrawBox(minMinusX, rowY, btnW, btnH, classic ? TFT_DARKGREY : UI_COL_CARD, TFT_WHITE);
@@ -9489,22 +9560,22 @@ void drawAlarmMenu() {
   tft.drawString("-", minMinusX + btnW / 2, rowY + btnH / 2, 2);
   tft.drawString("+", minPlusX + btnW / 2, rowY + btnH / 2, 2);
   tft.setTextColor(UI_COL_DIM);
-  tft.drawString("GODZ", hourMinusX + (hourPlusX + btnW - hourMinusX) / 2, rowY - 12, 1);
-  tft.drawString("MIN", minMinusX + (minPlusX + btnW - minMinusX) / 2, rowY - 12, 1);
+  tft.drawString("GODZ", hourMinusX + (hourPlusX + btnW - hourMinusX) / 2, ALM_ROW_LABEL_Y, 1);
+  tft.drawString("MIN", minMinusX + (minPlusX + btnW - minMinusX) / 2, ALM_ROW_LABEL_Y, 1);
   tft.setTextDatum(TL_DATUM);
 
   // Etykiety sekcji.
   tft.setTextColor(UI_COL_DIM);
-  tft.setCursor(10, 148);
+  tft.setCursor(10, ALM_DAYS_LABEL_Y);
   tft.print(trStr("DNI ALARMU", "ALARM DAYS", "ALARM TAGE", "JOURS", "DIAS", "DNI"));
-  tft.setCursor(10, 204);
+  tft.setCursor(10, ALM_MEL_LABEL_Y);
   tft.print(trStr("DZWIEK", "MELODY", "TON", "MELODIE", "MELODIA", "MELODIYA"));
 
   alarmRedrawDaysRow();
   alarmRedrawMelodyRow();
 
   // Przyciski: WL/WYL, ZAPISZ, ZAMKNIJ.
-  const int bW = 118, bH = 30, bY = 262, bGap = 12;
+  const int bW = ALM_BTN_ROW_W, bH = ALM_BTN_ROW_H, bY = ALM_BTN_ROW_Y, bGap = ALM_BTN_ROW_GAP;
   const int enableX = 12;
   const int saveX = enableX + bW + bGap;
   const int closeX = saveX + bW + bGap;
@@ -9536,9 +9607,9 @@ void handleAlarmMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     return;  // ignoruj dotkniecie, ktore otworzylo menu (trzymanie 5 s)
   }
 
-  const int btnW = 46, btnH = 34, rowY = 116;
-  const int hourMinusX = 108, hourPlusX = 196;
-  const int minMinusX = 238, minPlusX = 326;
+  const int btnW = ALM_BTN_W, btnH = ALM_BTN_H, rowY = ALM_ROW_Y;
+  const int hourMinusX = ALM_HOUR_MINUS_X, hourPlusX = ALM_HOUR_PLUS_X;
+  const int minMinusX = ALM_MIN_MINUS_X, minPlusX = ALM_MIN_PLUS_X;
 
   bool changed = false;
   if (isPointInRect(x, y, hourMinusX, rowY, btnW, btnH)) { alarmMenuHour = (alarmMenuHour + 23) % 24; changed = true; }
@@ -9551,9 +9622,9 @@ void handleAlarmMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   }
 
   // Dni tygodnia.
-  const int dayTileW = 54, dayTileH = 30, dayGap = 8;
+  const int dayTileW = ALM_DAY_TILE_W, dayTileH = ALM_DAY_TILE_H, dayGap = ALM_DAY_GAP;
   const int dayStartX = (480 - (ALARM_DAYS * dayTileW + (ALARM_DAYS - 1) * dayGap)) / 2;
-  const int dayY = 158;
+  const int dayY = ALM_DAYS_Y;
   if (y >= dayY && y <= dayY + dayTileH) {
     for (int i = 0; i < ALARM_DAYS; i++) {
       int tx = dayStartX + i * (dayTileW + dayGap);
@@ -9565,27 +9636,20 @@ void handleAlarmMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     }
   }
 
-  // Dzwiek.
-  const int melTileW = 104, melTileH = 30, melGap = 10;
-  const int melStartX = (480 - (ALARM_MELODY_COUNT * melTileW + (ALARM_MELODY_COUNT - 1) * melGap)) / 2;
-  const int melY = 214;
-  if (y >= melY && y <= melY + melTileH) {
-    for (int i = 0; i < ALARM_MELODY_COUNT; i++) {
-      int tx = melStartX + i * (melTileW + melGap);
-      if (x >= tx && x <= tx + melTileW) {
-        alarmMenuMelody = i;
-        alarmRedrawMelodyRow();
-        alarmDrawPreview();
-        alarmPreviewMode = true;
-        alarmStartMelody(i);   // probka dzwieku (krotka) - slyszalny podglad
-        return;
-      }
-    }
+  // Dzwiek (siatka 2x6).
+  int melHit = alarmMelodyTileAt(x, y);
+  if (melHit >= 0) {
+    alarmMenuMelody = melHit;
+    alarmRedrawMelodyRow();
+    alarmDrawPreview();
+    alarmPreviewMode = true;
+    alarmStartMelody(melHit);   // probka dzwieku (krotka) - slyszalny podglad
+    return;
   }
 
   if (!isNewTap) return;
 
-  const int bW = 118, bH = 30, bY = 262, bGap = 12;
+  const int bW = ALM_BTN_ROW_W, bH = ALM_BTN_ROW_H, bY = ALM_BTN_ROW_Y, bGap = ALM_BTN_ROW_GAP;
   const int enableX = 12;
   const int saveX = enableX + bW + bGap;
   const int closeX = saveX + bW + bGap;

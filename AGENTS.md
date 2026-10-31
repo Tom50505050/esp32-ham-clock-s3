@@ -41,12 +41,18 @@ warunku), żeby oba gesty się nie kłóciły.
 
 **Menu (480x320):** `drawAlarmMenu()` — nagłówek `uiMenuHeader()`, duży podgląd
 `GG:MM`, przyciski `-`/`+` dla godzin i minut, 7 kafelków dni
-(`ALARM_DAY_SHORT` = ND PN WT SR CZ PT SB), 4 kafelki melodii (dotknięcie gra
-próbkę: `alarmPreviewMode = true` → raz, bez pętli), przyciski
-`ALARM: WL/WYL`, `ZAPISZ`, `ZAMKNIJ`. Obsługa: `handleAlarmMenuTouch()`.
+(`ALARM_DAY_SHORT` = ND PN WT SR CZ PT SB), **12 kafelków melodii** w siatce 2x6
+(dotknięcie gra próbkę: `alarmPreviewMode = true` → raz, bez pętli), przyciski
+`ALARM: WL/WYL`, `ZAPISZ`, `ZAMKNIJ`. Układ trzymają wspólne stałe `ALM_*`
+(używane i przy rysowaniu, i w hit-testach). Obsługa: `handleAlarmMenuTouch()`
++ `alarmMelodyTileAt()` dla siatki melodii.
 Zapis do NVS: klucze `alarm_en/alarm_hour/alarm_min/alarm_days/alarm_mel`
 (`savePreferences()`/`loadPreferences()`), domyślnie alarm WYŁĄCZONY, dni
 0x7F (wszystkie).
+
+**Melodie (12, `ALARM_MELODIES[]`):** BUDZIK, DZWONEK, POBUDKA, PIKANIE,
+MORS CQ, MORS SOS, SYRENA, NOKIA (Gran Vals, PD), TETRIS (Korobeiniki, ludowa),
+KUKULKA, PIPS, KURANT. Nuty jako `{freq, units}` (`units` × 150 ms, 0 = pauza).
 
 **Buzzer:** pasywny piezo na **GPIO 2** przez LEDC (`alarmInitBuzzer()` w
 `setup()` po `loadPreferences()`). Sterowanie w `loop()` (co ~1 s

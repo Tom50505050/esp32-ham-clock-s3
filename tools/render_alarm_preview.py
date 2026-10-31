@@ -114,7 +114,23 @@ def tile(d, x, y, w, h, label, active, classic=False):
 
 
 DAYS_SHORT = ["ND", "PN", "WT", "SR", "CZ", "PT", "SB"]
-MELODIES = ["BUDZIK", "DZWONEK", "POBUDKA", "PIKANIE"]
+MELODIES = ["BUDZIK", "DZWONEK", "POBUDKA", "PIKANIE", "MORS CQ", "MORS SOS",
+            "SYRENA", "NOKIA", "TETRIS", "KUKULKA", "PIPS", "KURANT"]
+
+# Uklad zgodny z main.cpp (stale ALM_*).
+PREVIEW_TIME_Y = 56
+PREVIEW_NAME_Y = 78
+ROW_Y = 90
+BTN_W, BTN_H = 46, 26
+HOUR_MINUS_X, HOUR_PLUS_X = 108, 196
+MIN_MINUS_X, MIN_PLUS_X = 238, 326
+ROW_LABEL_Y = 118
+DAYS_LABEL_Y = 132
+DAYS_Y, DAY_TILE_W, DAY_TILE_H, DAY_GAP = 142, 54, 26, 8
+MEL_LABEL_Y = 174
+MEL_GRID_Y = 184
+MEL_COLS, MEL_TILE_W, MEL_TILE_H, MEL_GAP = 6, 72, 30, 6
+BTN_ROW_Y, BTN_ROW_H, BTN_ROW_W, BTN_ROW_GAP = 256, 30, 118, 12
 
 
 def render(classic, hour=7, minute=30, days_mask=0b0111110, melody=0, enabled=True):
@@ -133,49 +149,49 @@ def render(classic, hour=7, minute=30, days_mask=0b0111110, melody=0, enabled=Tr
         hdr_fg = UI_TEXT
     draw_f1(d, 10, 11, "ALARM", hdr_fg)
 
-    # Podglad godziny (duzy) + nazwa dzwieku
+    # Podglad godziny (duzy, size=3) + nazwa dzwieku
     t = "%02d:%02d" % (hour, minute)
-    d.rectangle([0, 36, 479, 101], fill=bg)
-    w = f1_w(t, 4)
-    draw_f1(d, (480 - w) // 2, 52, t, (ORANGE if classic else UI_ACCENT), size=4)
+    w = f1_w(t, 3)
+    draw_f1(d, (480 - w) // 2, PREVIEW_TIME_Y - 12, t, (ORANGE if classic else UI_ACCENT), size=3)
     mw = f1_w(MELODIES[melody])
-    draw_f1(d, (480 - mw) // 2, 92, MELODIES[melody], UI_DIM)
+    draw_f1(d, (480 - mw) // 2, PREVIEW_NAME_Y, MELODIES[melody], UI_DIM)
 
     # Wiersz +/- (godz, min)
-    rowY = 116
-    bw, bh = 46, 34
-    for bx in (108, 196, 238, 326):
-        d.rectangle([bx, rowY, bx + bw - 1, rowY + bh - 1],
+    for bx in (HOUR_MINUS_X, HOUR_PLUS_X, MIN_MINUS_X, MIN_PLUS_X):
+        d.rectangle([bx, ROW_Y, bx + BTN_W - 1, ROW_Y + BTN_H - 1],
                     fill=(DARKGREY if classic else UI_CARD), outline=WHITE)
-    for bx, sign in ((108, "-"), (196, "+"), (238, "-"), (326, "+")):
-        draw_f2(d, bx + bw // 2 - tw2(sign) // 2, rowY + bh // 2 - 8, sign, WHITE)
-    draw_f1(d, 108 + (196 + bw - 108) // 2 - f1_w("GODZ") // 2, rowY - 12, "GODZ", UI_DIM)
-    draw_f1(d, 238 + (326 + bw - 238) // 2 - f1_w("MIN") // 2, rowY - 12, "MIN", UI_DIM)
+    for bx, sign in ((HOUR_MINUS_X, "-"), (HOUR_PLUS_X, "+"), (MIN_MINUS_X, "-"), (MIN_PLUS_X, "+")):
+        draw_f2(d, bx + BTN_W // 2 - tw2(sign) // 2, ROW_Y + BTN_H // 2 - 8, sign, WHITE)
+    draw_f1(d, HOUR_MINUS_X + (HOUR_PLUS_X + BTN_W - HOUR_MINUS_X) // 2 - f1_w("GODZ") // 2,
+            ROW_LABEL_Y, "GODZ", UI_DIM)
+    draw_f1(d, MIN_MINUS_X + (MIN_PLUS_X + BTN_W - MIN_MINUS_X) // 2 - f1_w("MIN") // 2,
+            ROW_LABEL_Y, "MIN", UI_DIM)
 
     # Etykiety sekcji
-    draw_f1(d, 10, 148, "DNI ALARMU", UI_DIM)
-    draw_f1(d, 10, 204, "DZWIEK", UI_DIM)
+    draw_f1(d, 10, DAYS_LABEL_Y, "DNI ALARMU", UI_DIM)
+    draw_f1(d, 10, MEL_LABEL_Y, "DZWIEK", UI_DIM)
 
     # Dni tygodnia
-    tw, th, gap = 54, 30, 8
-    sx = (480 - (7 * tw + 6 * gap)) // 2
+    sx = (480 - (7 * DAY_TILE_W + 6 * DAY_GAP)) // 2
     for i in range(7):
-        tile(d, sx + i * (tw + gap), 158, tw, th, DAYS_SHORT[i], bool(days_mask & (1 << i)), classic)
+        tile(d, sx + i * (DAY_TILE_W + DAY_GAP), DAYS_Y, DAY_TILE_W, DAY_TILE_H,
+             DAYS_SHORT[i], bool(days_mask & (1 << i)), classic)
 
-    # Dzwiek
-    mtw, mth, mgap = 104, 30, 10
-    msx = (480 - (4 * mtw + 3 * mgap)) // 2
-    for i in range(4):
-        tile(d, msx + i * (mtw + mgap), 214, mtw, mth, MELODIES[i], melody == i, classic)
+    # Melodie: 2 rzedy po 6
+    grid_w = MEL_COLS * MEL_TILE_W + (MEL_COLS - 1) * MEL_GAP
+    gx = (480 - grid_w) // 2
+    for i, name in enumerate(MELODIES):
+        col, row = i % MEL_COLS, i // MEL_COLS
+        tile(d, gx + col * (MEL_TILE_W + MEL_GAP), MEL_GRID_Y + row * (MEL_TILE_H + MEL_GAP),
+             MEL_TILE_W, MEL_TILE_H, name, melody == i, classic)
 
     # Przyciski
-    bW, bH, bY, bGap = 118, 30, 262, 12
     enableX = 12
-    saveX = enableX + bW + bGap
-    closeX = saveX + bW + bGap
-    tile(d, enableX, bY, bW, bH, "ALARM: WL" if enabled else "ALARM: WYL", enabled, classic)
-    tile(d, saveX, bY, bW, bH, "ZAPISZ", False, classic)
-    tile(d, closeX, bY, bW, bH, "ZAMKNIJ", False, classic)
+    saveX = enableX + BTN_ROW_W + BTN_ROW_GAP
+    closeX = saveX + BTN_ROW_W + BTN_ROW_GAP
+    tile(d, enableX, BTN_ROW_Y, BTN_ROW_W, BTN_ROW_H, "ALARM: WL" if enabled else "ALARM: WYL", enabled, classic)
+    tile(d, saveX, BTN_ROW_Y, BTN_ROW_W, BTN_ROW_H, "ZAPISZ", False, classic)
+    tile(d, closeX, BTN_ROW_Y, BTN_ROW_W, BTN_ROW_H, "ZAMKNIJ", False, classic)
 
     return im
 
