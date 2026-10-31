@@ -11673,6 +11673,9 @@ String weatherIconPathForId(int id, bool isNight) {
   // 7xx atmosfera
   if (id >= 700 && id <= 781) return base + "700.bmp";
 
+  // 906 grad (OpenWeatherMap, grupa 9xx) - ikona z kulami gradu
+  if (id == 906) return base + "hail.bmp";
+
   // 800 clear (dzieĹ„/noc)
   if (id == 800) return base + (isNight ? "800n.bmp" : "800.bmp");
 
