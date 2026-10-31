@@ -2534,7 +2534,7 @@ unsigned long lastBatteryCheckMs = 0;
 float batteryVoltage = 0.0f;
 int batteryPercentage = 0;
 bool batteryLowWarningShown = false;
-bool batteryCharging = false;  // Rozpoznawanie ładowania (napięcie > 4.25V)
+bool batteryCharging = false;  // Rozpoznawanie ładowania (napięcie > 4.0V)
 
 // --- Konfiguracja z WWW (informacyjna) ---
 // Typ modulu ladowania akumulatora (lista dostepnych ukladow ladowania).
@@ -2668,13 +2668,12 @@ bool updateBatteryStatus() {
   batteryVoltage = v;
   batteryPercentage = calculateBatteryPercentage(batteryVoltage);
 
-  // Wykrywanie ładowania: TP4056 podnosi napięcie ogniwa powyżej 4.25V. Gdy
-  // ogniwo jest blisko pełne, ładowanie przechodzi w fazę CV i napięcie
-  // 4.15-4.25V jest dwuznaczne - wtedy zostawiamy poprzedni stan (histereza),
-  // żeby ikona nie migała między "ładuje" i "naładowana".
-  if (batteryVoltage > 4.25f) {
+  // Wykrywanie ładowania: powyżej 4.0 V uznajemy, że podłączona jest ładowarka
+  // (ogniwo Li-ion w spoczynku nie przekracza ~3.8-3.9 V). Histereza 0.1 V
+  // (kasowanie poniżej 3.9 V) zapobiega miganiu ikony przy granicy.
+  if (batteryVoltage > 4.0f) {
     batteryCharging = true;
-  } else if (batteryVoltage < 4.10f) {
+  } else if (batteryVoltage < 3.9f) {
     batteryCharging = false;
   }
 
@@ -2702,8 +2701,9 @@ static void drawBatteryFill(int x, int y, int w, int h, int level, uint16_t colo
 }
 
 // Błyskawica (stan ładowania) rysowana na ikonie baterii - dwa trójkąty w
-// kształcie pioruna, kolorem tła (żeby "wyciąć" piorun z wypełnienia).
-static void drawBatteryBolt(int x, int y, int w, int h, uint16_t color) {
+// kształcie pioruna. Kolor czerwony (TFT_RED) - wyraźnie odcina się od
+// zielonego wypełnienia naładowanej baterii.
+static void drawBatteryBolt(int x, int y, int w, int h, uint16_t color = TFT_RED) {
   int cx = x + w / 2;
   tft.fillTriangle(cx + 3, y + 2, cx - 2, y + h / 2 + 1, cx + 1, y + h / 2 + 1, color);
   tft.fillTriangle(cx - 3, y + h - 2, cx + 2, y + h / 2, cx - 1, y + h / 2, color);
@@ -4233,7 +4233,7 @@ void drawBatteryIcon(int x, int y, int percentage = -1, uint16_t bg = TFT_BLACK)
   // Obudowa + terminal baterii.
   tft.drawRect(x, y + 2, batteryW, batteryH, TFT_WHITE);
   tft.fillRect(x + batteryW, y + 4, terminalW, terminalH, TFT_WHITE);
-  if (batteryCharging) drawBatteryBolt(x, y, batteryW, batteryH, bg);
+  if (batteryCharging) drawBatteryBolt(x, y, batteryW, batteryH);
 }
 // Szybka aktualizacja tylko ikony baterii (bez odswiezania calego naglowka).
 // Uzywana w loop() aby uniknac watchdog resetu. Dorysowuje wypelnienie w tej
@@ -4271,8 +4271,8 @@ void drawBatteryQuickUpdate(bool skipScreenCheck = false) {
   tft.drawRect(x, y + 2, bw, bh, TFT_WHITE);
   tft.fillRect(x + bw, y + 4, 3, bh - 4, TFT_WHITE);
   drawBatteryFill(x, y, bw, bh, batteryPercentage, getBatteryColor());
-  // Błyskawica jak w drawBatteryIcon, ale "wycięta" kolorem tła nagłówka.
-  if (batteryCharging) drawBatteryBolt(x, y, bw, bh, bg);
+  // Błyskawica jak w drawBatteryIcon - czerwona (kolor ładowania).
+  if (batteryCharging) drawBatteryBolt(x, y, bw, bh);
 }
 
 void updateScreen1HeaderClock() {
@@ -29023,7 +29023,7 @@ void setup() {
   batteryVoltage = readBatteryVoltage();
   if (batteryVoltage < 1.0f) { batteryVoltage = 0.0f; }  // brak akumulatora/dzielnika
   batteryPercentage = calculateBatteryPercentage(batteryVoltage);
-  batteryCharging = (batteryVoltage > 4.25f);
+  batteryCharging = (batteryVoltage > 4.0f);
   Serial.printf("[BATTERY] Init: %.3fV (%d%%) cal=%.4f off=%.3f %s\n",
                 batteryVoltage, batteryPercentage, batteryDividerCal, batteryVoltOffset,
                 batteryCharging ? "[CHARGING]" : "");
