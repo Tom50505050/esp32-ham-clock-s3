@@ -155,6 +155,7 @@ void checkAlarmTrigger();
 void alarmUpdateBuzzer();
 void alarmStartMelody(int index);
 void alarmStopMelody();
+void alarmStopBuzzer();
 void alarmInitBuzzer();
 void drawAlarmRingScreen();
 void dismissAlarmRingScreen();
@@ -2337,6 +2338,12 @@ volatile bool alarmRingPending = false;
 bool alarmRingPrevInMenu = false;
 unsigned long alarmRingScreenUntilMs = 0;
 const unsigned long ALARM_RING_DISPLAY_MS = 60000UL;
+// Powtarzanie alarmu: gdy nikt nie dotknie ekranu, alarm wznawia sie co
+// ALARM_REPEAT_MS. alarmRinging zostaje true az do potwierdzenia (dotkniecie),
+// a alarmNextRingMs wyznacza kolejne dzwonienie. volatile - dzielone miedzy
+// petla glowna (core 1) i UI_Task (core 0, obsluga dotyku).
+volatile unsigned long alarmNextRingMs = 0;
+const unsigned long ALARM_REPEAT_MS = 5UL * 60UL * 1000UL;  // 5 minut
 
 // ========== ISS TRACKING VARIABLES ==========
 #define ISS_TRAJECTORY_POINTS 45
@@ -6734,9 +6741,12 @@ void handleTouchNavigation() {
       isNewTap = true;
     }
 
-    // Dotkniecie ekranu w trakcie dzwonienia alarmu = cisza (bez przerywania obslugi).
+    // Dotkniecie ekranu w trakcie dzwonienia alarmu = potwierdzenie (cisza).
+    // alarmNextRingMs = 0 anuluje zaplanowane powtorki - alarm nie wroci, dopoki
+    // nie nadejdzie kolejna nastawiona godzina.
     if (isNewTap && alarmRinging) {
       alarmStopMelody();
+      alarmNextRingMs = 0;
     }
 
     // Ekran dzwoniacego alarmu: dowolne dotkniecie zatrzymuje i zamyka.
@@ -9378,10 +9388,14 @@ void alarmStartMelody(int index) {
   alarmTone(ALARM_MELODIES[index].notes[0].freq);
 }
 
-void alarmStopMelody() {
+void alarmStopBuzzer() {
   alarmTone(0);
   alarmPlayIndex = -1;
-  alarmRinging = false;
+}
+
+void alarmStopMelody() {
+  alarmStopBuzzer();
+  alarmRinging = false;   // pelne zatrzymanie = koniec alarmu (potwierdzenie)
 }
 
 // Wolane cyklicznie z petli glownej - odtwarza jedna nute na raz (bez delay).
@@ -9406,6 +9420,18 @@ void alarmUpdateBuzzer() {
   alarmTone(m.notes[alarmPlayNote].freq);
 }
 
+// Uruchamia jedno dzwonienie (ekran + melodia + deadline). Wywolywane przy
+// wyzwoleniu alarmu i przy kolejnych powtorkach (co ALARM_REPEAT_MS).
+static void alarmStartRinging() {
+  alarmRinging = true;
+  alarmPreviewMode = false;
+  alarmLastRingMs = millis();
+  alarmRingScreenUntilMs = millis() + ALARM_RING_DISPLAY_MS;
+  alarmNextRingMs = 0;          // wyzerowane na czas dzwonienia; po auto-stopie ustawiane
+  alarmStartMelody(alarmMelody);
+  alarmRingPending = true;      // ekran dzwonienia rysowany w UI_Task (bezpiecznie)
+}
+
 // Sprawdza czy nadszedl czas alarmu (co sekunda z petli glownej).
 void checkAlarmTrigger() {
   if (!alarmEnabled) {
@@ -9427,15 +9453,7 @@ void checkAlarmTrigger() {
   long targetAbsMin = (long)ti.tm_yday * 1440L + alarmHour * 60 + alarmMinute;
   if (nowAbsMin == targetAbsMin && alarmLastTriggerAbsMin != nowAbsMin) {
     alarmLastTriggerAbsMin = nowAbsMin;
-    alarmRinging = true;
-    alarmPreviewMode = false;
-    alarmLastRingMs = millis();
-    // Ustaw deadline JUZ tutaj. Zabezpieczenie w loop() (auto-stop) czyta
-    // alarmRingScreenUntilMs; gdyby zostalo 0/stare, wyciszyloby melodie
-    // natychmiast, zanim UI_Task zdazyl narysowac ekran (brak melodii!).
-    alarmRingScreenUntilMs = millis() + ALARM_RING_DISPLAY_MS;
-    alarmStartMelody(alarmMelody);
-    alarmRingPending = true;  // ekran dzwonienia rysowany w UI_Task (bezpiecznie)
+    alarmStartRinging();
     Serial.printf("[ALARM] Dzwoni! %02d:%02d\n", alarmHour, alarmMinute);
   }
 }
@@ -9475,8 +9493,10 @@ void drawAlarmRingScreen() {
   tft.setTextDatum(TL_DATUM);
 }
 
+// Zamyka ekran dzwonienia i przywraca to, co bylo pod nim. NIE zatrzymuje
+// melodii ani nie anuluje powtorzen - to robi potwierdzenie dotknieciem
+// (handleTouchNavigation) albo petla glowna po ALARM_RING_DISPLAY_MS.
 void dismissAlarmRingScreen() {
-  alarmStopMelody();
   if (!alarmRingScreenActive) return;
   alarmRingScreenActive = false;
   inMenu = alarmRingPrevInMenu;
@@ -9490,7 +9510,9 @@ void dismissAlarmRingScreen() {
   else                              drawScreen(currentScreen);
 }
 
-// Auto-stop po ALARM_RING_DISPLAY_MS (jak wygaszanie alertu pogodowego).
+// Auto-close ekranu po ALARM_RING_DISPLAY_MS. Melodia jest juz wyciszona przez
+// petle glowna, a alarmRinging pozostaje true - ekran pokaze sie znow przy
+// kolejnej powtorce (co ALARM_REPEAT_MS), dopoki uzytkownik nie dotknie ekranu.
 void alarmRingTimeoutCheck() {
   if (alarmRingScreenActive && (long)(millis() - alarmRingScreenUntilMs) >= 0) {
     dismissAlarmRingScreen();
@@ -30049,13 +30071,24 @@ void loop() {
       checkAlarmTrigger();
     }
     alarmUpdateBuzzer();
-    // Zabezpieczenie: gdyby ekran dzwonienia nie zdazyl sie pokazac, i tak
-    // wycisz buzzer po ALARM_RING_DISPLAY_MS (nigdy nie piszczy w nieskonczonosc).
-    // Warunek deadline != 0: 0 oznacza "brak aktywnego alarmu" (unikamy
-    // natychmiastowego wyciszenia, gdyby deadline nie zostalo ustawione).
+    // Koniec jednego dzwonienia: wycisz buzzer po ALARM_RING_DISPLAY_MS i
+    // zaplanuj kolejne za ALARM_REPEAT_MS (alarm powtarza sie az do potwierdzenia
+    // dotknieciem ekranu). alarmStopBuzzer() (nie alarmStopMelody!) - alarm
+    // pozostaje AKTYWNY (alarmRinging=true), zeby powtorka mogla zadzialac.
     if (alarmRinging && alarmRingScreenUntilMs != 0 &&
         (long)(millis() - alarmRingScreenUntilMs) >= 0) {
-      alarmStopMelody();
+      alarmStopBuzzer();
+      // alarmNextRingMs == 0 tylko raz na dzwonienie (alarmStartRinging zeruje go
+      // przy starcie) - bez tego warunku ten blok przesuwalby powtorke co iteracje.
+      // Liczone od STARTU dzwonienia (alarmLastRingMs), wiec alarm wlacza sie
+      // dokladnie co ALARM_REPEAT_MS (5 min), a nie co 5 min + czas dzwonienia.
+      if (alarmNextRingMs == 0) alarmNextRingMs = alarmLastRingMs + ALARM_REPEAT_MS;
+    }
+    // Kolejne dzwonienie (nikt nie dotknal ekranu przez ALARM_REPEAT_MS).
+    if (alarmRinging && alarmNextRingMs != 0 &&
+        (long)(millis() - alarmNextRingMs) >= 0) {
+      alarmStartRinging();
+      Serial.printf("[ALARM] Powtorka %02d:%02d\n", alarmHour, alarmMinute);
     }
   }
 

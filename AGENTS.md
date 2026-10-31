@@ -97,12 +97,27 @@ melodii"). Stąd też warunek `alarmRingScreenUntilMs != 0` w auto-stopie.
 **Dzwonienie:** `checkAlarmTrigger()` liczy minutę absolutną
 `tm_yday*1440 + godz*60 + min` i porównuje z celem — alarm odpala **raz
 dziennie** (samo `godz*60+min` odpaliłoby tylko raz w życiu modułu). Sprawdza
-też `alarmDaysMask` (bit `tm_wday`). Po trafieniu: `alarmRinging = true`,
-`alarmRingPending = true`, melodia w pętli. UI_Task rysuje modalny ekran
-`drawAlarmRingScreen()` (czerwona ramka, „ALARM!", godzina, melodia) — widoczny
-na dowolnym ekranie; ustawia `inMenu = true` (blokuje periodyczne odświeżanie
-pod spodem) i blokuje wygaszacz. Dowolne dotknięcie = `dismissAlarmRingScreen()`
-(cisza + powrót do tego, co było pod spodem). Auto-stop po 60 s.
+też `alarmDaysMask` (bit `tm_wday`). Po trafieniu `alarmStartRinging()`:
+`alarmRinging = true`, `alarmRingPending = true`, melodia w pętli. UI_Task rysuje
+modalny ekran `drawAlarmRingScreen()` (czerwona ramka, „ALARM!", godzina,
+melodia) — widoczny na dowolnym ekranie; ustawia `inMenu = true` (blokuje
+periodyczne odświeżanie pod spodem) i blokuje wygaszacz.
+
+**Powtarzanie (5 min):** jeśli nikt nie dotknie ekranu, alarm **wznawia się co
+5 minut** (`ALARM_REPEAT_MS`), aż do potwierdzenia dotknięciem. Cykl: dzwoni
+`ALARM_RING_DISPLAY_MS` (60 s) → pętla główna woła `alarmStopBuzzer()` (cisza,
+ale `alarmRinging` **zostaje true**) i planuje `alarmNextRingMs = alarmLastRingMs
++ ALARM_REPEAT_MS` (liczone od **startu** dzwonienia → równo co 5 min, nie 5 min
++ 60 s) → kolejne `alarmStartRinging()`. Warunek `alarmNextRingMs == 0` w
+auto-stopie gwarantuje jednorazowe planowanie (inaczej przesuwałoby się co
+iterację pętli).
+
+**Potwierdzenie:** dotknięcie ekranu → `alarmStopMelody()` + `alarmNextRingMs = 0`
+(pętla główna) oraz `dismissAlarmRingScreen()` (UI_Task, powrót do widoku pod
+spodem). `alarmStopMelody()` = pełny stop (`alarmRinging=false`);
+`alarmStopBuzzer()` = tylko cisza (stan alarmu zostaje). Uwaga: to rozdzielenie
+jest konieczne — inaczej auto-stop kasowałby `alarmRinging` i powtórki nie
+działałyby.
 
 **Flagi współdzielone loop/UI_Task** (`alarmRinging`, `alarmRingScreenActive`,
 `alarmPreviewMode`, indeksy nut) są `volatile`.
