@@ -20,11 +20,11 @@ klasyczna 18650 3.40-4.20 V. Obecna wersja rozciąga dół do 3.0 V zgodnie z
 życzeniem użytkownika. Kalibracja napięcia (mnożnik/offset z WWW) działa bez
 zmian — procent liczony jest z już skalibrowanego napięcia.
 
-**Ikona pioruna (ładowanie):** powyżej **4.0 V** na ikonie baterii pojawia się
+**Ikona pioruna (ładowanie):** powyżej **4.3 V** na ikonie baterii pojawia się
 czerwony piorun (`drawBatteryBolt()`, kolor `TFT_RED`), sygnalizujący ładowanie.
-Próg kasowania 3.9 V (histereza 0.1 V) chroni przed miganiem. Wcześniej piorun
+Próg kasowania 4.2 V (histereza 0.1 V) chroni przed miganiem. Wcześniej piorun
 był „wycinany” kolorem tła i włączał się dopiero >4.25 V; teraz jest czerwony i
-widoczny też na jasnym (zielonym) wypełnieniu.
+widoczny też na jasnym (zielonym) wypełnieniu. Historia progu: 4.25 → 4.0 → **4.3 V**.
 
 
 ## „Blad wgrywania (format/siec)" przy ekranie powitalnym — brak miejsca w LittleFS (31.10.2026)
@@ -552,8 +552,8 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
   Np. 3.80 V → 47% (było 50%), 3.70 V → 33% (było 37.5%), 3.60 V → 18% (było 25%).
   **UWAGA (31.10.2026):** tabela została później przeskalowana na 3.30-3.80 V
   (3.80 V = 100%) — patrz sekcja „Skala procentowa baterii: 3.8 V = 100%" wyżej.
-- **Histereza ładowania**: `batteryCharging` ustawiane przy >4.0 V, kasowane przy
-  <3.9 V (od 31.10.2026; wcześniej progi 4.25/4.10 V). Piorun rysowany na czerwono.
+- **Histereza ładowania**: `batteryCharging` ustawiane przy >4.3 V, kasowane przy
+  <4.2 V (od 31.10.2026; wcześniej progi 4.25/4.10 V, potem 4.0/3.9 V). Piorun czerwony.
 - **Kalibracja jednopunktowa w WWW** (zakładka System → „Kalibracja baterii"):
   pole `bat_cal_v` = rzeczywiste napięcie z multimetru; firmware mnoży
   `bat_div_cal *= vref/raw` tylko gdy `|vref-raw| > 50 mV` (bez tego każdy „Zapisz"

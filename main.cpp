@@ -2534,7 +2534,7 @@ unsigned long lastBatteryCheckMs = 0;
 float batteryVoltage = 0.0f;
 int batteryPercentage = 0;
 bool batteryLowWarningShown = false;
-bool batteryCharging = false;  // Rozpoznawanie ładowania (napięcie > 4.0V)
+bool batteryCharging = false;  // Rozpoznawanie ładowania (napięcie > 4.3V)
 
 // --- Konfiguracja z WWW (informacyjna) ---
 // Typ modulu ladowania akumulatora (lista dostepnych ukladow ladowania).
@@ -2668,12 +2668,12 @@ bool updateBatteryStatus() {
   batteryVoltage = v;
   batteryPercentage = calculateBatteryPercentage(batteryVoltage);
 
-  // Wykrywanie ładowania: powyżej 4.0 V uznajemy, że podłączona jest ładowarka
-  // (ogniwo Li-ion w spoczynku nie przekracza ~3.8-3.9 V). Histereza 0.1 V
-  // (kasowanie poniżej 3.9 V) zapobiega miganiu ikony przy granicy.
-  if (batteryVoltage > 4.0f) {
+  // Wykrywanie ładowania: powyżej 4.3 V uznajemy, że podłączona jest ładowarka
+  // (ładowanie ogniwa Li-ion podnosi napięcie do ~4.3-4.4 V). Histereza 0.1 V
+  // (kasowanie poniżej 4.2 V) zapobiega miganiu ikony przy granicy.
+  if (batteryVoltage > 4.3f) {
     batteryCharging = true;
-  } else if (batteryVoltage < 3.9f) {
+  } else if (batteryVoltage < 4.2f) {
     batteryCharging = false;
   }
 
@@ -29023,7 +29023,7 @@ void setup() {
   batteryVoltage = readBatteryVoltage();
   if (batteryVoltage < 1.0f) { batteryVoltage = 0.0f; }  // brak akumulatora/dzielnika
   batteryPercentage = calculateBatteryPercentage(batteryVoltage);
-  batteryCharging = (batteryVoltage > 4.0f);
+  batteryCharging = (batteryVoltage > 4.3f);
   Serial.printf("[BATTERY] Init: %.3fV (%d%%) cal=%.4f off=%.3f %s\n",
                 batteryVoltage, batteryPercentage, batteryDividerCal, batteryVoltOffset,
                 batteryCharging ? "[CHARGING]" : "");
