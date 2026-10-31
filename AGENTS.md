@@ -2,6 +2,34 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Kalibracja baterii „nie działa" — korekta nadpisywana przez bat_div_cal (31.10.2026)
+Zgłoszenie: w WWW (Ustawienia → „Kalibracja baterii") odczyt pokazuje np.
+`3.90 V | 61%` mimo w pełni naładowanego akumulatora; wpisanie rzeczywistego
+napięcia i „Zapisz" nic nie zmienia.
+
+**Przyczyna (kolejność w `/api/save`):** handler najpierw liczył jednopunktową
+korektę z `bat_cal_v` (`batteryDividerCal *= vref/raw`), a **potem** ustawiał
+`batteryDividerCal = bat_div_cal`. Formularz WWW **zawsze** wysyła `bat_div_cal`
+(bieżącą wartość z urządzenia, `collectConfigPayload`), więc świeżo policzona
+korekta była natychmiast nadpisywana starą wartością — kalibracja nigdy się nie
+utrwalała.
+
+**Naprawa:** odwrócona kolejność — najpierw `bat_div_cal` i `bat_off`, na końcu
+jednopunktowa korekta `bat_cal_v` (teraz autorytatywna i idempotentna: po korekcie
+`raw ≈ vref`, więc `|vref-raw| ≤ 50 mV` i kolejny „Zapisz" nic nie zmienia).
+Dodano log `[BATTERY] Kalibracja: raw=... vref=... -> div ... => ...`.
+
+**Spójność odczytu:** `/api/config` zwracał `sys_vcc = readBatteryVoltage()`
+(świeży odczyt), a `sys_batt_pct = batteryPercentage` (ostatnia wartość z pętli) —
+panel pokazywał niespójną parę (np. 3.90 V | 61%, gdy 3.90 V → 62%). Teraz oba
+pola pochodzą z tego samego pomiaru (`batteryVoltage` + `batteryPercentage`,
+aktualizowane razem w `updateBatteryStatus`).
+
+Uwaga: sam pomiar (dzielnik 100k/100k + kalibracja eFuse) jest poprawny —
+`3.90 V → 62%` wg krzywej Li-ion. Jeśli akumulator jest w pełni naładowany, a
+firmware mierzy 3.90 V, to albo ogniwo jest rozładowane, albo dzielnik/mnożnik
+wymaga kalibracji — teraz kalibracja z WWW faktycznie zapisuje korektę.
+
 ## „Błąd wysyłania: TypeError: Failed to fetch" — nieaktualne binarki na stronie wgrywania (31.10.2026)
 Zgłoszenie (po naprawie 507): wgranie ikony burzy w WWW kończyło się
 `TypeError: Failed to fetch` (a dla splash: „Blad wgrywania (format/siec)").

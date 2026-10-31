@@ -23435,9 +23435,20 @@ void setupWebServer() {
         if (backlightPercent < MIN_BACKLIGHT_PERCENT) backlightPercent = MIN_BACKLIGHT_PERCENT;
         if (backlightPercent > 100) backlightPercent = 100;
       }
-      // Kalibracja pomiaru baterii. "bat_cal_v" = rzeczywiste napiecie zmierzone
-      // multimetrem na ogniwie; przelicza mnoznik tak, by odczyt firmware zgadzal
-      // sie z rzeczywistoscia (jednopunktowa kalibracja dzielnika).
+      // Kalibracja pomiaru baterii. Najpierw stosujemy wartosci podane wprost
+      // (bat_div_cal/bat_off), a dopiero na koncu jednopunktowa korekte z
+      // "bat_cal_v" (rzeczywiste napiecie z multimetru). Kolejnosc ma znaczenie:
+      // formularz WWW ZAWSZE wysyla bat_div_cal (biezaca wartosc z urzadzenia),
+      // wiec gdy korekta szla pierwsza, byla natychmiast nadpisywana przez
+      // bat_div_cal i kalibracja "nie dzialala" (odczyt sie nie zmienial).
+      if (doc["bat_div_cal"].is<float>() || doc["bat_div_cal"].is<double>() || doc["bat_div_cal"].is<int>()) {
+        float v = doc["bat_div_cal"].as<float>();
+        if (v >= 0.5f && v <= 2.0f) batteryDividerCal = v;
+      }
+      if (doc["bat_off"].is<float>() || doc["bat_off"].is<double>() || doc["bat_off"].is<int>()) {
+        float v = doc["bat_off"].as<float>();
+        if (v >= -1.0f && v <= 1.0f) batteryVoltOffset = v;
+      }
       if (doc["bat_cal_v"].is<float>() || doc["bat_cal_v"].is<double>() || doc["bat_cal_v"].is<int>()) {
         float vref = doc["bat_cal_v"].as<float>();
         float raw = readBatteryVoltage();
@@ -23446,18 +23457,13 @@ void setupWebServer() {
         // korekte i rozjezdzal pomiar.
         if (vref >= 3.0f && vref <= 4.5f && raw > 1.0f &&
             fabsf(vref - raw) > 0.05f) {
+          float prev = batteryDividerCal;
           batteryDividerCal *= vref / raw;
           if (batteryDividerCal < 0.5f) batteryDividerCal = 0.5f;
           if (batteryDividerCal > 2.0f) batteryDividerCal = 2.0f;
+          Serial.printf("[BATTERY] Kalibracja: raw=%.3fV vref=%.3fV -> div %.4f => %.4f\n",
+                        raw, vref, prev, batteryDividerCal);
         }
-      }
-      if (doc["bat_div_cal"].is<float>() || doc["bat_div_cal"].is<double>() || doc["bat_div_cal"].is<int>()) {
-        float v = doc["bat_div_cal"].as<float>();
-        if (v >= 0.5f && v <= 2.0f) batteryDividerCal = v;
-      }
-      if (doc["bat_off"].is<float>() || doc["bat_off"].is<double>() || doc["bat_off"].is<int>()) {
-        float v = doc["bat_off"].as<float>();
-        if (v >= -1.0f && v <= 1.0f) batteryVoltOffset = v;
       }
       if (doc["charger_module"].is<int>()) {
         int v = doc["charger_module"].as<int>();
@@ -24347,7 +24353,11 @@ void setupWebServer() {
     doc["sys_cpu"] = ESP.getCpuFreqMHz();
     doc["sys_temp"] = temperatureRead();  // temperatura w Â°C
     #ifdef BATTERY_MONITORING_ENABLED
-    doc["sys_vcc"] = readBatteryVoltage();  // napiecie baterii (V)
+    // Napiecie i procent z tego samego pomiaru (batteryVoltage aktualizowany w
+    // updateBatteryStatus razem z batteryPercentage). Wczesniej sys_vcc bylo
+    // swiezym odczytem, a sys_batt_pct ostatnia wartoscia z petli - panel
+    // pokazywal niespojna pare (np. "3.90 V | 61%").
+    doc["sys_vcc"] = batteryVoltage;          // napiecie baterii (V)
     doc["sys_batt_pct"] = batteryPercentage;  // procent naladowania
     doc["sys_batt_chg"] = batteryCharging;    // true = ladowanie
     #else
