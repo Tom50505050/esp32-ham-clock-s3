@@ -2,6 +2,25 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+
+## Skala procentowa baterii: 3.8 V = 100% (31.10.2026)
+Zgłoszenie: akumulator ma 3.8 V, a ikona pokazuje ~47%. Prośba: przy 3.8 V ma
+być 100%.
+
+**Zmiana:** przesunięto skalę procentową tak, by 3.80 V = 100%, a 3.30 V = 0%.
+- `main.cpp`: `kBatteryCurve[]` przeskalowana na 3.30-3.80 V (3.80→100, 3.75→90,
+  3.70→80, 3.65→68, 3.60→56, 3.55→45, 3.50→34, 3.45→24, 3.40→14, 3.35→6, 3.30→0).
+- Makra zakresu: `BATTERY_VOLTAGE_MAX` 4.2→**3.8**, `MIN`/`CUTOFF` 3.4→**3.3**,
+  `LOW` 3.6→**3.5**, `NOM` 3.8→3.7. Kolory ikony (czerwony ≤3.3 V, pomarańczowy
+  ≤3.5 V) i ostrzeżenie <10% idą za nową skalą.
+
+**Uwaga:** to odejście od klasycznej charakterystyki 18650 (gdzie 3.8 V to ~47%
+i realnie „prawie pełne” jest 4.2 V) — celowo, zgodnie z życzeniem użytkownika.
+Jeśli wrócić do fizycznej krzywej, przywróć poprzednią tabelę (3.40-4.20 V).
+Kalibracja napięcia (mnożnik/offset z WWW) działa bez zmian — procent liczony
+jest z już skalibrowanego napięcia.
+
+
 ## „Blad wgrywania (format/siec)" przy ekranie powitalnym — brak miejsca w LittleFS (31.10.2026)
 Zgłoszenie: wgranie własnej grafiki na **ekran powitalny** (`/upload_welcome`,
 zakładka TFT → „Grafika na ekran") kończyło się w WWW komunikatem
@@ -522,9 +541,11 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
   i `batteryVoltOffset` (offset V, NVS `bat_off`). Wzór:
   `Vbat = (Vpin_mV/1000) * 2.0 * bat_div_cal + bat_off`.
 - **Krzywa rozładowania Li-ion** zamiast liniowej mapy: tablica `kBatteryCurve[]`
-  (15 punktów 3.40-4.20 V) z interpolacją liniową w `calculateBatteryPercentage()`.
+  z interpolacją liniową w `calculateBatteryPercentage()`.
   Liniowa mapa 3.4-4.2 V zawyżała „50%" (ogniwo trzyma ~3.7-3.8 V przez większość czasu).
   Np. 3.80 V → 47% (było 50%), 3.70 V → 33% (było 37.5%), 3.60 V → 18% (było 25%).
+  **UWAGA (31.10.2026):** tabela została później przeskalowana na 3.30-3.80 V
+  (3.80 V = 100%) — patrz sekcja „Skala procentowa baterii: 3.8 V = 100%" wyżej.
 - **Histereza ładowania**: `batteryCharging` ustawiane przy >4.25 V, kasowane przy
   <4.10 V - w fazie CV (4.15-4.25 V) stan nie miga.
 - **Kalibracja jednopunktowa w WWW** (zakładka System → „Kalibracja baterii"):

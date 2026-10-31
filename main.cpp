@@ -2517,12 +2517,14 @@ bool rgbBlueAprsStateOn = false;
 float batteryDividerCal = 1.0f;   // mnożnik kalibracji (np. 0.98 gdy dzielnik zaniża)
 float batteryVoltOffset = 0.0f;   // offset w woltach (korekta stałego przesunięcia)
 
-// Zakresy napięcia akumulatora 18650 (dla płytki z ochroną DW01A)
-#define BATTERY_VOLTAGE_MAX 4.2f      // 100% naładowana
-#define BATTERY_VOLTAGE_NOM 3.8f    // 50% nominalna
-#define BATTERY_VOLTAGE_LOW 3.6f    // 25% niski poziom (pomarańczowy)
-#define BATTERY_VOLTAGE_MIN 3.4f    // 0% krytyczny (czerwony)
-#define BATTERY_VOLTAGE_CUTOFF 3.4f // 0% ochrona wyłącza
+// Zakresy napięcia akumulatora (dla płytki z ochroną DW01A).
+// Skala procentowa jest zsynchronizowana z krzywą kBatteryCurve() poniżej:
+// 3.80 V = 100% (użytkownik traktuje 3.8 V jako pełne naładowanie), 3.30 V = 0%.
+#define BATTERY_VOLTAGE_MAX 3.8f      // 100% (pełne naładowanie)
+#define BATTERY_VOLTAGE_NOM 3.7f      // wartość nominalna
+#define BATTERY_VOLTAGE_LOW 3.5f      // niski poziom (pomarańczowy)
+#define BATTERY_VOLTAGE_MIN 3.3f      // 0% krytyczny (czerwony)
+#define BATTERY_VOLTAGE_CUTOFF 3.3f   // 0% ochrona wyłącza
 
 // Interwały pomiaru i ostrzegania
 #define BATTERY_CHECK_INTERVAL_MS 1000UL   // Sprawdzaj co 1 sekundę
@@ -2618,15 +2620,14 @@ float readBatteryVoltage() {
   return vbat;
 }
 
-// Nieliniowa charakterystyka rozładowania ogniwa Li-ion (3.4-4.2V).
-// Liniowa mapa 3.4-4.2V zaniżała wskazania w środku zakresu: ogniwo trzyma
-// ~3.7-3.8V przez większość czasu, więc "50%" świeciło zbyt długo, a pod
-// obciążeniem procent spadał skokowo. Poniższa tabela odwzorowuje typową
-// krzywą 18650 (napięcie w spoczynku -> procent).
+// Nieliniowa charakterystyka rozładowania ogniwa Li-ion w skali użytkownika:
+// 3.80 V = 100%, 3.30 V = 0%. Użytkownik uznaje 3.8 V za pełne naładowanie
+// (wskazanie ma pokazywać 100%), więc krzywa jest przesunięta względem
+// klasycznej charakterystyki 18650. Kształt zachowany: ogniwo trzyma ~3.6-3.7 V
+// przez większość czasu, więc środek zakresu odpowiada realnemu plateau.
 static const struct { float v; int pct; } kBatteryCurve[] = {
-  {4.20f, 100}, {4.10f, 90}, {4.00f, 78}, {3.95f, 70}, {3.90f, 62},
-  {3.85f, 55}, {3.80f, 47}, {3.75f, 40}, {3.70f, 33}, {3.65f, 25},
-  {3.60f, 18}, {3.55f, 12}, {3.50f, 7},  {3.45f, 3},  {3.40f, 0},
+  {3.80f, 100}, {3.75f, 90}, {3.70f, 80}, {3.65f, 68}, {3.60f, 56},
+  {3.55f, 45}, {3.50f, 34}, {3.45f, 24}, {3.40f, 14}, {3.35f, 6}, {3.30f, 0},
 };
 
 // Funkcja obliczania procentu naładowania (interpolacja krzywej Li-ion)
