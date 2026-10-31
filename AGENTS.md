@@ -42,10 +42,20 @@ warunku), żeby oba gesty się nie kłóciły.
 **Menu (480x320):** `drawAlarmMenu()` — nagłówek `uiMenuHeader()`, duży podgląd
 `GG:MM`, przyciski `-`/`+` dla godzin i minut, 7 kafelków dni
 (`ALARM_DAY_SHORT` = ND PN WT SR CZ PT SB), **12 kafelków melodii** w siatce 2x6
-(dotknięcie gra próbkę: `alarmPreviewMode = true` → raz, bez pętli), przyciski
+(dotknięcie gra próbkę: `alarmPreviewMode = true` → raz, bez pętli), **suwak
+głośności melodii** (`drawAlarmVolumeSlider()`), przyciski
 `ALARM: WL/WYL`, `ZAPISZ`, `ZAMKNIJ`. Układ trzymają wspólne stałe `ALM_*`
 (używane i przy rysowaniu, i w hit-testach). Obsługa: `handleAlarmMenuTouch()`
 + `alarmMelodyTileAt()` dla siatki melodii.
+
+**Suwak głośności (GLOSNOŚĆ):** `ALM_VOL_*` (tor 88..392 @ y=252), wartość =
+wypełnienie LEDC `ALM_VOL_MIN..ALM_VOL_MAX` (40..1023). `setAlarmVolumeFromTouch()`
+działa **także przy przeciąganiu** (poza guardem `isNewTap`) i po każdej zmianie
+gra krótką próbkę melodii nową głośnością. Ustawia `alarmMenuVolume` i od razu
+`alarmVolume`; `alarmTone()` bierze wypelnienie z `alarmVolume` (fallback
+`BUZZER_DUTY`). Zapis do NVS (`alarm_vol`) dopiero przy `ZAPISZ`/`ZAMKNIJ` —
+brak zapisu na każdy piksel przeciągania. Strefa dotyku y 240..268 (między
+siatką melodii kończącą się na 237 a przyciskami od 270).
 
 **Dotyk w menu alarmu:** kafelki (dni, melodia) i przyciski dolne zmieniają się
 **tylko przy `isNewTap`** — bez tego palec przeciągany po ekranie przelatywał po
@@ -53,9 +63,9 @@ kafelkach melodii i restartował podgląd dźwięku (dotyk „źle działał"). 
 +/- mają natomiast **powtarzanie przy przytrzymaniu** (co 150 ms), ale **bez**
 500 ms zwłoki (pierwsze naciśnięcie działa natychmiast). Przyciski +/- godzin i
 minut są rozsunięte (H-104/H+192, M-242/M+330), żeby się nie nakładały.
-Zapis do NVS: klucze `alarm_en/alarm_hour/alarm_min/alarm_days/alarm_mel`
+Zapis do NVS: klucze `alarm_en/alarm_hour/alarm_min/alarm_days/alarm_mel/alarm_vol`
 (`savePreferences()`/`loadPreferences()`), domyślnie alarm WYŁĄCZONY, dni
-0x7F (wszystkie).
+0x7F (wszystkie), głośność `ALM_VOL_DEFAULT` (512).
 
 **Melodie (12, `ALARM_MELODIES[]`):** BUDZIK, DZWONEK, POBUDKA, PIKANIE,
 MORS CQ, MORS SOS, SYRENA, NOKIA (Gran Vals, PD), TETRIS (Korobeiniki, ludowa),
@@ -73,10 +83,12 @@ zostaje ciągły pisk, którego nic nie wyłącza). Ciszę robi się przez
 `ledcWrite(pin, 0)` (3.x). `alarmTone(0)` wołane też na końcu `alarmInitBuzzer()`.
 
 **Głośność piezo:** pasywny piezo ma rezonans ~2–4 kHz, więc nuty 370–880 Hz są
-ciche. `BUZZER_OCTAVE_UP 1` podbija strój o oktawę (`freq << 1`) w `alarmTone()`;
+ciche. `BUZZER_OCTAVE_UP 2` podbija strój o 2 oktawy (`freq << 2`) w `alarmTone()`;
 ta sama stała `OCTAVE_UP` w `tools/make_alarm_audio.py` (podgląd = to, co gra).
-`BUZZER_DUTY 512` (~50%). Zabezpieczenie w `loop()`: `alarmRinging` i minął
-`alarmRingScreenUntilMs` → `alarmStopMelody()` (nigdy nie piszczy w nieskończoność).
+Poziom głośności (wypełnienie LEDC) ustawia suwak w menu alarmu (`alarmVolume`);
+`BUZZER_DUTY 512` to tylko wartość domyślna/fallback. Zabezpieczenie w `loop()`:
+`alarmRinging` i minął `alarmRingScreenUntilMs` → `alarmStopMelody()` (nigdy nie
+piszczy w nieskończoność).
 
 **Dzwonienie:** `checkAlarmTrigger()` liczy minutę absolutną
 `tm_yday*1440 + godz*60 + min` i porównuje z celem — alarm odpala **raz

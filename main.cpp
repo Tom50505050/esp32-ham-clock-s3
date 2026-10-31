@@ -2294,11 +2294,18 @@ int clockHitX = 40, clockHitY = 125, clockHitW = 400, clockHitH = 70;
 #define ALARM_DAYS 7                // 0=niedziela ... 6=sobota (zgodnie z tm_wday)
 #define ALARM_MELODY_COUNT 12
 
+// Suwak glosnosci melodii w menu alarmu (wypelnienie LEDC, 10 bitow => 0..1023).
+// Ustawienia wspolne dla rysowania i hit-testu.
+#define ALM_VOL_MIN 40              // dolny zakres (nie 0, zeby suwak nie byl "głuchy")
+#define ALM_VOL_MAX 1023            // maks. wypelnienie
+#define ALM_VOL_DEFAULT 512         // = BUZZER_DUTY (dotychczasowa glosnosc)
+
 bool alarmEnabled = false;          // czy alarm w ogole dziala
 int alarmHour = 7;                  // godzina alarmu (0..23)
 int alarmMinute = 0;                // minuta (0..59)
 uint8_t alarmDaysMask = 0x7F;       // bity 0..6 = nd..sob (domyslnie codziennie)
 int alarmMelody = 0;                // wybrany dzwiek (0..ALARM_MELODY_COUNT-1)
+int alarmVolume = ALM_VOL_DEFAULT;  // glosnosc buzzera (wypelnienie LEDC, 0..1023)
 
 // Menu alarmu (modalne, jak menu koloru znaku).
 bool alarmMenuActive = false;
@@ -2306,6 +2313,7 @@ int alarmMenuHour = 7;
 int alarmMenuMinute = 0;
 uint8_t alarmMenuDays = 0x7F;
 int alarmMenuMelody = 0;
+int alarmMenuVolume = ALM_VOL_DEFAULT;  // glosnosc w menu (zatwierdzana ZAPISZ)
 bool alarmMenuEnabled = false;
 ScreenType alarmMenuPrevScreen = SCREEN_MATRIX_CLOCK;
 bool alarmMenuPrevInMenu = false;
@@ -9348,12 +9356,15 @@ static void alarmTone(uint16_t freq) {
 #else
   uint32_t f = freq;
 #endif
+  // Glosnosc = wypelnienie LEDC. alarmVolume (suwak w menu) nadpisuje BUZZER_DUTY.
+  uint32_t duty = (alarmVolume > 0) ? (uint32_t)alarmVolume : BUZZER_DUTY;
+  if (duty > ALM_VOL_MAX) duty = ALM_VOL_MAX;
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
   ledcChangeFrequency(BUZZER_PIN, f, 10);
-  ledcWrite(BUZZER_PIN, BUZZER_DUTY);
+  ledcWrite(BUZZER_PIN, duty);
 #else
   ledcWriteTone(BUZZER_LEDC_CHANNEL, f);
-  ledcWrite(BUZZER_LEDC_CHANNEL, BUZZER_DUTY);
+  ledcWrite(BUZZER_LEDC_CHANNEL, duty);
 #endif
 #endif
 }
@@ -9486,18 +9497,22 @@ void alarmRingTimeoutCheck() {
 static const char *ALARM_DAY_SHORT[ALARM_DAYS] = {"ND","PN","WT","SR","CZ","PT","SB"};
 
 // Uklad menu alarmu - wspolny dla rysowania i obslugi dotyku.
-static const int ALM_PREVIEW_TIME_Y = 56;   // srodek duzego podgladu GG:MM
-static const int ALM_PREVIEW_NAME_Y = 78;   // nazwa melodii pod godzina
-static const int ALM_ROW_Y = 90;            // gorny brzeg przyciskow -/+
+static const int ALM_PREVIEW_TIME_Y = 54;   // srodek duzego podgladu GG:MM
+static const int ALM_PREVIEW_NAME_Y = 76;   // nazwa melodii pod godzina
+static const int ALM_ROW_Y = 88;            // gorny brzeg przyciskow -/+
 static const int ALM_BTN_W = 46, ALM_BTN_H = 26;
 static const int ALM_HOUR_MINUS_X = 104, ALM_HOUR_PLUS_X = 192;
 static const int ALM_MIN_MINUS_X = 242,  ALM_MIN_PLUS_X = 330;
-static const int ALM_ROW_LABEL_Y = 118;
-static const int ALM_DAYS_LABEL_Y = 132;
-static const int ALM_DAYS_Y = 142, ALM_DAY_TILE_W = 54, ALM_DAY_TILE_H = 26, ALM_DAY_GAP = 8;
-static const int ALM_MEL_LABEL_Y = 174;
-static const int ALM_MEL_GRID_Y = 184;
-static const int ALM_BTN_ROW_Y = 256, ALM_BTN_ROW_H = 30, ALM_BTN_ROW_W = 118, ALM_BTN_ROW_GAP = 12;
+static const int ALM_ROW_LABEL_Y = 116;
+static const int ALM_DAYS_LABEL_Y = 128;
+static const int ALM_DAYS_Y = 140, ALM_DAY_TILE_W = 54, ALM_DAY_TILE_H = 26, ALM_DAY_GAP = 8;
+static const int ALM_MEL_LABEL_Y = 170;
+static const int ALM_MEL_GRID_Y = 180;
+// Suwak glosnosci melodii (miedzy siatka melodii a przyciskami dolnymi).
+// Siatka melodii (2 rzedy x MEL_TILE_H=26 + MEL_GAP=5) konczy sie na y=237.
+static const int ALM_VOL_LABEL_Y = 242;
+static const int ALM_VOL_X = 88, ALM_VOL_Y = 252, ALM_VOL_W = 304, ALM_VOL_H = 12;
+static const int ALM_BTN_ROW_Y = 270, ALM_BTN_ROW_H = 30, ALM_BTN_ROW_W = 118, ALM_BTN_ROW_GAP = 12;
 
 static void alarmDrawBox(int x, int y, int w, int h, uint16_t fill, uint16_t border) {
   tft.fillRect(x, y, w, h, fill);
@@ -9536,7 +9551,7 @@ static void alarmRedrawDaysRow() {
 // Melodie: 12 kafelkow w dwoch rzedach po 6 (2x6). alarmMelodyTileAt() zwraca
 // indeks kafelka trafionego w (x,y) albo -1.
 static const int MEL_COLS = 6;
-static const int MEL_TILE_W = 72, MEL_TILE_H = 30, MEL_GAP = 6;
+static const int MEL_TILE_W = 72, MEL_TILE_H = 26, MEL_GAP = 5;
 static int alarmMelodyTileAt(int x, int y) {
   const int gridW = MEL_COLS * MEL_TILE_W + (MEL_COLS - 1) * MEL_GAP;
   const int startX = (480 - gridW) / 2;
@@ -9558,6 +9573,52 @@ static void alarmRedrawMelodyRow() {
     int ty = ALM_MEL_GRID_Y + row * (MEL_TILE_H + MEL_GAP);
     drawFilterTile(tx, ty, MEL_TILE_W, MEL_TILE_H, ALARM_MELODIES[i].name, alarmMenuMelody == i);
   }
+}
+
+// Suwak glosnosci melodii (wypelnienie LEDC ALM_VOL_MIN..ALM_VOL_MAX).
+static void drawAlarmVolumeSlider() {
+  const bool classic = uiStyleClassic();
+  const uint16_t bg = classic ? TFT_BLACK : UI_COL_BG;
+  const int x = ALM_VOL_X, y = ALM_VOL_Y, w = ALM_VOL_W, h = ALM_VOL_H;
+  const int knobW = 6;
+  int val = alarmMenuVolume;
+  if (val < ALM_VOL_MIN) val = ALM_VOL_MIN;
+  if (val > ALM_VOL_MAX) val = ALM_VOL_MAX;
+
+  // Obszar z zapasem na pokretlo (czysci slad po poprzednim rysowaniu).
+  tft.fillRect(x - knobW, y - 5, w + knobW * 2, h + 10, bg);
+
+  // Etykieta + wartosc procentowa.
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_DIM, bg);
+  tft.setCursor(ALM_VOL_X, ALM_VOL_LABEL_Y);
+  tft.print(trStr("GLOSNOSC", "VOLUME", "LAUTSTAERKE", "VOLUME", "VOLUMEN", "GROMKOST"));
+  char pct[8];
+  snprintf(pct, sizeof(pct), "%d%%", (val * 100 + ALM_VOL_MAX / 2) / ALM_VOL_MAX);
+  tft.setTextColor(UI_COL_TEXT, bg);
+  tft.setCursor(ALM_VOL_X + w - tft.textWidth(pct), ALM_VOL_LABEL_Y);
+  tft.print(pct);
+
+  // Tor suwaka.
+  tft.drawRect(x, y, w, h, TFT_WHITE);
+  int fillW = (int)((long)(val - ALM_VOL_MIN) * (w - 2) / (ALM_VOL_MAX - ALM_VOL_MIN));
+  tft.fillRect(x + 1, y + 1, fillW, h - 2, TFT_RADIO_ORANGE);
+  int knobX = x + (int)((long)(val - ALM_VOL_MIN) * (w - knobW) / (ALM_VOL_MAX - ALM_VOL_MIN));
+  tft.fillRect(knobX, y - 4, knobW, h + 8, TFT_WHITE);
+}
+
+// Przelicza pozycje dotyku X na glosnosc i odswieza suwak. Zwraca true, gdy
+// wartosc sie zmienila (wtedy warto odtworzyc krotka probke dzwieku).
+static bool setAlarmVolumeFromTouch(uint16_t x) {
+  const int w = ALM_VOL_W;
+  long val = (long)(x - ALM_VOL_X) * (ALM_VOL_MAX - ALM_VOL_MIN) / (w - 1) + ALM_VOL_MIN;
+  if (val < ALM_VOL_MIN) val = ALM_VOL_MIN;
+  if (val > ALM_VOL_MAX) val = ALM_VOL_MAX;
+  if ((int)val == alarmMenuVolume) return false;
+  alarmMenuVolume = (int)val;
+  alarmVolume = alarmMenuVolume;  // natychmiast slysze zmiane w probce
+  drawAlarmVolumeSlider();
+  return true;
 }
 
 void drawAlarmMenu() {
@@ -9597,6 +9658,7 @@ void drawAlarmMenu() {
 
   alarmRedrawDaysRow();
   alarmRedrawMelodyRow();
+  drawAlarmVolumeSlider();
 
   // Przyciski: WL/WYL, ZAPISZ, ZAMKNIJ.
   const int bW = ALM_BTN_ROW_W, bH = ALM_BTN_ROW_H, bY = ALM_BTN_ROW_Y, bGap = ALM_BTN_ROW_GAP;
@@ -9616,6 +9678,7 @@ void openAlarmMenu() {
   alarmMenuMinute = alarmMinute;
   alarmMenuDays = alarmDaysMask;
   alarmMenuMelody = alarmMelody;
+  alarmMenuVolume = alarmVolume;
   alarmMenuEnabled = alarmEnabled;
   alarmMenuPrevScreen = currentScreen;
   alarmMenuPrevInMenu = inMenu;
@@ -9630,6 +9693,18 @@ void handleAlarmMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   if (now - alarmMenuOpenedMs < 400) {
     return;  // ignoruj dotkniecie, ktore otworzylo menu (trzymanie 5 s)
   }
+
+  // Suwak glosnosci - obslugiwany takze przy przeciaganiu palca (isNewTap=false),
+  // zeby dalo sie plynnie sciszac/zglasniac. Strefa dotyku 240..268 (ponizej
+  // siatki melodii konczacej sie na 237, powyzej przyciskow startujacych na 270).
+  if (y >= ALM_VOL_Y - 12 && y <= ALM_VOL_Y + ALM_VOL_H + 4) {
+    if (setAlarmVolumeFromTouch(x)) {
+      alarmPreviewMode = true;
+      alarmStartMelody(alarmMenuMelody);  // slysze nowa glosnosc
+    }
+    return;
+  }
+
   // Kafelki i przyciski zmieniamy TYLKO przy nowym dotknieciu. Bez tego guardu
   // palec przeciagany po ekranie przelatywal po kafelkach melodii i zmienial
   // wybor + restartowal podglad dzwieku (dotyk "zle dzialal").
@@ -9718,6 +9793,7 @@ void handleAlarmMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     alarmMinute = alarmMenuMinute;
     alarmDaysMask = alarmMenuDays;
     alarmMelody = alarmMenuMelody;
+    alarmVolume = alarmMenuVolume;
     alarmEnabled = alarmMenuEnabled;
     alarmLastTriggerAbsMin = -1;
     savePreferences();
@@ -9729,6 +9805,11 @@ void handleAlarmMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     return;
   }
   if (isPointInRect(x, y, closeX, bY, bW, bH)) {
+    // Suwak glosnosci dziala "na zywo", wiec ZAMKNIJ tez utrwala nowa glosnosc
+    // (pozostale pola bez zmian). Zapis dopiero tutaj = brak zapisu NVS na kazdy
+    // piksel przeciagania.
+    alarmVolume = alarmMenuVolume;
+    savePreferences();
     alarmStopMelody();
     alarmMenuActive = false;
     currentScreen = alarmMenuPrevScreen;
@@ -22250,10 +22331,12 @@ void loadPreferences() {
   alarmMinute = preferences->getInt("alarm_min", 0);
   alarmDaysMask = (uint8_t)preferences->getInt("alarm_days", 0x7F);
   alarmMelody = preferences->getInt("alarm_mel", 0);
+  alarmVolume = preferences->getInt("alarm_vol", ALM_VOL_DEFAULT);
   if (alarmHour < 0 || alarmHour > 23) alarmHour = 7;
   if (alarmMinute < 0 || alarmMinute > 59) alarmMinute = 0;
   if (alarmDaysMask == 0) alarmDaysMask = 0x7F;
   if (alarmMelody < 0 || alarmMelody >= ALARM_MELODY_COUNT) alarmMelody = 0;
+  if (alarmVolume < ALM_VOL_MIN || alarmVolume > ALM_VOL_MAX) alarmVolume = ALM_VOL_DEFAULT;
   resetAprsAlertCooldownState();
   int storedIntervalMin = preferences->getInt(NVS_KEY_APRS_INTERVAL_MIN, DEFAULT_APRS_INTERVAL_MIN);
   applyAprsIntervalMinutes(storedIntervalMin);
@@ -22427,6 +22510,7 @@ void savePreferences() {
   preferences->putInt("alarm_min", alarmMinute);
   preferences->putInt("alarm_days", (int)alarmDaysMask);
   preferences->putInt("alarm_mel", alarmMelody);
+  preferences->putInt("alarm_vol", alarmVolume);
   preferences->putInt(NVS_KEY_APRS_INTERVAL_MIN, aprsIntervalMinutes);
   // Ograniczenie promienia do 1-50 km przed zapisem
   int radiusToSave = aprsFilterRadius;

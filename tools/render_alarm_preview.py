@@ -118,22 +118,25 @@ MELODIES = ["BUDZIK", "DZWONEK", "POBUDKA", "PIKANIE", "MORS CQ", "MORS SOS",
             "SYRENA", "NOKIA", "TETRIS", "KUKULKA", "PIPS", "KURANT"]
 
 # Uklad zgodny z main.cpp (stale ALM_*).
-PREVIEW_TIME_Y = 56
-PREVIEW_NAME_Y = 78
-ROW_Y = 90
+PREVIEW_TIME_Y = 54
+PREVIEW_NAME_Y = 76
+ROW_Y = 88
 BTN_W, BTN_H = 46, 26
 HOUR_MINUS_X, HOUR_PLUS_X = 104, 192
 MIN_MINUS_X, MIN_PLUS_X = 242, 330
-ROW_LABEL_Y = 118
-DAYS_LABEL_Y = 132
-DAYS_Y, DAY_TILE_W, DAY_TILE_H, DAY_GAP = 142, 54, 26, 8
-MEL_LABEL_Y = 174
-MEL_GRID_Y = 184
-MEL_COLS, MEL_TILE_W, MEL_TILE_H, MEL_GAP = 6, 72, 30, 6
-BTN_ROW_Y, BTN_ROW_H, BTN_ROW_W, BTN_ROW_GAP = 256, 30, 118, 12
+ROW_LABEL_Y = 116
+DAYS_LABEL_Y = 128
+DAYS_Y, DAY_TILE_W, DAY_TILE_H, DAY_GAP = 140, 54, 26, 8
+MEL_LABEL_Y = 170
+MEL_GRID_Y = 180
+MEL_COLS, MEL_TILE_W, MEL_TILE_H, MEL_GAP = 6, 72, 26, 5
+VOL_LABEL_Y = 242
+VOL_X, VOL_Y, VOL_W, VOL_H = 88, 252, 304, 12
+VOL_MIN, VOL_MAX, VOL_DEFAULT = 40, 1023, 512
+BTN_ROW_Y, BTN_ROW_H, BTN_ROW_W, BTN_ROW_GAP = 270, 30, 118, 12
 
 
-def render(classic, hour=7, minute=30, days_mask=0b0111110, melody=0, enabled=True):
+def render(classic, hour=7, minute=30, days_mask=0b0111110, melody=0, enabled=True, volume=VOL_DEFAULT):
     bg = c565(0x0000) if classic else UI_BG
     im = Image.new("RGB", (480, 320), bg)
     d = ImageDraw.Draw(im)
@@ -184,6 +187,16 @@ def render(classic, hour=7, minute=30, days_mask=0b0111110, melody=0, enabled=Tr
         col, row = i % MEL_COLS, i // MEL_COLS
         tile(d, gx + col * (MEL_TILE_W + MEL_GAP), MEL_GRID_Y + row * (MEL_TILE_H + MEL_GAP),
              MEL_TILE_W, MEL_TILE_H, name, melody == i, classic)
+
+    # Suwak glosnosci melodii
+    draw_f1(d, VOL_X, VOL_LABEL_Y, "GLOSNOSC", UI_DIM)
+    pct = "%d%%" % ((volume * 100 + VOL_MAX // 2) // VOL_MAX)
+    draw_f1(d, VOL_X + VOL_W - f1_w(pct), VOL_LABEL_Y, pct, UI_TEXT)
+    d.rectangle([VOL_X, VOL_Y, VOL_X + VOL_W - 1, VOL_Y + VOL_H - 1], outline=WHITE)
+    fillw = int((volume - VOL_MIN) * (VOL_W - 2) / (VOL_MAX - VOL_MIN))
+    d.rectangle([VOL_X + 1, VOL_Y + 1, VOL_X + 1 + fillw - 1, VOL_Y + VOL_H - 2], fill=ORANGE)
+    knobx = VOL_X + int((volume - VOL_MIN) * (VOL_W - 6) / (VOL_MAX - VOL_MIN))
+    d.rectangle([knobx, VOL_Y - 4, knobx + 5, VOL_Y + VOL_H + 3], fill=WHITE)
 
     # Przyciski
     enableX = 12
