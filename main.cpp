@@ -146,6 +146,19 @@ void openClockColorMenu();
 uint16_t hsv565(int hue, int sat, int val);
 static void rgb565ToHsv(uint16_t c, int &h, int &sat, int &val);
 bool isPointInRect(uint16_t x, uint16_t y, int rx, int ry, int rw, int rh);
+
+// ===== ALARM (ekran Matrix) - menu z dlugim przytrzymaniem 5 s =====
+void drawAlarmMenu();
+void handleAlarmMenuTouch(uint16_t x, uint16_t y, bool isNewTap);
+void openAlarmMenu();
+void checkAlarmTrigger();
+void alarmUpdateBuzzer();
+void alarmStartMelody(int index);
+void alarmStopMelody();
+void alarmInitBuzzer();
+void drawAlarmRingScreen();
+void dismissAlarmRingScreen();
+void alarmRingTimeoutCheck();
 void handleScreen1MenuTouch(uint16_t x, uint16_t y);
 void handleScreen2MenuTouch(uint16_t x, uint16_t y);
 void handleScreen6MenuTouch(uint16_t x, uint16_t y);
@@ -2260,6 +2273,55 @@ int callsignHitX = 40, callsignHitY = 45, callsignHitW = 400, callsignHitH = 55;
 // Obszar duzego zegara na ekranie HAM CLOCK (do wykrycia przytrzymania palca).
 int clockHitX = 40, clockHitY = 125, clockHitW = 400, clockHitH = 70;
 
+// ========== ALARM (ekran Matrix, przytrzymanie 5 s) ==========
+// Buzzer pasywny (piezo) na wolnym GPIO 2. Sterowany LEDC (jak podswietlenie),
+// wiec nie zalezy od obecnosci tone() w danym rdzeniu Arduino-ESP32.
+#ifndef BUZZER_PIN
+#define BUZZER_PIN 2
+#endif
+#ifndef BUZZER_LEDC_CHANNEL
+#define BUZZER_LEDC_CHANNEL 1   // kanal 0 zajety przez podswietlenie (BACKLIGHT_PWM_CHANNEL)
+#endif
+#define BUZZER_DUTY 512             // ~50% z 10 bitow - glosnosc piezo
+#define ALARM_DAYS 7                // 0=niedziela ... 6=sobota (zgodnie z tm_wday)
+#define ALARM_MELODY_COUNT 4
+
+bool alarmEnabled = false;          // czy alarm w ogole dziala
+int alarmHour = 7;                  // godzina alarmu (0..23)
+int alarmMinute = 0;                // minuta (0..59)
+uint8_t alarmDaysMask = 0x7F;       // bity 0..6 = nd..sob (domyslnie codziennie)
+int alarmMelody = 0;                // wybrany dzwiek (0..ALARM_MELODY_COUNT-1)
+
+// Menu alarmu (modalne, jak menu koloru znaku).
+bool alarmMenuActive = false;
+int alarmMenuHour = 7;
+int alarmMenuMinute = 0;
+uint8_t alarmMenuDays = 0x7F;
+int alarmMenuMelody = 0;
+bool alarmMenuEnabled = false;
+ScreenType alarmMenuPrevScreen = SCREEN_MATRIX_CLOCK;
+bool alarmMenuPrevInMenu = false;
+unsigned long alarmMenuOpenedMs = 0;
+
+// Stan odtwarzania melodii (nieblokujacy automat stanow). Wolatile, bo stan
+// dziela dwa zadania: loop (alarmUpdateBuzzer) i UI_Task (start/stop z dotyku).
+volatile bool alarmRinging = false;
+volatile bool alarmPreviewMode = false;   // true = probka w menu (gra raz, nie w petli)
+volatile int alarmPlayIndex = -1;
+volatile int alarmPlayStep = 0;
+volatile int alarmPlayNote = 0;
+volatile unsigned long alarmNoteStartMs = 0;
+unsigned long alarmLastRingMs = 0;
+long alarmLastTriggerAbsMin = -1;   // minuta absolutna (dzien*1440+godz*60+min); -1 = brak
+
+// Ekran modalny dzwoniacego alarmu (jak alert APRS/pogodowy) - widoczny na
+// dowolnym ekranie, zeby nie przegapic alarmu. Auto-stop po ALARM_RING_DISPLAY_MS.
+volatile bool alarmRingScreenActive = false;
+volatile bool alarmRingPending = false;
+bool alarmRingPrevInMenu = false;
+unsigned long alarmRingScreenUntilMs = 0;
+const unsigned long ALARM_RING_DISPLAY_MS = 60000UL;
+
 // ========== ISS TRACKING VARIABLES ==========
 #define ISS_TRAJECTORY_POINTS 45
 double issLat = 0.0;
@@ -4128,7 +4190,7 @@ void drawWifiSignalBars(int x, int y, int strength = -1, uint16_t bg = TFT_BLACK
 void drawWifiBarsQuickUpdate() {
   if (!tftInitialized) return;
   if (inMenu || aprsAlertScreenActive || gpsScreenActive) return;
-  if (brightnessMenuActive || screenSaverMenuActive) return;
+  if (brightnessMenuActive || screenSaverMenuActive || alarmMenuActive) return;
   if (!wifiConnected || WiFi.status() != WL_CONNECTED) return;  // brak polaczenia -> zostaw
 
   bool clockScreen = (currentScreen == SCREEN_HAM_CLOCK);
@@ -4201,7 +4263,7 @@ static void drawGpsIconInHeader(bool classic) {
 static void refreshGpsIconIfChanged() {
   if (!tftInitialized || !gpsEnabled) return;
   if (currentScreen != SCREEN_HAM_CLOCK) return;
-  if (inMenu || brightnessMenuActive || screenSaverMenuActive) return;
+  if (inMenu || brightnessMenuActive || screenSaverMenuActive || alarmMenuActive) return;
   uint8_t st = gpsIconState();
   if (st == gpsIconLastState) return;
   drawGpsIconInHeader(uiStyleClassic());
@@ -4243,7 +4305,7 @@ void drawBatteryQuickUpdate(bool skipScreenCheck = false) {
   if (!tftInitialized) return;
   if (inMenu) return;  // Naglowki menu nie maja ikony baterii
   if (!skipScreenCheck && currentScreen != SCREEN_HAM_CLOCK) return;
-  if (brightnessMenuActive || screenSaverMenuActive) return;  // Nie rysuj podczas menu
+  if (brightnessMenuActive || screenSaverMenuActive || alarmMenuActive) return;  // Nie rysuj podczas menu
 
   // Brak akumulatora/dzielnika = brak pomiaru; naglowek nie rysuje ikony.
   if (batteryVoltage <= 0.1f || batteryVoltage > 5.0f) return;
@@ -6651,8 +6713,20 @@ void handleTouchNavigation() {
       touchStartX = x;
       touchStartY = y;
       longPressHandled = false;
-      matrixGameHoldCandidate = (currentScreen == SCREEN_MATRIX_CLOCK && !inMenu && x >= 320 && y <= 80);
+      // Przytrzymanie gdziekolwiek na ekranie Matrix (>=5 s) otwiera menu alarmu.
+      matrixGameHoldCandidate = (currentScreen == SCREEN_MATRIX_CLOCK && !inMenu);
       isNewTap = true;
+    }
+
+    // Dotkniecie ekranu w trakcie dzwonienia alarmu = cisza (bez przerywania obslugi).
+    if (isNewTap && alarmRinging) {
+      alarmStopMelody();
+    }
+
+    // Ekran dzwoniacego alarmu: dowolne dotkniecie zatrzymuje i zamyka.
+    if (alarmRingScreenActive) {
+      if (isNewTap) dismissAlarmRingScreen();
+      return;
     }
 
     if (touchCalActive) {
@@ -6695,18 +6769,21 @@ void handleTouchNavigation() {
       return;
     }
 
-    if (!brightnessMenuActive && !longPressHandled && matrixGameHoldCandidate) {
-      if (currentScreen == SCREEN_MATRIX_CLOCK && !inMenu && (now - touchStartMs) >= 2000) {
-        currentScreen = SCREEN_SYSTEM_INFO;
-        drawScreen(currentScreen);
-        resetTftAutoSwitchTimer();
+    if (!brightnessMenuActive && !alarmMenuActive && !longPressHandled && matrixGameHoldCandidate) {
+      // Na ekranie Matrix dlugie przytrzymanie (>=5 s) otwiera menu ALARMU
+      // (wczesniej skrot do ekranu SYSTEM_INFO przy 2 s).
+      if (currentScreen == SCREEN_MATRIX_CLOCK && !inMenu && (now - touchStartMs) >= 5000) {
         longPressHandled = true;
         matrixGameHoldCandidate = false;
+        openAlarmMenu();
         return;
       }
     }
 
-    if (!brightnessMenuActive && !longPressHandled) {
+    // Menu jasnosci nie otwiera sie na ekranie Matrix - tam dlugie przytrzymanie
+    // (>=5 s) nalezy do menu alarmu.
+    if (!brightnessMenuActive && !alarmMenuActive && !longPressHandled &&
+        currentScreen != SCREEN_MATRIX_CLOCK) {
       if (now - touchStartMs >= 3000) {
         brightnessMenuPrevScreen = currentScreen;
         brightnessMenuPrevInMenu = inMenu;
@@ -6738,6 +6815,11 @@ void handleTouchNavigation() {
         isPointInRect(x, y, clockHitX, clockHitY, clockHitW, clockHitH)) {
       longPressHandled = true;
       openClockColorMenu();
+      return;
+    }
+
+    if (alarmMenuActive) {
+      handleAlarmMenuTouch(x, y, isNewTap);
       return;
     }
 
@@ -7213,7 +7295,7 @@ static void uiMenuHeader(const char *title) {
 // Zegar UTC w lewym gornym rogu naglowka (mniejszy, obok hamburgera przy menu).
 static void uiHeaderClock() {
   if (!tftInitialized || inMenu || brightnessMenuActive || screenSaverMenuActive ||
-      screenSleepMenuActive || touchCalActive || pskKeyboardActive) {
+      screenSleepMenuActive || touchCalActive || pskKeyboardActive || alarmMenuActive) {
     return;
   }
   String utc = getUtcTimeString();
@@ -7228,7 +7310,7 @@ static void uiHeaderClock() {
 // Stopka: strzalki < > + podpis "SWITCH SCREEN" (styl ISS).
 static void uiFooter() {
   if (inMenu || brightnessMenuActive || screenSaverMenuActive ||
-      screenSleepMenuActive || touchCalActive || pskKeyboardActive) {
+      screenSleepMenuActive || touchCalActive || pskKeyboardActive || alarmMenuActive) {
     return;
   }
   const int arrowY = 309;
@@ -9148,6 +9230,391 @@ void handleClockColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     clockColorMenuActive = false;
     currentScreen = clockColorMenuPrevScreen;
     inMenu = clockColorMenuPrevInMenu;
+    drawScreen(currentScreen);
+    return;
+  }
+}
+
+// ============================================================================
+// ALARM (ekran Matrix) - menu otwierane przytrzymaniem 5 s, melodia na buzzer.
+// ============================================================================
+
+// Utwor: sekwencja nut. freq == 0 => pauza. Kazda nuta trwa tyle samo (jednostka).
+struct AlarmNote { uint16_t freq; uint8_t units; };
+struct AlarmMelody { const char *name; const AlarmNote *notes; int count; };
+
+// Krotkie, rozpoznawalne motywy (freq Hz, czas w jednostkach ~150 ms).
+static const AlarmNote MEL0_NOTES[] = {  // Klasyczny budzik
+  {880,2},{0,1},{880,2},{0,1},{880,3},{0,2},{1047,4},{0,4},
+};
+static const AlarmNote MEL1_NOTES[] = {  // Dzwonek (ding-dong)
+  {1319,3},{0,1},{988,3},{0,3},{1319,3},{0,1},{988,3},{0,4},
+};
+static const AlarmNote MEL2_NOTES[] = {  // Pobudka (fanfara)
+  {523,1},{659,1},{784,1},{1047,2},{0,1},{1047,1},{784,1},{1047,3},{0,3},
+};
+static const AlarmNote MEL3_NOTES[] = {  // Pikanie (alarm cyfrowy)
+  {1568,1},{0,1},{1568,1},{0,1},{1568,1},{0,1},{1568,1},{0,3},
+};
+static const AlarmMelody ALARM_MELODIES[ALARM_MELODY_COUNT] = {
+  {"BUDZIK",  MEL0_NOTES, (int)(sizeof(MEL0_NOTES)/sizeof(MEL0_NOTES[0]))},
+  {"DZWONEK", MEL1_NOTES, (int)(sizeof(MEL1_NOTES)/sizeof(MEL1_NOTES[0]))},
+  {"POBUDKA", MEL2_NOTES, (int)(sizeof(MEL2_NOTES)/sizeof(MEL2_NOTES[0]))},
+  {"PIKANIE", MEL3_NOTES, (int)(sizeof(MEL3_NOTES)/sizeof(MEL3_NOTES[0]))},
+};
+static const uint16_t ALARM_UNIT_MS = 150;  // dlugosc jednej jednostki nuty
+
+void alarmInitBuzzer() {
+#if (BUZZER_PIN >= 0)
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+  ledcAttach(BUZZER_PIN, 2000, 10);
+#else
+  ledcSetup(BUZZER_LEDC_CHANNEL, 2000, 10);
+  ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CHANNEL);
+#endif
+#endif
+}
+
+// Ustawia ton (freq Hz). freq == 0 => cisza.
+static void alarmTone(uint16_t freq) {
+#if (BUZZER_PIN >= 0)
+  if (freq == 0) {
+    digitalWrite(BUZZER_PIN, LOW);
+    return;
+  }
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+  ledcChangeFrequency(BUZZER_PIN, freq, 10);
+  ledcWrite(BUZZER_PIN, BUZZER_DUTY);
+#else
+  ledcWriteTone(BUZZER_LEDC_CHANNEL, freq);
+  ledcWrite(BUZZER_LEDC_CHANNEL, BUZZER_DUTY);
+#endif
+#endif
+}
+
+void alarmStartMelody(int index) {
+  if (index < 0 || index >= ALARM_MELODY_COUNT) index = 0;
+  alarmPlayIndex = index;
+  alarmPlayStep = 0;
+  alarmPlayNote = 0;
+  alarmNoteStartMs = millis();
+  alarmTone(ALARM_MELODIES[index].notes[0].freq);
+}
+
+void alarmStopMelody() {
+  alarmTone(0);
+  alarmPlayIndex = -1;
+  alarmRinging = false;
+}
+
+// Wolane cyklicznie z petli glownej - odtwarza jedna nute na raz (bez delay).
+void alarmUpdateBuzzer() {
+  if (alarmPlayIndex < 0) return;
+  unsigned long now = millis();
+  const AlarmMelody &m = ALARM_MELODIES[alarmPlayIndex];
+  unsigned long dur = (unsigned long)m.notes[alarmPlayNote].units * ALARM_UNIT_MS;
+  if (now - alarmNoteStartMs < dur) return;
+
+  alarmPlayStep++;
+  alarmPlayNote++;
+  alarmNoteStartMs = now;
+  if (alarmPlayNote >= m.count) {
+    if (alarmPreviewMode) {
+      alarmStopMelody();  // probka w menu gra tylko raz
+      return;
+    }
+    // Koniec melodii - powtorz (dzwoni dopoki uzytkownik nie przerwie).
+    alarmPlayNote = 0;
+  }
+  alarmTone(m.notes[alarmPlayNote].freq);
+}
+
+// Sprawdza czy nadszedl czas alarmu (co sekunda z petli glownej).
+void checkAlarmTrigger() {
+  if (!alarmEnabled) {
+    alarmLastTriggerAbsMin = -1;
+    return;
+  }
+  struct tm ti;
+  if (!getTimeWithTimezone(&ti)) return;
+
+  if (!(alarmDaysMask & (1u << ti.tm_wday))) {
+    // Dzien nieaktywny - nie alarmujemy.
+    alarmLastTriggerAbsMin = -1;
+    return;
+  }
+
+  // Minuta absolutna (dzien roku * 1440) - alarm odpala raz dziennie, a nie
+  // tylko raz w zyciu modulu (samo hour*60+min powtorzyloby sie nazajutrz jako ta sama wartosc).
+  long nowAbsMin = (long)ti.tm_yday * 1440L + ti.tm_hour * 60 + ti.tm_min;
+  long targetAbsMin = (long)ti.tm_yday * 1440L + alarmHour * 60 + alarmMinute;
+  if (nowAbsMin == targetAbsMin && alarmLastTriggerAbsMin != nowAbsMin) {
+    alarmLastTriggerAbsMin = nowAbsMin;
+    alarmRinging = true;
+    alarmPreviewMode = false;
+    alarmLastRingMs = millis();
+    alarmStartMelody(alarmMelody);
+    alarmRingPending = true;  // ekran dzwonienia rysowany w UI_Task (bezpiecznie)
+    Serial.printf("[ALARM] Dzwoni! %02d:%02d\n", alarmHour, alarmMinute);
+  }
+}
+
+// Ekran modalny dzwoniacego alarmu (duzy pulsujacy napis + podpowiedz).
+void drawAlarmRingScreen() {
+  if (!tftInitialized) return;
+  alarmRingScreenActive = true;
+  alarmRingPrevInMenu = inMenu;
+  inMenu = true;  // blokuje periodyczne odswiezanie ekranow pod spodem
+  alarmRingScreenUntilMs = millis() + ALARM_RING_DISPLAY_MS;
+
+  const uint16_t bg = 0x0000;
+  tft.fillScreen(bg);
+  tft.drawRect(6, 6, 468, 308, TFT_RED);
+  tft.drawRect(10, 10, 460, 300, TFT_RED);
+
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(TFT_RED, bg);
+  tft.setTextSize(3);
+  tft.drawString("ALARM!", 240, 96, 1);
+
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%02d:%02d", alarmHour, alarmMinute);
+  tft.setTextColor(TFT_WHITE, bg);
+  tft.setTextSize(4);
+  tft.drawString(buf, 240, 168, 1);
+
+  tft.setTextColor(UI_COL_DIM, bg);
+  tft.setTextSize(1);
+  tft.drawString(trStr("Dotknij ekranu, aby zatrzymac", "Tap the screen to stop",
+                       "Tippen zum Stoppen", "Touchez pour arreter",
+                       "Toca para parar", "Kasanie dlya stop"),
+                 240, 232, 1);
+  tft.setTextColor(UI_COL_DIM, bg);
+  tft.drawString(ALARM_MELODIES[alarmMelody].name, 240, 256, 1);
+  tft.setTextDatum(TL_DATUM);
+}
+
+void dismissAlarmRingScreen() {
+  alarmStopMelody();
+  if (!alarmRingScreenActive) return;
+  alarmRingScreenActive = false;
+  inMenu = alarmRingPrevInMenu;
+  if (!tftInitialized) return;
+  // Odtworz to, co bylo pod ekranem dzwonienia (menu albo ekran bazowy).
+  if (brightnessMenuActive)        drawBrightnessMenu();
+  else if (callsignColorMenuActive) drawCallsignColorMenu();
+  else if (clockColorMenuActive)    drawClockColorMenu();
+  else if (alarmMenuActive)         drawAlarmMenu();
+  else if (screenSaverMenuActive)   drawScreenSaverMenu();
+  else                              drawScreen(currentScreen);
+}
+
+// Auto-stop po ALARM_RING_DISPLAY_MS (jak wygaszanie alertu pogodowego).
+void alarmRingTimeoutCheck() {
+  if (alarmRingScreenActive && (long)(millis() - alarmRingScreenUntilMs) >= 0) {
+    dismissAlarmRingScreen();
+  }
+}
+
+// --- Rysowanie menu alarmu (480x320, styl jak menu koloru znaku) ---
+static const char *ALARM_DAY_SHORT[ALARM_DAYS] = {"ND","PN","WT","SR","CZ","PT","SB"};
+
+static void alarmDrawBox(int x, int y, int w, int h, uint16_t fill, uint16_t border) {
+  tft.fillRect(x, y, w, h, fill);
+  tft.drawRect(x, y, w, h, border);
+}
+
+// Duzy podglad godziny (HH:MM) + dni + wybrany dzwiek.
+static void alarmDrawPreview() {
+  const uint16_t bg = uiStyleClassic() ? TFT_BLACK : UI_COL_BG;
+  tft.fillRect(0, 36, 480, 66, bg);
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%02d:%02d", alarmMenuHour, alarmMenuMinute);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(uiStyleClassic() ? TFT_RADIO_ORANGE : UI_COL_ACCENT, bg);
+  tft.setTextSize(4);
+  tft.drawString(buf, 240, 68, 1);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_DIM, bg);
+  const char *mel = ALARM_MELODIES[alarmMenuMelody].name;
+  int mw = tft.textWidth(mel);
+  tft.setCursor((480 - mw) / 2, 92);
+  tft.print(mel);
+}
+
+static void alarmRedrawDaysRow() {
+  const int tileW = 54, tileH = 30, gap = 8;
+  const int startX = (480 - (ALARM_DAYS * tileW + (ALARM_DAYS - 1) * gap)) / 2;
+  const int y = 158;
+  for (int i = 0; i < ALARM_DAYS; i++) {
+    bool on = (alarmMenuDays & (1u << i));
+    drawFilterTile(startX + i * (tileW + gap), y, tileW, tileH, ALARM_DAY_SHORT[i], on);
+  }
+}
+
+static void alarmRedrawMelodyRow() {
+  const int tileW = 104, tileH = 30, gap = 10;
+  const int startX = (480 - (ALARM_MELODY_COUNT * tileW + (ALARM_MELODY_COUNT - 1) * gap)) / 2;
+  const int y = 214;
+  for (int i = 0; i < ALARM_MELODY_COUNT; i++) {
+    drawFilterTile(startX + i * (tileW + gap), y, tileW, tileH,
+                   ALARM_MELODIES[i].name, alarmMenuMelody == i);
+  }
+}
+
+void drawAlarmMenu() {
+  const bool classic = uiStyleClassic();
+  const uint16_t bg = classic ? TFT_BLACK : UI_COL_BG;
+  tft.fillScreen(bg);
+  uiMenuHeader(trStr("ALARM", "ALARM", "ALARM", "ALARME", "ALARMA", "ALARM"));
+
+  alarmDrawPreview();
+
+  // Wiersz +/- dla godzin i minut.
+  tft.setTextSize(1);
+  const int btnW = 46, btnH = 34, rowY = 116;
+  const int hourMinusX = 108, hourPlusX = 196;
+  const int minMinusX = 238, minPlusX = 326;
+  alarmDrawBox(hourMinusX, rowY, btnW, btnH, classic ? TFT_DARKGREY : UI_COL_CARD, TFT_WHITE);
+  alarmDrawBox(hourPlusX, rowY, btnW, btnH, classic ? TFT_DARKGREY : UI_COL_CARD, TFT_WHITE);
+  alarmDrawBox(minMinusX, rowY, btnW, btnH, classic ? TFT_DARKGREY : UI_COL_CARD, TFT_WHITE);
+  alarmDrawBox(minPlusX, rowY, btnW, btnH, classic ? TFT_DARKGREY : UI_COL_CARD, TFT_WHITE);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString("-", hourMinusX + btnW / 2, rowY + btnH / 2, 2);
+  tft.drawString("+", hourPlusX + btnW / 2, rowY + btnH / 2, 2);
+  tft.drawString("-", minMinusX + btnW / 2, rowY + btnH / 2, 2);
+  tft.drawString("+", minPlusX + btnW / 2, rowY + btnH / 2, 2);
+  tft.setTextColor(UI_COL_DIM);
+  tft.drawString("GODZ", hourMinusX + (hourPlusX + btnW - hourMinusX) / 2, rowY - 12, 1);
+  tft.drawString("MIN", minMinusX + (minPlusX + btnW - minMinusX) / 2, rowY - 12, 1);
+  tft.setTextDatum(TL_DATUM);
+
+  // Etykiety sekcji.
+  tft.setTextColor(UI_COL_DIM);
+  tft.setCursor(10, 148);
+  tft.print(trStr("DNI ALARMU", "ALARM DAYS", "ALARM TAGE", "JOURS", "DIAS", "DNI"));
+  tft.setCursor(10, 204);
+  tft.print(trStr("DZWIEK", "MELODY", "TON", "MELODIE", "MELODIA", "MELODIYA"));
+
+  alarmRedrawDaysRow();
+  alarmRedrawMelodyRow();
+
+  // Przyciski: WL/WYL, ZAPISZ, ZAMKNIJ.
+  const int bW = 118, bH = 30, bY = 262, bGap = 12;
+  const int enableX = 12;
+  const int saveX = enableX + bW + bGap;
+  const int closeX = saveX + bW + bGap;
+  const char *enLabel = alarmMenuEnabled
+      ? trStr("ALARM: WL", "ALARM: ON", "ALARM: EIN", "ALARME: ON", "ALARMA: SI", "ALARM: VK")
+      : trStr("ALARM: WYL", "ALARM: OFF", "ALARM: AUS", "ALARME: OFF", "ALARMA: NO", "ALARM: VYK");
+  drawFilterTile(enableX, bY, bW, bH, enLabel, alarmMenuEnabled);
+  drawFilterTile(saveX, bY, bW, bH, tr(TR_SAVE), false);
+  drawFilterTile(closeX, bY, bW, bH, tr(TR_CLOSE), false);
+}
+
+void openAlarmMenu() {
+  alarmMenuHour = alarmHour;
+  alarmMenuMinute = alarmMinute;
+  alarmMenuDays = alarmDaysMask;
+  alarmMenuMelody = alarmMelody;
+  alarmMenuEnabled = alarmEnabled;
+  alarmMenuPrevScreen = currentScreen;
+  alarmMenuPrevInMenu = inMenu;
+  alarmMenuOpenedMs = millis();
+  inMenu = true;
+  alarmMenuActive = true;
+  drawAlarmMenu();
+}
+
+void handleAlarmMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
+  unsigned long now = millis();
+  if (now - alarmMenuOpenedMs < 400) {
+    return;  // ignoruj dotkniecie, ktore otworzylo menu (trzymanie 5 s)
+  }
+
+  const int btnW = 46, btnH = 34, rowY = 116;
+  const int hourMinusX = 108, hourPlusX = 196;
+  const int minMinusX = 238, minPlusX = 326;
+
+  bool changed = false;
+  if (isPointInRect(x, y, hourMinusX, rowY, btnW, btnH)) { alarmMenuHour = (alarmMenuHour + 23) % 24; changed = true; }
+  if (isPointInRect(x, y, hourPlusX, rowY, btnW, btnH))  { alarmMenuHour = (alarmMenuHour + 1) % 24;  changed = true; }
+  if (isPointInRect(x, y, minMinusX, rowY, btnW, btnH))  { alarmMenuMinute = (alarmMenuMinute + 59) % 60; changed = true; }
+  if (isPointInRect(x, y, minPlusX, rowY, btnW, btnH))   { alarmMenuMinute = (alarmMenuMinute + 1) % 60;  changed = true; }
+  if (changed) {
+    alarmDrawPreview();
+    return;
+  }
+
+  // Dni tygodnia.
+  const int dayTileW = 54, dayTileH = 30, dayGap = 8;
+  const int dayStartX = (480 - (ALARM_DAYS * dayTileW + (ALARM_DAYS - 1) * dayGap)) / 2;
+  const int dayY = 158;
+  if (y >= dayY && y <= dayY + dayTileH) {
+    for (int i = 0; i < ALARM_DAYS; i++) {
+      int tx = dayStartX + i * (dayTileW + dayGap);
+      if (x >= tx && x <= tx + dayTileW) {
+        alarmMenuDays ^= (1u << i);
+        alarmRedrawDaysRow();
+        return;
+      }
+    }
+  }
+
+  // Dzwiek.
+  const int melTileW = 104, melTileH = 30, melGap = 10;
+  const int melStartX = (480 - (ALARM_MELODY_COUNT * melTileW + (ALARM_MELODY_COUNT - 1) * melGap)) / 2;
+  const int melY = 214;
+  if (y >= melY && y <= melY + melTileH) {
+    for (int i = 0; i < ALARM_MELODY_COUNT; i++) {
+      int tx = melStartX + i * (melTileW + melGap);
+      if (x >= tx && x <= tx + melTileW) {
+        alarmMenuMelody = i;
+        alarmRedrawMelodyRow();
+        alarmDrawPreview();
+        alarmPreviewMode = true;
+        alarmStartMelody(i);   // probka dzwieku (krotka) - slyszalny podglad
+        return;
+      }
+    }
+  }
+
+  if (!isNewTap) return;
+
+  const int bW = 118, bH = 30, bY = 262, bGap = 12;
+  const int enableX = 12;
+  const int saveX = enableX + bW + bGap;
+  const int closeX = saveX + bW + bGap;
+
+  if (isPointInRect(x, y, enableX, bY, bW, bH)) {
+    alarmMenuEnabled = !alarmMenuEnabled;
+    drawAlarmMenu();
+    return;
+  }
+  if (isPointInRect(x, y, saveX, bY, bW, bH)) {
+    alarmHour = alarmMenuHour;
+    alarmMinute = alarmMenuMinute;
+    alarmDaysMask = alarmMenuDays;
+    alarmMelody = alarmMenuMelody;
+    alarmEnabled = alarmMenuEnabled;
+    alarmLastTriggerAbsMin = -1;
+    savePreferences();
+    alarmStopMelody();
+    alarmMenuActive = false;
+    currentScreen = alarmMenuPrevScreen;
+    inMenu = alarmMenuPrevInMenu;
+    drawScreen(currentScreen);
+    return;
+  }
+  if (isPointInRect(x, y, closeX, bY, bW, bH)) {
+    alarmStopMelody();
+    alarmMenuActive = false;
+    currentScreen = alarmMenuPrevScreen;
+    inMenu = alarmMenuPrevInMenu;
     drawScreen(currentScreen);
     return;
   }
@@ -19339,7 +19806,7 @@ void resetScreenSaverActivity() {
 }
 
 void checkScreenSaverTimeout() {
-  if (!screenSaverEnabled || screenSaverActive) {
+  if (!screenSaverEnabled || screenSaverActive || alarmRingScreenActive) {
     return;
   }
   unsigned long now = millis();
@@ -21659,6 +22126,16 @@ void loadPreferences() {
   enableLedAlert = preferences->getBool(NVS_KEY_ENABLE_LED_ALERT, DEFAULT_ENABLE_LED_ALERT);
   applyLedAlertDurationMs(preferences->getInt(NVS_KEY_LED_ALERT_DURATION_MS, DEFAULT_LED_ALERT_DURATION_MS));
   applyLedAlertBlinkMs(preferences->getInt(NVS_KEY_LED_ALERT_BLINK_MS, DEFAULT_LED_ALERT_BLINK_MS));
+  // Alarm (ekran Matrix, menu przytrzymaniem 5 s).
+  alarmEnabled = preferences->getBool("alarm_en", false);
+  alarmHour = preferences->getInt("alarm_hour", 7);
+  alarmMinute = preferences->getInt("alarm_min", 0);
+  alarmDaysMask = (uint8_t)preferences->getInt("alarm_days", 0x7F);
+  alarmMelody = preferences->getInt("alarm_mel", 0);
+  if (alarmHour < 0 || alarmHour > 23) alarmHour = 7;
+  if (alarmMinute < 0 || alarmMinute > 59) alarmMinute = 0;
+  if (alarmDaysMask == 0) alarmDaysMask = 0x7F;
+  if (alarmMelody < 0 || alarmMelody >= ALARM_MELODY_COUNT) alarmMelody = 0;
   resetAprsAlertCooldownState();
   int storedIntervalMin = preferences->getInt(NVS_KEY_APRS_INTERVAL_MIN, DEFAULT_APRS_INTERVAL_MIN);
   applyAprsIntervalMinutes(storedIntervalMin);
@@ -21826,6 +22303,12 @@ void savePreferences() {
   preferences->putBool(NVS_KEY_ENABLE_LED_ALERT, enableLedAlert);
   preferences->putInt(NVS_KEY_LED_ALERT_DURATION_MS, ledAlertDurationMs);
   preferences->putInt(NVS_KEY_LED_ALERT_BLINK_MS, ledAlertBlinkMs);
+  // Alarm (ekran Matrix, menu przytrzymaniem 5 s).
+  preferences->putBool("alarm_en", alarmEnabled);
+  preferences->putInt("alarm_hour", alarmHour);
+  preferences->putInt("alarm_min", alarmMinute);
+  preferences->putInt("alarm_days", (int)alarmDaysMask);
+  preferences->putInt("alarm_mel", alarmMelody);
   preferences->putInt(NVS_KEY_APRS_INTERVAL_MIN, aprsIntervalMinutes);
   // Ograniczenie promienia do 1-50 km przed zapisem
   int radiusToSave = aprsFilterRadius;
@@ -25709,11 +26192,17 @@ void uiTaskLoop(void *parameter) {
         dismissWeatherAlertScreen();
       }
       updateAlertScreenTimeout();
+      if (alarmRingPending && !aprsAlertScreenActive && !weatherAlertScreenActive &&
+          !gpsScreenActive && tftInitialized) {
+        alarmRingPending = false;
+        drawAlarmRingScreen();
+      }
+      alarmRingTimeoutCheck();
       updateGpsScreen();
       handleTouchNavigation();
       
       // Rysuj wygaszacz gdy jest aktywny
-      if (screenSaverActive && !screenSaverMenuActive) {
+      if (screenSaverActive && !screenSaverMenuActive && !alarmRingScreenActive) {
         drawScreenSaver();
       }
     }
@@ -25733,7 +26222,7 @@ void uiTaskLoop(void *parameter) {
       lastScreenSaverCheckMs = now;
     }
 
-    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !gpsScreenActive && !touchCalActive && !brightnessMenuActive && !callsignColorMenuActive && !clockColorMenuActive && !qrzPopupActive) {
+    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !gpsScreenActive && !touchCalActive && !brightnessMenuActive && !callsignColorMenuActive && !clockColorMenuActive && !alarmMenuActive && !qrzPopupActive) {
       unsigned long nowSwitch = millis();
       if (tftAutoSwitchLastMs == 0 || tftAutoSwitchLastScreen != currentScreen) {
         tftAutoSwitchLastMs = nowSwitch;
@@ -29105,6 +29594,7 @@ void setup() {
   bootLogLine("Config load...");
   bootLogLine("LittleFS ready: " + String(littleFsReady ? "YES" : "NO"));
   loadPreferences();
+  alarmInitBuzzer();  // buzzer alarmu (piezo, GPIO 2) - gotowy od startu
 
   // Uruchom UART2 dla modulu GPS, jesli wlaczony w konfiguracji.
   gpsApplyConfig();
@@ -29343,6 +29833,17 @@ void loop() {
   }
 
   updateStatusRgbLed();
+
+  // Alarm: sprawdzenie godziny (co ~1 s) + odtwarzanie melodii na buzzerze.
+  {
+    static unsigned long lastAlarmCheckMs = 0;
+    unsigned long nowAlarm = millis();
+    if (nowAlarm - lastAlarmCheckMs >= 1000) {
+      lastAlarmCheckMs = nowAlarm;
+      checkAlarmTrigger();
+    }
+    alarmUpdateBuzzer();
+  }
 
   // Odczyt NMEA z modulu GPS + nadpisanie pozycji/lokatora (jesli wlaczone).
   gpsUpdate();

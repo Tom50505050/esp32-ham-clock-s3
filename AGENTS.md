@@ -27,6 +27,52 @@ był „wycinany” kolorem tła i włączał się dopiero >4.25 V; teraz jest c
 widoczny też na jasnym (zielonym) wypełnieniu. Historia progu: 4.25 → 4.0 → 4.3 → **4.08 V**.
 
 
+## ALARM na ekranie Matrix: przytrzymanie 5 s + buzzer (GPIO 2) (31.10.2026)
+Zgłoszenie: na ekranie Matrix (SCREEN_MATRIX_CLOCK) przytrzymanie palca przez
+**5 s** ma otwierać menu alarmu z ustawialną godziną i dniami tygodnia, a o
+wyznaczonej porze ma grać melodia na buzzerze.
+
+**Wejście:** `handleTouchNavigation()` ustawia `matrixGameHoldCandidate` dla
+CAŁEGO ekranu Matrix (wcześniej tylko róg x>=320,y<=80 dla gry w węża). Po 5 s
+(5000 ms) otwiera `openMatrixAlarmMenu()` — zastąpiło to dawny skrót 2 s do
+SYSTEM_INFO na tym ekranie. Menu jasności (przytrzymanie 3 s) jest teraz
+wyłączone na ekranie Matrix (`currentScreen != SCREEN_MATRIX_CLOCK` w jego
+warunku), żeby oba gesty się nie kłóciły.
+
+**Menu (480x320):** `drawAlarmMenu()` — nagłówek `uiMenuHeader()`, duży podgląd
+`GG:MM`, przyciski `-`/`+` dla godzin i minut, 7 kafelków dni
+(`ALARM_DAY_SHORT` = ND PN WT SR CZ PT SB), 4 kafelki melodii (dotknięcie gra
+próbkę: `alarmPreviewMode = true` → raz, bez pętli), przyciski
+`ALARM: WL/WYL`, `ZAPISZ`, `ZAMKNIJ`. Obsługa: `handleAlarmMenuTouch()`.
+Zapis do NVS: klucze `alarm_en/alarm_hour/alarm_min/alarm_days/alarm_mel`
+(`savePreferences()`/`loadPreferences()`), domyślnie alarm WYŁĄCZONY, dni
+0x7F (wszystkie).
+
+**Buzzer:** pasywny piezo na **GPIO 2** przez LEDC (`alarmInitBuzzer()` w
+`setup()` po `loadPreferences()`). Sterowanie w `loop()` (co ~1 s
+`checkAlarmTrigger()`, plus `alarmUpdateBuzzer()` w każdej iteracji — automat
+stanów nut, nieblokujący). Wzorzec LEDC 2.x/3.x jak przy podświetleniu.
+
+**Dzwonienie:** `checkAlarmTrigger()` liczy minutę absolutną
+`tm_yday*1440 + godz*60 + min` i porównuje z celem — alarm odpala **raz
+dziennie** (samo `godz*60+min` odpaliłoby tylko raz w życiu modułu). Sprawdza
+też `alarmDaysMask` (bit `tm_wday`). Po trafieniu: `alarmRinging = true`,
+`alarmRingPending = true`, melodia w pętli. UI_Task rysuje modalny ekran
+`drawAlarmRingScreen()` (czerwona ramka, „ALARM!", godzina, melodia) — widoczny
+na dowolnym ekranie; ustawia `inMenu = true` (blokuje periodyczne odświeżanie
+pod spodem) i blokuje wygaszacz. Dowolne dotknięcie = `dismissAlarmRingScreen()`
+(cisza + powrót do tego, co było pod spodem). Auto-stop po 60 s.
+
+**Flagi współdzielone loop/UI_Task** (`alarmRinging`, `alarmRingScreenActive`,
+`alarmPreviewMode`, indeksy nut) są `volatile`.
+
+**Podglądy (do wglądu, poza firmware):** `tools/render_alarm_preview.py`
+(rasteryzuje menu 1:1 prawdziwymi bitmapami czcionek → `alarm-nowoczesny.png`,
+`alarm-klasyczny.png`, `alarm-dzwoni.png`) oraz `tools/make_alarm_audio.py`
+(generuje WAV falą prostokątną, dokładnie nuty z firmware). Strona zbiorcza:
+`/workspace/share/alarm.html`.
+
+
 ## „Blad wgrywania (format/siec)" przy ekranie powitalnym — brak miejsca w LittleFS (31.10.2026)
 Zgłoszenie: wgranie własnej grafiki na **ekran powitalny** (`/upload_welcome`,
 zakładka TFT → „Grafika na ekran") kończyło się w WWW komunikatem
