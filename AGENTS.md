@@ -88,7 +88,11 @@ ta sama stała `OCTAVE_UP` w `tools/make_alarm_audio.py` (podgląd = to, co gra)
 Poziom głośności (wypełnienie LEDC) ustawia suwak w menu alarmu (`alarmVolume`);
 `BUZZER_DUTY 512` to tylko wartość domyślna/fallback. Zabezpieczenie w `loop()`:
 `alarmRinging` i minął `alarmRingScreenUntilMs` → `alarmStopMelody()` (nigdy nie
-piszczy w nieskończoność).
+piszczy w nieskończoność). **Ważne:** `alarmRingScreenUntilMs` ustawia już
+`checkAlarmTrigger()` (przy wyzwoleniu), a `drawAlarmRingScreen()` tylko odświeża.
+Gdyby deadline pozostał 0/stary, auto-stop w `loop()` wyciszyłby melodię
+natychmiast, zanim UI_Task narysuje ekran (objaw: „ekran alarmu jest, ale brak
+melodii"). Stąd też warunek `alarmRingScreenUntilMs != 0` w auto-stopie.
 
 **Dzwonienie:** `checkAlarmTrigger()` liczy minutę absolutną
 `tm_yday*1440 + godz*60 + min` i porównuje z celem — alarm odpala **raz

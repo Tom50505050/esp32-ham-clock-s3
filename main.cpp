@@ -9430,6 +9430,10 @@ void checkAlarmTrigger() {
     alarmRinging = true;
     alarmPreviewMode = false;
     alarmLastRingMs = millis();
+    // Ustaw deadline JUZ tutaj. Zabezpieczenie w loop() (auto-stop) czyta
+    // alarmRingScreenUntilMs; gdyby zostalo 0/stare, wyciszyloby melodie
+    // natychmiast, zanim UI_Task zdazyl narysowac ekran (brak melodii!).
+    alarmRingScreenUntilMs = millis() + ALARM_RING_DISPLAY_MS;
     alarmStartMelody(alarmMelody);
     alarmRingPending = true;  // ekran dzwonienia rysowany w UI_Task (bezpiecznie)
     Serial.printf("[ALARM] Dzwoni! %02d:%02d\n", alarmHour, alarmMinute);
@@ -30047,7 +30051,10 @@ void loop() {
     alarmUpdateBuzzer();
     // Zabezpieczenie: gdyby ekran dzwonienia nie zdazyl sie pokazac, i tak
     // wycisz buzzer po ALARM_RING_DISPLAY_MS (nigdy nie piszczy w nieskonczonosc).
-    if (alarmRinging && (long)(millis() - alarmRingScreenUntilMs) >= 0) {
+    // Warunek deadline != 0: 0 oznacza "brak aktywnego alarmu" (unikamy
+    // natychmiastowego wyciszenia, gdyby deadline nie zostalo ustawione).
+    if (alarmRinging && alarmRingScreenUntilMs != 0 &&
+        (long)(millis() - alarmRingScreenUntilMs) >= 0) {
       alarmStopMelody();
     }
   }
