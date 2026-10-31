@@ -34,6 +34,16 @@ Objaw „ESP co jakiś czas się resetuje" diagnozujemy teraz z licznika w pami�
 - Typowe przyczyny w tym projekcie: (1) zasilanie/kabel USB przy skokach prądu WiFi+podświetlenie,
   (2) przepełnienie stosu zadań HTTPS (`ISS_Task` już 24 KB), (3) fragmentacja heapu przy
   TLS/`String`. Sprawdzaj `min_heap` i serial.
+
+### Poprawka: zapis z WWW nie restartuje już ESP bez potrzeby (31.10.2026)
+Wcześniej `/api/save` **zawsze** wołał `requestRestart()` → `ESP.restart()`, więc każde
+„Zapisz ustawienia" z WWW resetowało urządzenie (`reset_reason = SOFTWARE`). Teraz restart
+jest tylko gdy zmiana naprawdę wymaga reinicjalizacji sprzętu:
+- nowy SSID/hasło WiFi (`wifiChanged`) albo
+- geometria ekranu: `tft_rotation` lub `tft_invert`.
+Pozostałe ustawienia (APRS, pogoda, kolory, czasy, hosty) działają **na żywo**; zmiana
+hostów klaster/POTA/APRS robi `*Client.stop()` i pętla łączy ponownie. Odpowiedź `/api/save`
+zwraca teraz `action:"restart"` albo `action:"saved"`.
 - Dla stacji pogodowej (symbol WX, dekoder `decodeAprsWxFromComment`) dolny pasek
   pokazuje 4 chipy: TEMP, WIATR, WILG, CISN (`aprsModernWxChip`); dla pozostalych
   symbol + status pozycji.

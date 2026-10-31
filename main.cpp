@@ -24637,6 +24637,14 @@ void setupWebServer() {
       
       String prevSsid = wifiSSID;
       String prevSsid2 = wifiSSID2;
+      // Do decyzji o restarcie: geometria ekranu (rotacja/odwrocenie kolorow)
+      // wymaga pelnej reinicjalizacji TFT; reszta ustawien dziala na zywo.
+      const uint8_t prevTftRotation = tftRotation;
+      const bool prevTftInvert = tftInvertColors;
+      // Do reconnectow na zywo (bez restartu) po zmianie serwerow.
+      const String prevClusterHost = clusterHost;
+      const String prevPotaHost = potaClusterHost;
+      const String prevAprsHost = aprsIsHost;
       // WiFi: nadpisuj TYLKO gdy klucz jest obecny w payloadzie. Import czesciowego
       // backupu (albo starsze/okrojone UI) nie moze wyzerowac SSID/hasla - inaczej
       // po restarcie ESP nie ma sie z czym polaczyc i zostaje w trybie AP.
@@ -25434,20 +25442,48 @@ void setupWebServer() {
         applyTftInversion();
       }
       
-            bool wifiChanged = (wifiSSID != prevSsid) || (wifiSSID2 != prevSsid2);
-      // Zmiana sieci unieważnia zapamietany kanal/BSSID - inaczej po restarcie
+      bool wifiChanged = (wifiSSID != prevSsid) || (wifiSSID2 != prevSsid2);
+      // Zmiana sieci uniewaznia zapamietany kanal/BSSID - inaczej po restarcie
       // pierwsza proba poszlaby na nieaktualny kanal (i tak wrocilaby do skanu).
       if (wifiChanged) {
         g_cachedChannel = 0;
         g_haveCachedBssid = false;
       }
-      // Kazdy zapis z WWW (TFT, APRS, pogoda, konfiguracja/WiFi) restartuje ESP.
-      // Gwarantuje czysty stan wyswietlacza, dotyku i uslug po zmianie ustawien.
-      (void)wifiChanged;
+      // Restart TYLKO gdy zmiana wymaga pelnej reinicjalizacji sprzetu: nowa siec
+      // WiFi albo geometria ekranu (rotacja/odwrocenie kolorow). Pozostale
+      // ustawienia (APRS, pogoda, kolory, czasy) dzialaja na zywo - zapis z WWW
+      // nie resetuje juz ESP bez potrzeby.
+      const bool tftGeometryChanged = (tftRotation != prevTftRotation) ||
+                                      (tftInvertColors != prevTftInvert);
+      const bool needRestart = wifiChanged || tftGeometryChanged;
       (void)wifiConfigured;
-      server->send(200, "application/json", "{\"status\":\"ok\",\"action\":\"restart\"}");
-      Serial.println("Zapisano konfiguracje. Restart ESP...");
-      requestRestart(1500);
+      if (needRestart) {
+        server->send(200, "application/json", "{\"status\":\"ok\",\"action\":\"restart\"}");
+        Serial.println("Zapisano konfiguracje wymagajaca restartu. Restart ESP...");
+        requestRestart(1500);
+      } else {
+        // Zmiana serwerow: rozlacz klientow, a petla polaczy ponownie z nowymi
+        // ustawieniami (connectToCluster/Pota/APRS w loop()).
+        if (clusterHost != prevClusterHost) {
+          telnetClient.stop();
+          telnetConnected = false;
+          clusterLoginSent = false;
+          clusterLoginScheduled = false;
+        }
+        if (potaClusterHost != prevPotaHost) {
+          potaTelnetClient.stop();
+          potaTelnetConnected = false;
+          potaLoginSent = false;
+          potaLoginScheduled = false;
+        }
+        if (aprsIsHost != prevAprsHost) {
+          aprsClient.stop();
+          aprsConnected = false;
+          aprsLoginSent = false;
+        }
+        server->send(200, "application/json", "{\"status\":\"ok\",\"action\":\"saved\"}");
+        Serial.println("Zapisano konfiguracje (bez restartu).");
+      }
     } else {
       server->send(400, "application/json", "{\"status\":\"error\"}");
     }
