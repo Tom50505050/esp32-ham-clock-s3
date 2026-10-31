@@ -4,9 +4,11 @@
 Uzycie:
     python3 tools/make_splash.py sciezka/do/obraz.png [wyjscie.bmp]
 
-Wynik: 24-bit BMP (RGB888, bottom-up, BI_RGB) o rozmiarze 480x320 px -
+Wynik: 16-bit BMP (RGB565, BI_BITFIELDS, bottom-up) o rozmiarze 480x320 px -
 dokladnie taki, jaki firmware wczytuje jako ekran startowy (drawSplashScreen)
-i jaki wyswietla drawBmpFromFS(). Domyślne wyjscie: data/splash.bmp.
+i jaki wyswietla drawBmpFromFS(). 16-bit jest 2x mniejszy od 24-bit i zostawia
+miejsce w LittleFS na grafike alertu wgrywana z WWW (patrz tools/bmp24to16.py).
+Domyslne wyjscie: data/splash.bmp.
 
 Po wygenerowaniu wgraj LittleFS:  pio run -e esp32-s3-n16r8 -t uploadfs
 """
@@ -20,34 +22,39 @@ W, H = 480, 320
 DEFAULT_OUT = os.path.join("data", "splash.bmp")
 
 
-def save_bmp_24bit(filepath, img):
+def save_bmp565(filepath, img):
     w, h = img.size
-    row_bytes = w * 3
-    pad = (4 - (row_bytes % 4)) % 4
-    row_size = row_bytes + pad
+    row_size = ((16 * w + 31) // 32) * 4
     pixel_data_size = row_size * h
-    file_size = 14 + 40 + pixel_data_size
+    hdr = 14 + 40 + 12  # + maski R/G/B
+    file_size = hdr + pixel_data_size
     px = img.load()
     with open(filepath, "wb") as f:
         f.write(b"BM")
         f.write(struct.pack("<I", file_size))
         f.write(struct.pack("<HH", 0, 0))
-        f.write(struct.pack("<I", 14 + 40))
+        f.write(struct.pack("<I", hdr))
         f.write(struct.pack("<I", 40))
         f.write(struct.pack("<i", w))
         f.write(struct.pack("<i", h))       # dodatnia wysokosc = bottom-up
-        f.write(struct.pack("<HH", 1, 24))  # planes=1, bpp=24
-        f.write(struct.pack("<I", 0))       # BI_RGB (bez kompresji)
+        f.write(struct.pack("<HH", 1, 16))  # planes=1, bpp=16
+        f.write(struct.pack("<I", 3))       # BI_BITFIELDS
         f.write(struct.pack("<I", pixel_data_size))
         f.write(struct.pack("<i", 2835))
         f.write(struct.pack("<i", 2835))
         f.write(struct.pack("<I", 0))
         f.write(struct.pack("<I", 0))
+        f.write(struct.pack("<I", 0xF800))  # maska R
+        f.write(struct.pack("<I", 0x07E0))  # maska G
+        f.write(struct.pack("<I", 0x001F))  # maska B
         for y in range(h - 1, -1, -1):
+            row = bytearray()
             for x in range(w):
                 r, g, b = px[x, y][:3]
-                f.write(struct.pack("<BBB", b, g, r))
-            f.write(b"\x00" * pad)
+                v = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+                row += struct.pack("<H", v)
+            f.write(row)
+            f.write(b"\x00" * (row_size - len(row)))
 
 
 def main():
@@ -60,8 +67,8 @@ def main():
     if img.size != (W, H):
         print(f"Skaluje {img.size} -> ({W}, {H})")
         img = img.resize((W, H), Image.LANCZOS)
-    save_bmp_24bit(out, img)
-    print(f"Zapisano {out} ({os.path.getsize(out)} B, {W}x{H}, 24-bit BMP)")
+    save_bmp565(out, img)
+    print(f"Zapisano {out} ({os.path.getsize(out)} B, {W}x{H}, 16-bit BMP)")
 
 
 if __name__ == "__main__":

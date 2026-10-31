@@ -215,9 +215,51 @@ def save_bmp_24bit(filepath, img):
             f.write(b"\x00" * pad)
 
 
+def save_bmp565(filepath, img):
+    """Zapisuje obraz jako 16-bit RGB565 BMP (BI_BITFIELDS).
+
+    LittleFS na urzadzeniu ma ograniczone miejsce, a grafika alertu wgrywana z
+    WWW jest 16-bit (307 kB) - 24-bit ekran startowy (461 kB) nie miescil sie
+    razem z nia. 16-bit jest 2x mniejszy i dekodery firmware obsluguja oba
+    warianty, wiec zapisujemy od razu w tym formacie.
+    """
+    w, h = img.size
+    row_size = ((16 * w + 31) // 32) * 4
+    pixel_data_size = row_size * h
+    hdr = 14 + 40 + 12  # + maski R/G/B
+    file_size = hdr + pixel_data_size
+    px = img.load()
+    with open(filepath, "wb") as f:
+        f.write(b"BM")
+        f.write(struct.pack("<I", file_size))
+        f.write(struct.pack("<HH", 0, 0))
+        f.write(struct.pack("<I", hdr))
+        f.write(struct.pack("<I", 40))
+        f.write(struct.pack("<i", w))
+        f.write(struct.pack("<i", h))       # dodatnia wysokosc = bottom-up
+        f.write(struct.pack("<HH", 1, 16))  # planes=1, bpp=16
+        f.write(struct.pack("<I", 3))       # BI_BITFIELDS
+        f.write(struct.pack("<I", pixel_data_size))
+        f.write(struct.pack("<i", 2835))
+        f.write(struct.pack("<i", 2835))
+        f.write(struct.pack("<I", 0))
+        f.write(struct.pack("<I", 0))
+        f.write(struct.pack("<I", 0xF800))  # maska R
+        f.write(struct.pack("<I", 0x07E0))  # maska G
+        f.write(struct.pack("<I", 0x001F))  # maska B
+        for y in range(h - 1, -1, -1):
+            row = bytearray()
+            for x in range(w):
+                r, g, b = px[x, y][:3]
+                v = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+                row += struct.pack("<H", v)
+            f.write(row)
+            f.write(b"\x00" * (row_size - len(row)))
+
+
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else OUT
     img = make_card()
-    save_bmp_24bit(out, img)
+    save_bmp565(out, img)
     img.save("/workspace/share/podglad-qsl-splash.png")
     print(f"Zapisano {out} ({os.path.getsize(out)} B) + podglad-qsl-splash.png")

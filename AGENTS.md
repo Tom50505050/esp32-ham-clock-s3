@@ -2,6 +2,38 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Naprawa „Błąd wysyłania: brak miejsca w LittleFS" — ikona burzy (31.10.2026)
+Zgłoszenie: wgranie grafiki burzy z panelu WWW kończyło się odpowiedzią 507
+(`uploadNoSpace`) — brak miejsca w LittleFS.
+
+Przyczyna: dodanie prekompresowanych `.gz` (`tools/make_gz.py`, ~300 kB:
+`index*.html.gz` + `style*.css.gz` + `satellite.js.gz`) zjadło zapas miejsca,
+który wcześniej wystarczał na wgranie ikony 480x320 (~307 kB). Wolne spadło do
+~573 kB, a firmware wymaga `rozmiar_pliku + 64 kB` wolnego przed zapisem.
+
+Naprawa (bez utraty funkcji — `.gz` zostają):
+- `data/splash.bmp` i `data/Mapa swiata.bmp` były 24-bit (461 kB) — przekonwertowane
+  na 16-bit RGB565 (`tools/bmp24to16.py`, 307 kB każda). Oba dekodery firmware
+  (`drawBmpFromFS`/`drawBmp16FromFS`, `pskMapBgLoad`) obsługują 16-bit.
+- `data/icon50/burza.bmp` i `wiatr.bmp` były już 16-bit, ale **odwrócone do góry
+  nogami** — patrz niżej.
+- Efekt: wolne w LittleFS wzrosło z ~573 kB do ~876 kB (214 bloków), zapis ikony
+  (~307 kB) mieści się z zapasem.
+
+Błąd `tools/bmp24to16.py`: pisał wiersz wyjściowy `y` ze źródłowego `h-1-y`, czyli
+odwracał obraz. Firmware czyta BMP od dołu (`screen_row = h-1-file_row`), a plik
+źródłowy jest już zapisany bottom-up — każde odwrócenie wierszy dawało obraz do
+góry nogami. Poprawione na mapowanie tożsamościowe. Skutek uboczny: domyślne
+`burza.bmp`/`wiatr.bmp` z commita `7052cef` były wyświetlane do góry nogami;
+zostały przegenerowane poprawnie.
+
+Generatory zaktualizowane, żeby 24-bit nie wracał:
+- `tools/make_splash.py` i `tools/make_qsl_splash.py` zapisują teraz 16-bit RGB565;
+- `tools/gen_worldmask.py` czyta 16- i 24-bit (`iss_worldmask.h` przegenerowany).
+
+Uwaga: przeglądarki poprawnie renderują 16-bit BMP (BI_BITFIELDS) — sprawdzone
+dla `/mapa_swiat.bmp` i podglądu splash.
+
 ## Przycisk „esp32-ham-clock-s3.zip" → repozytorium GitHub (31.10.2026)
 - Wszystkie przyciski/linki „⬇ esp32-ham-clock-s3.zip" (pasek pobierania oraz
   box „Najnowsza wersja") prowadzą teraz do

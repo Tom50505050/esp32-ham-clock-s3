@@ -30,10 +30,13 @@ def read_bmp(path):
     w = struct.unpack("<i", d[18:22])[0]
     h = struct.unpack("<i", d[22:26])[0]
     bpp = struct.unpack("<H", d[28:30])[0]
-    if bpp != 24:
-        sys.exit("expected 24-bit BMP, got %d" % bpp)
-    stride = ((w * 3 + 3) // 4) * 4
-    return d, off, w, h, stride
+    if bpp == 24:
+        stride = ((w * 3 + 3) // 4) * 4
+    elif bpp == 16:
+        stride = ((w * 2 + 3) // 4) * 4
+    else:
+        sys.exit("expected 16- or 24-bit BMP, got %d" % bpp)
+    return d, off, w, h, stride, bpp
 
 
 def is_land(r, g, b):
@@ -43,8 +46,8 @@ def is_land(r, g, b):
 
 
 def main():
-    d, off, w, h, stride = read_bmp(BMP)
-    print("source %dx%d" % (w, h))
+    d, off, w, h, stride, bpp = read_bmp(BMP)
+    print("source %dx%d %dbpp" % (w, h, bpp))
 
     # majority-vote downsample into MW x MH
     mask = bytearray((MW * MH + 7) // 8)
@@ -60,8 +63,19 @@ def main():
                 ry = h - 1 - y  # BMP rows are bottom-up
                 base = off + ry * stride
                 for x in range(x0, x1):
-                    p = base + x * 3
-                    if is_land(d[p + 2], d[p + 1], d[p]):
+                    if bpp == 24:
+                        p = base + x * 3
+                        r, g, b = d[p + 2], d[p + 1], d[p]
+                    else:
+                        v = d[base + x * 2] | (d[base + x * 2 + 1] << 8)
+                        # RGB565 -> 8 bit, zeby prog is_land() byl ten sam co dla 24-bit
+                        r5 = (v >> 11) & 0x1F
+                        g6 = (v >> 5) & 0x3F
+                        b5 = v & 0x1F
+                        r = (r5 << 3) | (r5 >> 2)
+                        g = (g6 << 2) | (g6 >> 4)
+                        b = (b5 << 3) | (b5 >> 2)
+                    if is_land(r, g, b):
                         land += 1
                     total += 1
             if total and land * 2 >= total:

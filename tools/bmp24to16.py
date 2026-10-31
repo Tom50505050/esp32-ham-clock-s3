@@ -41,9 +41,12 @@ def convert(src, dst):
     struct.pack_into('<I', out, 54, 0xF800)
     struct.pack_into('<I', out, 58, 0x07E0)
     struct.pack_into('<I', out, 62, 0x001F)
-    # pixels: bottom-up, RGB565 little-endian
+    # pixels: RGB565 little-endian. Wiersz wyjsciowy = wiersz zrodlowy (bez
+    # odwracania) - firmware czyta BMP od dolu (screen_row = h-1-file_row), a
+    # plik zrodlowy jest juz zapisany bottom-up, wiec kazde odwrocenie wierszy
+    # daloby obraz do gory nogami.
     for y in range(h):
-        s = off + (h - 1 - y) * row_in
+        s = off + y * row_in
         o = hdr + y * row_out
         for x in range(w):
             b = d[s + x * 3 + 0]
