@@ -2283,10 +2283,13 @@ int clockHitX = 40, clockHitY = 125, clockHitW = 400, clockHitH = 70;
 #define BUZZER_LEDC_CHANNEL 1   // kanal 0 zajety przez podswietlenie (BACKLIGHT_PWM_CHANNEL)
 #endif
 #define BUZZER_DUTY 512             // ~50% z 10 bitow - glosnosc piezo
-// Piezo pasywny ma rezonans ~2-4 kHz; nuty grane nizej (370-880 Hz) sa ciche.
-// Shift o 1 oktave (x2) mocno podnosi glosnosc i nie gubi melodii. 0 = bez zmiany.
+// Piezo pasywny ma rezonans ~2-4 kHz; tam jest NAJGLOŚNIEJSZY. Nuty 370-1568 Hz
+// grane nizej sa ciche. Shift o 2 oktawy (x4) wprowadza CALY zakres melodii
+// (1480-6272 Hz) w rejon/nad rezonans - wszystkie nuty slyszalne i glosne.
+// UWAGA: to przesuniecie OKTAW, nie glosnosc - wartosc 10 (x1024) daje 0.4-1.6 MHz,
+// czego LEDC nie wygeneruje (nuty ciche / zawieszony ton). Max sensowne ~5.
 #ifndef BUZZER_OCTAVE_UP
-#define BUZZER_OCTAVE_UP 1
+#define BUZZER_OCTAVE_UP 2
 #endif
 #define ALARM_DAYS 7                // 0=niedziela ... 6=sobota (zgodnie z tm_wday)
 #define ALARM_MELODY_COUNT 12
