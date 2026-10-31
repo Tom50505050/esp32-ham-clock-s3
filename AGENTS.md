@@ -3,22 +3,22 @@
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
 
-## Skala procentowa baterii: 3.8 V = 100% (31.10.2026)
-Zgłoszenie: akumulator ma 3.8 V, a ikona pokazuje ~47%. Prośba: przy 3.8 V ma
-być 100%.
+## Skala procentowa baterii: 3.8 V = 100%, 3.0 V = 0% (SONY GB/T-18287) (31.10.2026)
+Zgłoszenie: akumulator SONY GB/T-18287 3.8 V. Ikona ma pokazywać 100% przy 3.8 V,
+a 0% dopiero przy 3.0 V.
 
-**Zmiana:** przesunięto skalę procentową tak, by 3.80 V = 100%, a 3.30 V = 0%.
-- `main.cpp`: `kBatteryCurve[]` przeskalowana na 3.30-3.80 V (3.80→100, 3.75→90,
-  3.70→80, 3.65→68, 3.60→56, 3.55→45, 3.50→34, 3.45→24, 3.40→14, 3.35→6, 3.30→0).
-- Makra zakresu: `BATTERY_VOLTAGE_MAX` 4.2→**3.8**, `MIN`/`CUTOFF` 3.4→**3.3**,
-  `LOW` 3.6→**3.5**, `NOM` 3.8→3.7. Kolory ikony (czerwony ≤3.3 V, pomarańczowy
-  ≤3.5 V) i ostrzeżenie <10% idą za nową skalą.
+**Zmiana:** skala procentowa to 3.80 V = 100% ... 3.00 V = 0%.
+- `main.cpp`: `kBatteryCurve[]` = 3.00-3.80 V (3.80→100, 3.70→88, 3.60→74,
+  3.50→58, 3.40→42, 3.30→26, 3.20→13, 3.10→6, 3.00→0). Kształt oddaje plateau
+  ogniwa (długo trzyma ~3.5-3.7 V, poniżej 3.3 V spada szybko).
+- Makra zakresu: `BATTERY_VOLTAGE_MAX` **3.8**, `MIN`/`CUTOFF` **3.0**,
+  `LOW` **3.3** (pomarańczowy), `NOM` 3.7. Kolory ikony (czerwony ≤3.0 V,
+  pomarańczowy ≤3.3 V) i ostrzeżenie <10% idą za nową skalą.
 
-**Uwaga:** to odejście od klasycznej charakterystyki 18650 (gdzie 3.8 V to ~47%
-i realnie „prawie pełne” jest 4.2 V) — celowo, zgodnie z życzeniem użytkownika.
-Jeśli wrócić do fizycznej krzywej, przywróć poprzednią tabelę (3.40-4.20 V).
-Kalibracja napięcia (mnożnik/offset z WWW) działa bez zmian — procent liczony
-jest z już skalibrowanego napięcia.
+**Historia:** poprzednio skala była 3.30-3.80 V (0% = 3.3 V), a jeszcze wcześniej
+klasyczna 18650 3.40-4.20 V. Obecna wersja rozciąga dół do 3.0 V zgodnie z
+życzeniem użytkownika. Kalibracja napięcia (mnożnik/offset z WWW) działa bez
+zmian — procent liczony jest z już skalibrowanego napięcia.
 
 
 ## „Blad wgrywania (format/siec)" przy ekranie powitalnym — brak miejsca w LittleFS (31.10.2026)

@@ -2517,14 +2517,14 @@ bool rgbBlueAprsStateOn = false;
 float batteryDividerCal = 1.0f;   // mnożnik kalibracji (np. 0.98 gdy dzielnik zaniża)
 float batteryVoltOffset = 0.0f;   // offset w woltach (korekta stałego przesunięcia)
 
-// Zakresy napięcia akumulatora (dla płytki z ochroną DW01A).
+// Zakresy napięcia akumulatora Li-ion (SONY GB/T-18287, 3.8 V nominalne).
 // Skala procentowa jest zsynchronizowana z krzywą kBatteryCurve() poniżej:
-// 3.80 V = 100% (użytkownik traktuje 3.8 V jako pełne naładowanie), 3.30 V = 0%.
+// 3.80 V = 100% (pełne naładowanie), 3.00 V = 0% (rozładowany).
 #define BATTERY_VOLTAGE_MAX 3.8f      // 100% (pełne naładowanie)
 #define BATTERY_VOLTAGE_NOM 3.7f      // wartość nominalna
-#define BATTERY_VOLTAGE_LOW 3.5f      // niski poziom (pomarańczowy)
-#define BATTERY_VOLTAGE_MIN 3.3f      // 0% krytyczny (czerwony)
-#define BATTERY_VOLTAGE_CUTOFF 3.3f   // 0% ochrona wyłącza
+#define BATTERY_VOLTAGE_LOW 3.3f      // niski poziom (pomarańczowy)
+#define BATTERY_VOLTAGE_MIN 3.0f      // 0% rozładowany (czerwony)
+#define BATTERY_VOLTAGE_CUTOFF 3.0f   // 0% ochrona wyłącza
 
 // Interwały pomiaru i ostrzegania
 #define BATTERY_CHECK_INTERVAL_MS 1000UL   // Sprawdzaj co 1 sekundę
@@ -2620,14 +2620,13 @@ float readBatteryVoltage() {
   return vbat;
 }
 
-// Nieliniowa charakterystyka rozładowania ogniwa Li-ion w skali użytkownika:
-// 3.80 V = 100%, 3.30 V = 0%. Użytkownik uznaje 3.8 V za pełne naładowanie
-// (wskazanie ma pokazywać 100%), więc krzywa jest przesunięta względem
-// klasycznej charakterystyki 18650. Kształt zachowany: ogniwo trzyma ~3.6-3.7 V
-// przez większość czasu, więc środek zakresu odpowiada realnemu plateau.
+// Charakterystyka rozładowania akumulatora Li-ion (SONY GB/T-18287) w skali
+// użytkownika: 3.80 V = 100% (pełne), 3.00 V = 0% (rozładowany). Kształt krzywej
+// oddaje realne plateau ogniwa: napięcie trzyma się długo w okolicach 3.5-3.7 V,
+// a poniżej 3.3 V spada szybko.
 static const struct { float v; int pct; } kBatteryCurve[] = {
-  {3.80f, 100}, {3.75f, 90}, {3.70f, 80}, {3.65f, 68}, {3.60f, 56},
-  {3.55f, 45}, {3.50f, 34}, {3.45f, 24}, {3.40f, 14}, {3.35f, 6}, {3.30f, 0},
+  {3.80f, 100}, {3.70f, 88}, {3.60f, 74}, {3.50f, 58}, {3.40f, 42},
+  {3.30f, 26}, {3.20f, 13}, {3.10f, 6}, {3.00f, 0},
 };
 
 // Funkcja obliczania procentu naładowania (interpolacja krzywej Li-ion)
