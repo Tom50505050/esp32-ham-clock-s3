@@ -3,6 +3,43 @@
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
 
+## Alert APRS: styl nowoczesny + klasyczny, ikona domu 3D (31.10.2026)
+Ekran alertu APRS (`ALERT_Screen`) ma teraz dwa warianty wybierane **globalnym**
+ustawieniem wyglądu ekranów (`screen1ClockStyle`, menu ZEGAR → „WYGLAD EKRANOW"):
+- **nowoczesny** (`drawAprsAlertModern`, `screen1ClockStyle == 0`, domyślny) — ciemna
+  karta `#0b1220`, akcent teal `0x3697`, chipy FREQ/ODLEGLOSC, karta STACJA z ikoną
+  domu 3D (bitmapa), karta NAMIAR z kompasem, pasek statusu. Bez pulsującej ramki.
+- **klasyczny** (`drawAprsAlertClassic`, `screen1ClockStyle == 1`) — dotychczasowy
+  wygląd (pomarańczowy pasek, ramka, pulsowanie).
+- Ikona domu: `APRS_HOUSE_ICON[4096]` (64×64 RGB565) wygenerowana z referencji
+  (oczyszczonej z tła i znaków wodnych); tło = sentinel `0xF81F` pomijane przy
+  rysowaniu (`drawAprsAlertHouseBitmap`). Generator bitmapy: `/tmp/wx/gen_bitmap2.py`.
+- Kompas `drawAprsAlertCompass` dostał parametr `modern` (kolory).
+- Nagłówek pokazuje ostatnią aktualizację w czasie **UTC** (`AKT HH:MMZ`), a dolny
+  pasek (stacja nie-WX) ma **kropkę statusu** (zielona = symbol+pozycja OK, żółta =
+  dane częściowe) oraz wiersz `AKTUALIZACJA: HH:MM:SSZ`.
+- Wspólny helper `aprsDecodeStationWx(station, wx)` = symbol WX + `decodeAprsWxFromComment`.
+
+## Diagnostyka restartów ESP32 (31.10.2026)
+Objaw „ESP co jakiś czas się resetuje" diagnozujemy teraz z licznika w pamięci RTC:
+- `RTC_NOINIT_ATTR` `diagResetCount` / `diagLastResetReason` / `diagLastMinHeap`
+  przeżywają restart (magic `0x48414D43`).
+- `GET /api/status` zwraca dodatkowo: `reset_count`, `reset_reason`, `min_heap`
+  (minimalny wolny heap od startu).
+- Serial przy starcie: `[DIAG] Restart #N, powod: ...`; log heapu co 30 s podaje też minimum.
+- Znaczenie `reset_reason`: `BROWNOUT` = za słabe zasilanie (najczęstsze; detektor
+  brownoutu jest wyłączony w setup, ale głębokie spadki nadal resetują), `TASK_WDT` =
+  zablokowana pętla/zadanie, `PANIC/CRASH` = wyjątek (np. brak stosu, `StoreProhibited`),
+  `SOFTWARE` = `ESP.restart()`.
+- Typowe przyczyny w tym projekcie: (1) zasilanie/kabel USB przy skokach prądu WiFi+podświetlenie,
+  (2) przepełnienie stosu zadań HTTPS (`ISS_Task` już 24 KB), (3) fragmentacja heapu przy
+  TLS/`String`. Sprawdzaj `min_heap` i serial.
+- Dla stacji pogodowej (symbol WX, dekoder `decodeAprsWxFromComment`) dolny pasek
+  pokazuje 4 chipy: TEMP, WIATR, WILG, CISN (`aprsModernWxChip`); dla pozostalych
+  symbol + status pozycji.
+- Buildy `esp32-s3-n16r8` i `-notouch` SUCCESS; `merge_bin` → `dist/`, ZIP gotowy.
+
+
 ## Dźwięk alertu APRS na wspólnym piezo (GPIO 2) + poprawka opisu pinu LED (31.10.2026)
 Alert APRS dostał **krótki sygnał dźwiękowy** („pip-pip-pip") na tym samym piezo
 co alarm — `BUZZER_PIN` = **GPIO 2** (LED alertu APRS pozostaje na **GPIO 6**,
