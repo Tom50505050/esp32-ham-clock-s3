@@ -122,13 +122,19 @@ melodia) — widoczny na dowolnym ekranie; ustawia `inMenu = true` (blokuje
 periodyczne odświeżanie pod spodem) i blokuje wygaszacz.
 
 **Powtarzanie (5 min):** jeśli nikt nie dotknie ekranu, alarm **wznawia się co
-5 minut** (`ALARM_REPEAT_MS`), aż do potwierdzenia dotknięciem. Cykl: dzwoni
-`ALARM_RING_DISPLAY_MS` (60 s) → pętla główna woła `alarmStopBuzzer()` (cisza,
-ale `alarmRinging` **zostaje true**) i planuje `alarmNextRingMs = alarmLastRingMs
-+ ALARM_REPEAT_MS` (liczone od **startu** dzwonienia → równo co 5 min, nie 5 min
-+ 60 s) → kolejne `alarmStartRinging()`. Warunek `alarmNextRingMs == 0` w
-auto-stopie gwarantuje jednorazowe planowanie (inaczej przesuwałoby się co
-iterację pętli).
+5 minut** (`ALARM_REPEAT_MS`), aż do potwierdzenia dotknięciem. `alarmStartRinging()`
+planuje `alarmNextRingMs = millis() + ALARM_REPEAT_MS` **od razu przy starcie
+dzwonienia** — cykl: dzwoni `ALARM_RING_DISPLAY_MS` (60 s) → pętla główna woła
+`alarmStopBuzzer()` (cisza, ale `alarmRinging` **zostaje true**) → po
+`ALARM_REPEAT_MS` od startu kolejne `alarmStartRinging()`.
+
+> **Błąd „alarm nie włącza się ponownie po 5 min" (naprawiony):** pierwotnie
+> powtórkę planował dopiero blok auto-stopu w pętli głównej, po 60 s dzwonienia.
+> Jeśli ten blok nie zadziałał (np. `alarmRingScreenUntilMs` wyzerowane przez UI,
+> albo stan `alarmRinging` skasowany), powtórka **nigdy** nie była planowana.
+> Teraz `alarmNextRingMs` jest ustawiane w `alarmStartRinging()` — planowanie nie
+> zależy już od bloku auto-stopu. Dodatkowo log `[ALARM] Start dzwonienia,
+> powtorka za 300 s` pozwala to potwierdzić po UART.
 
 **Potwierdzenie:** dotknięcie ekranu → `alarmStopMelody()` + `alarmNextRingMs = 0`
 (pętla główna) oraz `dismissAlarmRingScreen()` (UI_Task, powrót do widoku pod

@@ -9516,9 +9516,14 @@ static void alarmStartRinging() {
   alarmPreviewMode = false;
   alarmLastRingMs = millis();
   alarmRingScreenUntilMs = millis() + ALARM_RING_DISPLAY_MS;
-  alarmNextRingMs = 0;          // wyzerowane na czas dzwonienia; po auto-stopie ustawiane
+  // Powtorka planowana OD RAZU przy starcie dzwonienia (nie dopiero w auto-stopie
+  // po 60 s) - inaczej blok auto-stopu byl jedynym miejscem planujacym powtorke i
+  // jego ewentualne pominniecie kasowalo caly mechanizm powtarzania.
+  alarmNextRingMs = millis() + ALARM_REPEAT_MS;
   alarmStartMelody(alarmMelody);
   alarmRingPending = true;      // ekran dzwonienia rysowany w UI_Task (bezpiecznie)
+  Serial.printf("[ALARM] Start dzwonienia, powtorka za %lu s (jesli brak dotkniecia)\n",
+                ALARM_REPEAT_MS / 1000UL);
 }
 
 // Sprawdza czy nadszedl czas alarmu (co sekunda z petli glownej).
@@ -30164,18 +30169,12 @@ void loop() {
     }
     alarmUpdateBuzzer();
     aprsBeepUpdate();  // "pip-pip-pip" alertu APRS (ten sam piezo; alarm ma priorytet)
-    // Koniec jednego dzwonienia: wycisz buzzer po ALARM_RING_DISPLAY_MS i
-    // zaplanuj kolejne za ALARM_REPEAT_MS (alarm powtarza sie az do potwierdzenia
-    // dotknieciem ekranu). alarmStopBuzzer() (nie alarmStopMelody!) - alarm
-    // pozostaje AKTYWNY (alarmRinging=true), zeby powtorka mogla zadzialac.
+    // Koniec jednego dzwonienia: wycisz buzzer po ALARM_RING_DISPLAY_MS. Powtorka
+    // jest juz zaplanowana w alarmStartRinging() (alarmNextRingMs), wiec tutaj
+    // tylko cisza - alarmRinging zostaje true, az do potwierdzenia dotknieciem.
     if (alarmRinging && alarmRingScreenUntilMs != 0 &&
         (long)(millis() - alarmRingScreenUntilMs) >= 0) {
       alarmStopBuzzer();
-      // alarmNextRingMs == 0 tylko raz na dzwonienie (alarmStartRinging zeruje go
-      // przy starcie) - bez tego warunku ten blok przesuwalby powtorke co iteracje.
-      // Liczone od STARTU dzwonienia (alarmLastRingMs), wiec alarm wlacza sie
-      // dokladnie co ALARM_REPEAT_MS (5 min), a nie co 5 min + czas dzwonienia.
-      if (alarmNextRingMs == 0) alarmNextRingMs = alarmLastRingMs + ALARM_REPEAT_MS;
     }
     // Kolejne dzwonienie (nikt nie dotknal ekranu przez ALARM_REPEAT_MS).
     if (alarmRinging && alarmNextRingMs != 0 &&
