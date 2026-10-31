@@ -1673,6 +1673,17 @@
             initSplashUpload();
         };
 
+        // Transforme une erreur d'envoi en message lisible : 507 = plus d'espace
+        // dans LittleFS, un code HTTP, ou une erreur réseau (aucune réponse).
+        const uploadErrorMessage = (e) => {
+            const raw = String(e && e.message ? e.message : e).replace('http ', '').trim();
+            if (/^\d+$/.test(raw)) {
+                if (raw === '507') return "Plus d'espace sur l'appareil (LittleFS) : supprimez les fichiers inutilisés et réessayez.";
+                return "Échec de l'envoi (HTTP " + raw + ").";
+            }
+            return "Erreur réseau : vérifiez la connexion avec l'appareil et réessayez.";
+        };
+
         let splashUploadInit = false;
         const initSplashUpload = () => {
             if (splashUploadInit) return;
@@ -1704,7 +1715,7 @@
                         const img = document.getElementById('splash-preview');
                         if (img) { img.style.display = ''; img.src = '/splash_preview?t=' + Date.now(); }
                     })
-                    .catch(() => { status.textContent = "Échec de l'envoi (format/réseau)."; })
+                    .catch((e) => { status.textContent = uploadErrorMessage(e); })
                     .finally(() => { btn.disabled = false; });
             });
         };
@@ -1741,7 +1752,7 @@
                             const pv = document.getElementById('welcome-preview');
                             if (pv) pv.src = '/welcome_preview?t=' + Date.now();
                         })
-                        .catch(() => { status.textContent = "Échec de l'envoi (format/réseau)."; btn.disabled = false; });
+                        .catch((e) => { status.textContent = uploadErrorMessage(e); btn.disabled = false; });
                 };
                 if (convertOn) {
                     status.textContent = "Conversion " + file.name + " to 480x320 RGB565...";
@@ -1888,7 +1899,7 @@
                         if (pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
                     }
                 })
-                .catch((e) => { status.textContent = "Échec de l'envoi (réseau/format) : " + e; })
+                .catch((e) => { status.textContent = uploadErrorMessage(e); })
                 .finally(() => { btn.disabled = false; });
         };
 

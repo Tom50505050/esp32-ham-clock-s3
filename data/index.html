@@ -1583,6 +1583,17 @@
             initSplashUpload();
         };
 
+        // Zamienia blad uploadu na czytelny komunikat: 507 = brak miejsca w
+        // LittleFS, kod HTTP, albo blad sieci (brak odpowiedzi).
+        const uploadErrorMessage = (e) => {
+            const raw = String(e && e.message ? e.message : e).replace('http ', '').trim();
+            if (/^\d+$/.test(raw)) {
+                if (raw === '507') return "Brak miejsca w pamieci urzadzenia (LittleFS) - usun nieuzywane pliki i sprobuj ponownie.";
+                return "Blad wgrywania (HTTP " + raw + ").";
+            }
+            return "Blad sieci - sprawdz polaczenie z urzadzeniem i sprobuj ponownie.";
+        };
+
         let splashUploadInit = false;
         const initSplashUpload = () => {
             if (splashUploadInit) return;
@@ -1614,7 +1625,7 @@
                         const img = document.getElementById('splash-preview');
                         if (img) { img.style.display = ''; img.src = '/splash_preview?t=' + Date.now(); }
                     })
-                    .catch(() => { status.textContent = "Błąd wgrywania (format/sieć)."; })
+                    .catch((e) => { status.textContent = uploadErrorMessage(e); })
                     .finally(() => { btn.disabled = false; });
             });
         };
@@ -1651,7 +1662,7 @@
                             const pv = document.getElementById('welcome-preview');
                             if (pv) pv.src = '/welcome_preview?t=' + Date.now();
                         })
-                        .catch(() => { status.textContent = "Blad wgrywania (format/siec)."; btn.disabled = false; });
+                        .catch((e) => { status.textContent = uploadErrorMessage(e); btn.disabled = false; });
                 };
                 if (convertOn) {
                     status.textContent = "Konwertuje " + file.name + " do 480x320 RGB565...";
@@ -1800,7 +1811,7 @@
                         if (pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
                     }
                 })
-                .catch((e) => { status.textContent = "Blad wysylania (siec/format): " + e; })
+                .catch((e) => { status.textContent = uploadErrorMessage(e); })
                 .finally(() => { btn.disabled = false; });
         };
 

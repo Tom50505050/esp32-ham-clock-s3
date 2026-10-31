@@ -1673,6 +1673,17 @@
             initSplashUpload();
         };
 
+        // Convierte un error de subida en un mensaje legible: 507 = sin espacio
+        // en LittleFS, un código HTTP, o un error de red (sin respuesta).
+        const uploadErrorMessage = (e) => {
+            const raw = String(e && e.message ? e.message : e).replace('http ', '').trim();
+            if (/^\d+$/.test(raw)) {
+                if (raw === '507') return "Sin espacio en el dispositivo (LittleFS): borra archivos no usados e inténtalo de nuevo.";
+                return "Error de subida (HTTP " + raw + ").";
+            }
+            return "Error de red: comprueba la conexión con el dispositivo e inténtalo de nuevo.";
+        };
+
         let splashUploadInit = false;
         const initSplashUpload = () => {
             if (splashUploadInit) return;
@@ -1704,7 +1715,7 @@
                         const img = document.getElementById('splash-preview');
                         if (img) { img.style.display = ''; img.src = '/splash_preview?t=' + Date.now(); }
                     })
-                    .catch(() => { status.textContent = "Error de subida (formato/red)."; })
+                    .catch((e) => { status.textContent = uploadErrorMessage(e); })
                     .finally(() => { btn.disabled = false; });
             });
         };
@@ -1741,7 +1752,7 @@
                             const pv = document.getElementById('welcome-preview');
                             if (pv) pv.src = '/welcome_preview?t=' + Date.now();
                         })
-                        .catch(() => { status.textContent = "Error de subida (formato/red)."; btn.disabled = false; });
+                        .catch((e) => { status.textContent = uploadErrorMessage(e); btn.disabled = false; });
                 };
                 if (convertOn) {
                     status.textContent = "Convirtiendo " + file.name + " to 480x320 RGB565...";
@@ -1888,7 +1899,7 @@
                         if (pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
                     }
                 })
-                .catch((e) => { status.textContent = "Error de subida (red/formato): " + e; })
+                .catch((e) => { status.textContent = uploadErrorMessage(e); })
                 .finally(() => { btn.disabled = false; });
         };
 

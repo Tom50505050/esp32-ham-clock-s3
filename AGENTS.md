@@ -2,6 +2,40 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## „Blad wgrywania (format/siec)" przy ekranie powitalnym — brak miejsca w LittleFS (31.10.2026)
+Zgłoszenie: wgranie własnej grafiki na **ekran powitalny** (`/upload_welcome`,
+zakładka TFT → „Grafika na ekran") kończyło się w WWW komunikatem
+„Blad wgrywania (format/siec)". Komunikat jest mylący — to nie błąd sieci.
+
+**Przyczyna (odtworzona):** wolne miejsce w LittleFS kurczy się z każdym uploadem
+grafiki, a firmware wymaga `rozmiar_pliku + 64 kB` wolnego przed zapisem
+(`handleUpload()`, ścieżka RAW i multipart). Wysłany obraz miał wolne 876544 B
+(po dodaniu `.gz` i konwersji ikon do 16-bit). Sekwencja użytkownika:
+1. własna ikona burzy (`/wxicon_storm`, ~307 kB) → OK, wolne spada do ~569 kB,
+2. własna ikona wiatru (`/wxicon_wind`, ~307 kB) → OK, wolne spada do ~262 kB,
+3. ekran powitalny (konwersja 480×320, ~307 kB) → `307266 + 65536 > 262012`
+   → kontrola miejsca zwraca **HTTP 507**, a JS pokazuje generyczne
+   „Blad wgrywania (format/siec)".
+
+Ścieżka RAW działa poprawnie — 507 jest zwracane, ale WWW nie odróżniało go od
+błędu sieci. Wcześniejszy „TypeError: Failed to fetch" (ikony) to była inna,
+już naprawiona ścieżka (panic bez kontroli miejsca).
+
+**Naprawa:**
+- **Więcej miejsca:** usunięto 6 martwych plików czcionek z `data/fonts/`
+  (`dejavu-sans.book{10,12,20}.vlw`, `roboto.regular{10,12,20}.vlw` — 0 odwołań
+  w kodzie i WWW, razem ~330 kB). Wolne w LittleFS: 876544 → **3007242 B** (~2,9 MB).
+- **Czytelny komunikat:** we wszystkich 6 językach `data/index*.html` dodano
+  `uploadErrorMessage()` — 507 pokazuje „Brak miejsca w pamięci urządzenia
+  (LittleFS)…", inny kod HTTP pokazuje kod, brak odpowiedzi pokazuje błąd sieci.
+  Podmieniono nim generyczne `catch` w ścieżkach: splash, welcome (direct) i konwerter.
+
+**Ważne dla przyszłych zmian:** LittleFS jest ciasny; każda nowa grafika/`.gz`
+zwiększa ryzyko 507 przy uploadach. Przed dodawaniem zasobów sprawdź wolne
+(`pio run -e esp32-s3-n16r8 -t buildfs` i odczytaj rozmiar obrazu). Po deployu
+podmień **oba** katalogi: `share/` i `share/flash/` (oraz `download/`).
+
+
 ## Kalibracja baterii „nie działa" — korekta nadpisywana przez bat_div_cal (31.10.2026)
 Zgłoszenie: w WWW (Ustawienia → „Kalibracja baterii") odczyt pokazuje np.
 `3.90 V | 61%` mimo w pełni naładowanego akumulatora; wpisanie rzeczywistego

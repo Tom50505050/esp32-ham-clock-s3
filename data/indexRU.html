@@ -1673,6 +1673,17 @@
             initSplashUpload();
         };
 
+        // Преобразует ошибку загрузки в понятное сообщение: 507 = нет места
+        // в LittleFS, код HTTP или ошибка сети (нет ответа).
+        const uploadErrorMessage = (e) => {
+            const raw = String(e && e.message ? e.message : e).replace('http ', '').trim();
+            if (/^\d+$/.test(raw)) {
+                if (raw === '507') return "Недостаточно места на устройстве (LittleFS) — удалите неиспользуемые файлы и повторите.";
+                return "Ошибка загрузки (HTTP " + raw + ").";
+            }
+            return "Ошибка сети — проверьте соединение с устройством и повторите.";
+        };
+
         let splashUploadInit = false;
         const initSplashUpload = () => {
             if (splashUploadInit) return;
@@ -1704,7 +1715,7 @@
                         const img = document.getElementById('splash-preview');
                         if (img) { img.style.display = ''; img.src = '/splash_preview?t=' + Date.now(); }
                     })
-                    .catch(() => { status.textContent = "Ошибка загрузки (формат/сеть)."; })
+                    .catch((e) => { status.textContent = uploadErrorMessage(e); })
                     .finally(() => { btn.disabled = false; });
             });
         };
@@ -1741,7 +1752,7 @@
                             const pv = document.getElementById('welcome-preview');
                             if (pv) pv.src = '/welcome_preview?t=' + Date.now();
                         })
-                        .catch(() => { status.textContent = "Ошибка загрузки (формат/сеть)."; btn.disabled = false; });
+                        .catch((e) => { status.textContent = uploadErrorMessage(e); btn.disabled = false; });
                 };
                 if (convertOn) {
                     status.textContent = "Конвертация " + file.name + " to 480x320 RGB565...";
@@ -1888,7 +1899,7 @@
                         if (pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
                     }
                 })
-                .catch((e) => { status.textContent = "Ошибка загрузки (сеть/формат): " + e; })
+                .catch((e) => { status.textContent = uploadErrorMessage(e); })
                 .finally(() => { btn.disabled = false; });
         };
 
