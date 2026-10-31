@@ -176,7 +176,6 @@
     "Enable APRS weather station (WX) notifications": "APRS-Wetterstations-Benachrichtigungen (WX) aktivieren",
     "Enable GPS module": "GPS-Modul aktivieren",
     "Enable GPS module (UART2)": "GPS-Modul aktivieren (UART2)",
-    "Enable LED optical alert (Blue LED - GPIO17)": "Optischen LED-Alarm aktivieren (blaue LED - GPIO17)",
     "Enable callsign blocking in alerts": "Rufzeichen-Sperre im Alarm aktivieren",
     "Enable nearby mobile station detection (-7 and -9)": "Erkennung mobiler Stationen in der Nähe aktivieren (-7 und -9)",
     "Enable possible storm alert": "Warnung vor möglichen Gewittern aktivieren",
@@ -460,7 +459,6 @@
     "Touch calibration reset failed": "Zurücksetzen der Touch-Kalibrierung fehlgeschlagen",
     "Touch calibration reset to default values!": "Touch-Kalibrierung auf Standardwerte zurückgesetzt!",
     "Track": "Verfolgung",
-    "Turns APRS ALERT LED blinking on or off. You can solder a 3V buzzer.": "Schaltet das APRS-ALARM-LED-Blinken ein/aus. Sie können einen 3V-Summer anlöten.",
     "Typical value is 8 for GPS and HC-05 modules.": "Typischer Wert ist 8 für GPS- und HC-05-Module.",
     "UART Serial Port": "UART-Serieller Anschluss",
     "UART2 pin mapping: RX = IO27, TX = IO22 (ESP32).": "UART2-Pinbelegung: RX = IO27, TX = IO22 (ESP32).",
@@ -584,7 +582,9 @@
     "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, Schutz DW01A)",
     "Other / none": "Andere / keine",
     "Battery type:": "Akkutyp:",
-    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Freitextbeschreibung des Zelltyps/der Chemie (max. 24 Zeichen). Sichtbar auf dem ESP32-S3-Monitorbildschirm."
+    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Freitextbeschreibung des Zelltyps/der Chemie (max. 24 Zeichen). Sichtbar auf dem ESP32-S3-Monitorbildschirm.",
+    "Enable APRS alert: LED (GPIO 6) + sound (GPIO 2)": "APRS-Alarm aktivieren: LED (GPIO 6) + Ton (GPIO 2)",
+    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Schaltet das Blinken der blauen APRS-ALARM-LED (GPIO 6) und den kurzen \"Pip\"-Ton (Summer GPIO 2) ein/aus."
   },
   "es": {
     " (storm) and": " (tormenta) y",
@@ -763,7 +763,6 @@
     "Enable APRS weather station (WX) notifications": "Activar notificaciones de estaciones meteorológicas APRS (WX)",
     "Enable GPS module": "Activar módulo GPS",
     "Enable GPS module (UART2)": "Activar módulo GPS (UART2)",
-    "Enable LED optical alert (Blue LED - GPIO17)": "Activar alerta LED óptica (LED azul - GPIO17)",
     "Enable callsign blocking in alerts": "Activar bloqueo de indicativos en alertas",
     "Enable nearby mobile station detection (-7 and -9)": "Activar detección de estaciones móviles cercanas (-7 y -9)",
     "Enable possible storm alert": "Activar alerta de posibles tormentas",
@@ -1048,7 +1047,6 @@
     "Touch calibration reset failed": "Error al restablecer la calibración táctil",
     "Touch calibration reset to default values!": "¡Calibración táctil restablecida a los valores por defecto!",
     "Track": "Seguimiento",
-    "Turns APRS ALERT LED blinking on or off. You can solder a 3V buzzer.": "Activa/desactiva el parpadeo del LED de ALERTA APRS. Puedes soldar un zumbador de 3V.",
     "Typical value is 8 for GPS and HC-05 modules.": "El valor típico es 8 para módulos GPS y HC-05.",
     "UART Serial Port": "Puerto serie UART",
     "UART2 pin mapping: RX = IO27, TX = IO22 (ESP32).": "Asignación de pines UART2: RX = IO27, TX = IO22 (ESP32).",
@@ -1172,7 +1170,9 @@
     "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, protección DW01A)",
     "Other / none": "Otro / ninguno",
     "Battery type:": "Tipo de batería:",
-    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Descripción libre del tipo/química de la celda (máx. 24 car.). Mostrada en la pantalla de monitor ESP32-S3."
+    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Descripción libre del tipo/química de la celda (máx. 24 car.). Mostrada en la pantalla de monitor ESP32-S3.",
+    "Enable APRS alert: LED (GPIO 6) + sound (GPIO 2)": "Activar alerta APRS: LED (GPIO 6) + sonido (GPIO 2)",
+    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Activa/desactiva el parpadeo del LED azul de ALERTA APRS (GPIO 6) y el breve sonido \"pip\" (zumbador GPIO 2)."
   },
   "fr": {
     " (storm) and": " (orage) et",
@@ -1352,7 +1352,6 @@
     "Enable APRS weather station (WX) notifications": "Activer les notifications des stations météo APRS (WX)",
     "Enable GPS module": "Activer le module GPS",
     "Enable GPS module (UART2)": "Activer le module GPS (UART2)",
-    "Enable LED optical alert (Blue LED - GPIO17)": "Activer l'alerte LED optique (LED bleue - GPIO17)",
     "Enable callsign blocking in alerts": "Activer le blocage des indicatifs dans les alertes",
     "Enable nearby mobile station detection (-7 and -9)": "Activer la détection des stations mobiles proches (-7 et -9)",
     "Enable possible storm alert": "Activer l'alerte d'orages possibles",
@@ -1636,7 +1635,6 @@
     "Touch calibration reset failed": "Échec de la réinitialisation de la calibration tactile",
     "Touch calibration reset to default values!": "Calibration tactile réinitialisée aux valeurs par défaut !",
     "Track": "Piste",
-    "Turns APRS ALERT LED blinking on or off. You can solder a 3V buzzer.": "Active/désactivé le clignotement de la LED d'ALERTE APRS. Vous pouvez souder un buzzer 3V.",
     "Typical value is 8 for GPS and HC-05 modules.": "Valeur typique 8 pour les modules GPS et HC-05.",
     "UART Serial Port": "Port série UART",
     "UART2 pin mapping: RX = IO27, TX = IO22 (ESP32).": "Brochage UART2 : RX = IO27, TX = IO22 (ESP32).",
@@ -1761,7 +1759,9 @@
     "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, protection DW01A)",
     "Other / none": "Autre / aucun",
     "Battery type:": "Type de batterie:",
-    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Description libre du type/de la chimie de la cellule (max 24 car.). Affichée sur l'écran moniteur ESP32-S3."
+    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Description libre du type/de la chimie de la cellule (max 24 car.). Affichée sur l'écran moniteur ESP32-S3.",
+    "Enable APRS alert: LED (GPIO 6) + sound (GPIO 2)": "Activer l'alerte APRS : LED (GPIO 6) + son (GPIO 2)",
+    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Active/désactive le clignotement de la LED d'ALERTE APRS bleue (GPIO 6) et le court son \"pip\" (buzzer GPIO 2)."
   },
   "ru": {
     " (storm) and": " (гроза) и",
@@ -1940,7 +1940,6 @@
     "Enable APRS weather station (WX) notifications": "Включить уведомления метеостанций APRS (WX)",
     "Enable GPS module": "Включить модуль GPS",
     "Enable GPS module (UART2)": "Включить модуль GPS (UART2)",
-    "Enable LED optical alert (Blue LED - GPIO17)": "Включить оптическую LED-тревогу (синий LED - GPIO17)",
     "Enable callsign blocking in alerts": "Включить блокировку позывных в оповещениях",
     "Enable nearby mobile station detection (-7 and -9)": "Включить обнаружение близких мобильных станций (-7 и -9)",
     "Enable possible storm alert": "Включить тревогу о возможных грозах",
@@ -2224,7 +2223,6 @@
     "Touch calibration reset failed": "Не удалось сбросить калибровку касания",
     "Touch calibration reset to default values!": "Калибровка касания сброшена к значениям по умолчанию!",
     "Track": "Трасса",
-    "Turns APRS ALERT LED blinking on or off. You can solder a 3V buzzer.": "Включает/выключает мигание LED ТРЕВОГИ APRS. Можно припаять зумер на 3В.",
     "Typical value is 8 for GPS and HC-05 modules.": "Типичное значение 8 для модулей GPS и HC-05.",
     "UART Serial Port": "Последовательный порт UART",
     "UART2 pin mapping: RX = IO27, TX = IO22 (ESP32).": "Распиновка UART2: RX = IO27, TX = IO22 (ESP32).",
@@ -2348,6 +2346,8 @@
     "TP4056 (5V 1A, DW01A protection)": "TP4056 (5V 1A, защита DW01A)",
     "Other / none": "Другое / нет",
     "Battery type:": "Тип аккумулятора:",
-    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Свободное описание типа/химии ячейки (макс. 24 симв.). Отображается на экране монитора ESP32-S3."
+    "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Свободное описание типа/химии ячейки (макс. 24 симв.). Отображается на экране монитора ESP32-S3.",
+    "Enable APRS alert: LED (GPIO 6) + sound (GPIO 2)": "Включить тревогу APRS: LED (GPIO 6) + звук (GPIO 2)",
+    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Включает/выключает мигание синего LED ТРЕВОГИ APRS (GPIO 6) и короткий звук «пип» (зумер GPIO 2)."
   }
 }

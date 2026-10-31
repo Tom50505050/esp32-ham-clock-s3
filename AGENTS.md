@@ -3,6 +3,24 @@
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
 
+## Dźwięk alertu APRS na wspólnym piezo (GPIO 2) + poprawka opisu pinu LED (31.10.2026)
+Alert APRS dostał **krótki sygnał dźwiękowy** („pip-pip-pip") na tym samym piezo
+co alarm — `BUZZER_PIN` = **GPIO 2** (LED alertu APRS pozostaje na **GPIO 6**,
+kanał niebieski RGB).
+- Stałe: `APRS_BEEP_FREQ 2000` Hz, `APRS_BEEP_COUNT 3`, `APRS_BEEP_ON_MS 120`,
+  `APRS_BEEP_GAP_MS 120`, `APRS_BEEP_DUTY 600` (stała głośność, **niezależna** od
+  suwaka alarmu — stąd `buzzerRawTone(f, duty)`; `alarmTone()` go opakowuje).
+- Automat stanu bez blokowania: `aprsBeepPlay()` / `aprsBeepUpdate()` (pętla główna) /
+  `aprsBeepAbort()` (natychmiastowa cisza).
+- **Alarm ma priorytet** (wspólny pin): `aprsBeepPlay()` nie startuje, gdy
+  `alarmRinging`, a `alarmStartRinging()` woła `aprsBeepAbort()`; po alarmie/potwierdzeniu
+  obowiązuje okno ciszy `aprsBeepMutedUntilMs` (1500 ms).
+- Wyzwalane w `triggerAprsRgbLedAlert()` (obok migania LED); `aprsBeepUpdate()` w `loop()`.
+- **Poprawka dokumentacji:** etykiety WWW (`data/index*.html`, `download/index.html`)
+  i `tools/lang_pages.json` mówiły „Blue LED - GPIO17" — firmware używa **GPIO 6**.
+  Zaktualizowano opis we wszystkich 6 językach (LED GPIO 6 + dźwięk GPIO 2).
+
+
 ## Skala procentowa baterii: 3.8 V = 100%, 3.0 V = 0% (SONY GB/T-18287) (31.10.2026)
 Zgłoszenie: akumulator SONY GB/T-18287 3.8 V. Ikona ma pokazywać 100% przy 3.8 V,
 a 0% dopiero przy 3.0 V.

@@ -156,6 +156,9 @@ void alarmUpdateBuzzer();
 void alarmStartMelody(int index);
 void alarmStopMelody();
 void alarmStopBuzzer();
+void aprsBeepPlay();
+void aprsBeepUpdate();
+void aprsBeepAbort();
 void alarmInitBuzzer();
 void drawAlarmRingScreen();
 void dismissAlarmRingScreen();
@@ -2295,6 +2298,14 @@ int clockHitX = 40, clockHitY = 125, clockHitW = 400, clockHitH = 70;
 #define ALARM_DAYS 7                // 0=niedziela ... 6=sobota (zgodnie z tm_wday)
 #define ALARM_MELODY_COUNT 12
 
+// Dzwiek alertu APRS - ten sam piezo (BUZZER_PIN), wiec alarm ma priorytet:
+// beep APRS gra tylko, gdy alarm nie dzwoni (patrz aprsBeepUpdate()).
+#define APRS_BEEP_FREQ 2000         // Hz (piezo pasywny, rejon rezonansu)
+#define APRS_BEEP_COUNT 3           // liczba "pipniec"
+#define APRS_BEEP_ON_MS 120         // dlugosc pipniecia
+#define APRS_BEEP_GAP_MS 120        // przerwa miedzy pipnieciami
+#define APRS_BEEP_DUTY 600          // stala glosnosc (niezalezna od suwaka alarmu)
+
 // Suwak glosnosci melodii w menu alarmu (wypelnienie LEDC, 10 bitow => 0..1023).
 // Ustawienia wspolne dla rysowania i hit-testu.
 #define ALM_VOL_MIN 40              // dolny zakres (nie 0, zeby suwak nie byl "głuchy")
@@ -2330,6 +2341,14 @@ volatile int alarmPlayNote = 0;
 volatile unsigned long alarmNoteStartMs = 0;
 unsigned long alarmLastRingMs = 0;
 long alarmLastTriggerAbsMin = -1;   // minuta absolutna (dzien*1440+godz*60+min); -1 = brak
+
+// Dzwiek alertu APRS ("pip-pip-pip") na wspolnym piezo (BUZZER_PIN). Automat stanu
+// nieblokujacy; alarm ma priorytet (patrz aprsBeepPlay/Update/Abort).
+volatile bool aprsBeepActive = false;
+int aprsBeepStep = 0;                    // 0..APRS_BEEP_COUNT-1
+unsigned long aprsBeepPhaseUntilMs = 0;
+bool aprsBeepToneOn = false;
+unsigned long aprsBeepMutedUntilMs = 0;  // okno ciszy po alarmie/potwierdzeniu
 
 // Ekran modalny dzwoniacego alarmu (jak alert APRS/pogodowy) - widoczny na
 // dowolnym ekranie, zeby nie przegapic alarmu. Auto-stop po ALARM_RING_DISPLAY_MS.
@@ -6747,6 +6766,8 @@ void handleTouchNavigation() {
     if (isNewTap && alarmRinging) {
       alarmStopMelody();
       alarmNextRingMs = 0;
+      aprsBeepAbort();
+      aprsBeepMutedUntilMs = millis() + 1500UL;  // chwila ciszy po potwierdzeniu
     }
 
     // Ekran dzwoniacego alarmu: dowolne dotkniecie zatrzymuje i zamyka.
@@ -9350,15 +9371,31 @@ void alarmInitBuzzer() {
 // UWAGA: gdy pin jest przypiety do kanalu LEDC, digitalWrite() NIE wycisza go -
 // pin nadal generuje PWM ostatniej nuty. Trzeba wyzerowac wypelnienie kanalu,
 // inaczej po melodii zostaje ciagly pisk (dokladnie ten blad).
-static void alarmTone(uint16_t freq) {
+// Surowe ustawienie: freq juz przesunieta o oktawy, duty = wypelnienie LEDC.
+static void buzzerRawTone(uint32_t f, uint32_t duty) {
 #if (BUZZER_PIN >= 0)
-  if (freq == 0) {
+  if (f == 0 || duty == 0) {
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
     ledcWrite(BUZZER_PIN, 0);               // rdzen 3.x: pin == kanal
 #else
     ledcWriteTone(BUZZER_LEDC_CHANNEL, 0);  // rdzen 2.x: 0 Hz => wypelnienie 0
     ledcWrite(BUZZER_LEDC_CHANNEL, 0);      // dodatkowo wyzeruj wypelnienie
 #endif
+    return;
+  }
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+  ledcChangeFrequency(BUZZER_PIN, f, 10);
+  ledcWrite(BUZZER_PIN, duty);
+#else
+  ledcWriteTone(BUZZER_LEDC_CHANNEL, f);
+  ledcWrite(BUZZER_LEDC_CHANNEL, duty);
+#endif
+#endif
+}
+
+static void alarmTone(uint16_t freq) {
+  if (freq == 0) {
+    buzzerRawTone(0, 0);
     return;
   }
 #if BUZZER_OCTAVE_UP
@@ -9369,14 +9406,7 @@ static void alarmTone(uint16_t freq) {
   // Glosnosc = wypelnienie LEDC. alarmVolume (suwak w menu) nadpisuje BUZZER_DUTY.
   uint32_t duty = (alarmVolume > 0) ? (uint32_t)alarmVolume : BUZZER_DUTY;
   if (duty > ALM_VOL_MAX) duty = ALM_VOL_MAX;
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-  ledcChangeFrequency(BUZZER_PIN, f, 10);
-  ledcWrite(BUZZER_PIN, duty);
-#else
-  ledcWriteTone(BUZZER_LEDC_CHANNEL, f);
-  ledcWrite(BUZZER_LEDC_CHANNEL, duty);
-#endif
-#endif
+  buzzerRawTone(f, duty);
 }
 
 void alarmStartMelody(int index) {
@@ -9396,6 +9426,64 @@ void alarmStopBuzzer() {
 void alarmStopMelody() {
   alarmStopBuzzer();
   alarmRinging = false;   // pelne zatrzymanie = koniec alarmu (potwierdzenie)
+}
+
+// ========== Dzwiek alertu APRS (ten sam piezo co alarm) ==========
+// Automat stanu "pip-pip-pip" bez blokowania. Dzieli pin z alarmem, wiec gdy
+// alarm dzwoni, beep jest wstrzymywany (alarm ma priorytet).
+
+// Uruchamia sekwencje pipniec (wolane przy alercie APRS). Nie startuje, gdy
+// alarm wlasnie dzwoni ani w krotkim oknie po jego wyciszeniu (alarm ma priorytet).
+void aprsBeepPlay() {
+#if (BUZZER_PIN >= 0)
+  if (alarmRinging) {
+    aprsBeepMutedUntilMs = millis() + 1500UL;  // cisza po alarmie
+    return;
+  }
+  if (aprsBeepMutedUntilMs != 0 && (long)(millis() - aprsBeepMutedUntilMs) < 0) {
+    return;  // jeszcze trwa okno ciszy po alarmie
+  }
+  aprsBeepActive = true;
+  aprsBeepStep = 0;
+  aprsBeepToneOn = true;
+  aprsBeepPhaseUntilMs = millis() + APRS_BEEP_ON_MS;
+  buzzerRawTone(APRS_BEEP_FREQ, APRS_BEEP_DUTY);
+#endif
+}
+
+// Wolane z petli glownej - wystawia kolejne pipniecia.
+void aprsBeepUpdate() {
+#if (BUZZER_PIN >= 0)
+  if (!aprsBeepActive) return;
+  // Alarm zaczal dzwonic - oddaj pin melodii.
+  if (alarmRinging) { aprsBeepAbort(); return; }
+  unsigned long now = millis();
+  if ((long)(now - aprsBeepPhaseUntilMs) < 0) return;  // faza jeszcze trwa
+
+  if (aprsBeepToneOn) {
+    buzzerRawTone(0, 0);       // koniec pipniecia -> cisza
+    aprsBeepToneOn = false;
+    aprsBeepPhaseUntilMs = now + APRS_BEEP_GAP_MS;
+  } else {
+    aprsBeepStep++;
+    if (aprsBeepStep >= APRS_BEEP_COUNT) {
+      aprsBeepActive = false;  // koniec sekwencji
+      return;
+    }
+    aprsBeepToneOn = true;
+    aprsBeepPhaseUntilMs = now + APRS_BEEP_ON_MS;
+    buzzerRawTone(APRS_BEEP_FREQ, APRS_BEEP_DUTY);
+  }
+#endif
+}
+
+// Natychmiast przerywa beep (np. gdy alarm zaczyna dzwonic albo przy wyciszeniu).
+void aprsBeepAbort() {
+  if (aprsBeepActive) {
+    aprsBeepActive = false;
+    aprsBeepToneOn = false;
+    buzzerRawTone(0, 0);
+  }
 }
 
 // Wolane cyklicznie z petli glownej - odtwarza jedna nute na raz (bez delay).
@@ -9423,6 +9511,7 @@ void alarmUpdateBuzzer() {
 // Uruchamia jedno dzwonienie (ekran + melodia + deadline). Wywolywane przy
 // wyzwoleniu alarmu i przy kolejnych powtorkach (co ALARM_REPEAT_MS).
 static void alarmStartRinging() {
+  aprsBeepAbort();              // dzwiek APRS ustępuje melodii alarmu (wspolny piezo)
   alarmRinging = true;
   alarmPreviewMode = false;
   alarmLastRingMs = millis();
@@ -13751,6 +13840,9 @@ static void triggerAprsRgbLedAlert() {
   rgbBlueAprsLastToggleMs = nowMs;
   rgbBlueAprsStateOn = true;
   applyRgbLedState(false, false, true);
+  // Krotki "pip-pip-pip" na wspolnym piezo (BUZZER_PIN). Alarm ma priorytet -
+  // aprsBeepPlay() sam sie wstrzyma, gdy alarm dzwoni.
+  aprsBeepPlay();
 }
 
 static void updateStatusRgbLed() {
@@ -30071,6 +30163,7 @@ void loop() {
       checkAlarmTrigger();
     }
     alarmUpdateBuzzer();
+    aprsBeepUpdate();  // "pip-pip-pip" alertu APRS (ten sam piezo; alarm ma priorytet)
     // Koniec jednego dzwonienia: wycisz buzzer po ALARM_RING_DISPLAY_MS i
     // zaplanuj kolejne za ALARM_REPEAT_MS (alarm powtarza sie az do potwierdzenia
     // dotknieciem ekranu). alarmStopBuzzer() (nie alarmStopMelody!) - alarm
