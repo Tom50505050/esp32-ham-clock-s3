@@ -2,6 +2,15 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Przycisk „esp32-ham-clock-s3.zip" → repozytorium GitHub (31.10.2026)
+- Wszystkie przyciski/linki „⬇ esp32-ham-clock-s3.zip" (pasek pobierania oraz
+  box „Najnowsza wersja") prowadzą teraz do
+  `https://github.com/Tom50505050/esp32-ham-clock-s3` (`target="_blank"
+  rel="noopener"`), zamiast do lokalnego `/esp32-ham-clock-s3.zip`.
+- Zmienione w `data/index.html` (PL) i `data/indexEN.html` (EN); DE/FR/ES/RU
+  wygenerowane przez `tools/gen_pages.py`. Po edycji HTML trzeba przegenerować
+  `.gz` (`tools/make_gz.py`) i przebudować LittleFS.
+
 ## Szybsze łączenie z WiFi i szybsze ładowanie WWW (13.11.2026)
 - **Szybki reconnect WiFi (bez pełnego skanu).** Po udanym połączeniu STA
   firmware zapamiętuje kanał i BSSID AP w NVS (`wifi_ch`, `wifi_bssid`,
