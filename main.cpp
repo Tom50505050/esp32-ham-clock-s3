@@ -2283,6 +2283,11 @@ int clockHitX = 40, clockHitY = 125, clockHitW = 400, clockHitH = 70;
 #define BUZZER_LEDC_CHANNEL 1   // kanal 0 zajety przez podswietlenie (BACKLIGHT_PWM_CHANNEL)
 #endif
 #define BUZZER_DUTY 512             // ~50% z 10 bitow - glosnosc piezo
+// Piezo pasywny ma rezonans ~2-4 kHz; nuty grane nizej (370-880 Hz) sa ciche.
+// Shift o 1 oktave (x2) mocno podnosi glosnosc i nie gubi melodii. 0 = bez zmiany.
+#ifndef BUZZER_OCTAVE_UP
+#define BUZZER_OCTAVE_UP 1
+#endif
 #define ALARM_DAYS 7                // 0=niedziela ... 6=sobota (zgodnie z tm_wday)
 #define ALARM_MELODY_COUNT 12
 
@@ -9304,6 +9309,8 @@ static const AlarmMelody ALARM_MELODIES[ALARM_MELODY_COUNT] = {
 };
 static const uint16_t ALARM_UNIT_MS = 150;  // dlugosc jednej jednostki nuty
 
+static void alarmTone(uint16_t freq);  // zdefiniowana nizej
+
 void alarmInitBuzzer() {
 #if (BUZZER_PIN >= 0)
   pinMode(BUZZER_PIN, OUTPUT);
@@ -9314,21 +9321,35 @@ void alarmInitBuzzer() {
   ledcSetup(BUZZER_LEDC_CHANNEL, 2000, 10);
   ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CHANNEL);
 #endif
+  alarmTone(0);  // wycisz po przypieciu kanalu (start bez pisku)
 #endif
 }
 
 // Ustawia ton (freq Hz). freq == 0 => cisza.
+// UWAGA: gdy pin jest przypiety do kanalu LEDC, digitalWrite() NIE wycisza go -
+// pin nadal generuje PWM ostatniej nuty. Trzeba wyzerowac wypelnienie kanalu,
+// inaczej po melodii zostaje ciagly pisk (dokladnie ten blad).
 static void alarmTone(uint16_t freq) {
 #if (BUZZER_PIN >= 0)
   if (freq == 0) {
-    digitalWrite(BUZZER_PIN, LOW);
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+    ledcWrite(BUZZER_PIN, 0);               // rdzen 3.x: pin == kanal
+#else
+    ledcWriteTone(BUZZER_LEDC_CHANNEL, 0);  // rdzen 2.x: 0 Hz => wypelnienie 0
+    ledcWrite(BUZZER_LEDC_CHANNEL, 0);      // dodatkowo wyzeruj wypelnienie
+#endif
     return;
   }
+#if BUZZER_OCTAVE_UP
+  uint32_t f = (uint32_t)freq << BUZZER_OCTAVE_UP;  // w gore o oktave (glosniej na piezo)
+#else
+  uint32_t f = freq;
+#endif
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-  ledcChangeFrequency(BUZZER_PIN, freq, 10);
+  ledcChangeFrequency(BUZZER_PIN, f, 10);
   ledcWrite(BUZZER_PIN, BUZZER_DUTY);
 #else
-  ledcWriteTone(BUZZER_LEDC_CHANNEL, freq);
+  ledcWriteTone(BUZZER_LEDC_CHANNEL, f);
   ledcWrite(BUZZER_LEDC_CHANNEL, BUZZER_DUTY);
 #endif
 #endif
@@ -29907,6 +29928,11 @@ void loop() {
       checkAlarmTrigger();
     }
     alarmUpdateBuzzer();
+    // Zabezpieczenie: gdyby ekran dzwonienia nie zdazyl sie pokazac, i tak
+    // wycisz buzzer po ALARM_RING_DISPLAY_MS (nigdy nie piszczy w nieskonczonosc).
+    if (alarmRinging && (long)(millis() - alarmRingScreenUntilMs) >= 0) {
+      alarmStopMelody();
+    }
   }
 
   // Odczyt NMEA z modulu GPS + nadpisanie pozycji/lokatora (jesli wlaczone).

@@ -18,6 +18,7 @@ RATE = 22050
 UNIT_MS = 150          # ta sama jednostka co ALARM_UNIT_MS w firmware
 AMP = 0.28             # amplituda (buzzer i tak jest glosny)
 FADE_MS = 4            # obwiednia antyklik
+OCTAVE_UP = 1          # musi byc rowne BUZZER_OCTAVE_UP w main.cpp (podbicie dla piezo)
 
 MELODIES = {
     "budzik":  [(880, 2), (0, 1), (880, 2), (0, 1), (880, 3), (0, 2), (1047, 4), (0, 4)],
@@ -65,6 +66,8 @@ def tone_samples(freq, ms):
 def render(notes):
     samples = []
     for freq, units in notes:
+        if freq > 0:
+            freq <<= OCTAVE_UP  # to samo podbicie oktawy co w firmware
         samples.extend(tone_samples(freq, units * UNIT_MS))
     return samples
 

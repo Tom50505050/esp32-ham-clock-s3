@@ -59,6 +59,18 @@ KUKULKA, PIPS, KURANT. Nuty jako `{freq, units}` (`units` × 150 ms, 0 = pauza).
 `checkAlarmTrigger()`, plus `alarmUpdateBuzzer()` w każdej iteracji — automat
 stanów nut, nieblokujący). Wzorzec LEDC 2.x/3.x jak przy podświetleniu.
 
+**UWAGA (pułapka LEDC):** gdy pin jest przypięty do kanału LEDC, `digitalWrite()`
+**nie wycisza** go — pin dalej generuje PWM ostatniej nuty (efekt: po melodii
+zostaje ciągły pisk, którego nic nie wyłącza). Ciszę robi się przez
+`alarmTone(0)` → `ledcWriteTone(kanał, 0)` + `ledcWrite(kanał, 0)` (2.x) albo
+`ledcWrite(pin, 0)` (3.x). `alarmTone(0)` wołane też na końcu `alarmInitBuzzer()`.
+
+**Głośność piezo:** pasywny piezo ma rezonans ~2–4 kHz, więc nuty 370–880 Hz są
+ciche. `BUZZER_OCTAVE_UP 1` podbija strój o oktawę (`freq << 1`) w `alarmTone()`;
+ta sama stała `OCTAVE_UP` w `tools/make_alarm_audio.py` (podgląd = to, co gra).
+`BUZZER_DUTY 512` (~50%). Zabezpieczenie w `loop()`: `alarmRinging` i minął
+`alarmRingScreenUntilMs` → `alarmStopMelody()` (nigdy nie piszczy w nieskończoność).
+
 **Dzwonienie:** `checkAlarmTrigger()` liczy minutę absolutną
 `tm_yday*1440 + godz*60 + min` i porównuje z celem — alarm odpala **raz
 dziennie** (samo `godz*60+min` odpaliłoby tylko raz w życiu modułu). Sprawdza
