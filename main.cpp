@@ -19937,6 +19937,35 @@ void startAPMode() {
 #endif
 }
 
+// Tryb AP (portal konfiguracyjny) = brak polaczenia STA. Wtedy na ekranie
+// pokazujemy SSID/haslo/IP, bo bez monitora szeregowego nie da sie ich odczytac.
+static bool apPortalActive() {
+  return !wifiConnected && (WiFi.getMode() & WIFI_AP);
+}
+
+// Zwiezla informacja o trybie AP do dolnej belki ekranu zegara.
+// Zwraca false gdy nie jestesmy w AP (nic nie rysujemy).
+bool drawApInfoBanner() {
+#ifdef ENABLE_TFT_DISPLAY
+  if (!tftInitialized || !apPortalActive()) return false;
+  if (inMenu || aprsAlertScreenActive || gpsScreenActive) return false;
+  const int w = tft.width();
+  const int h = 26;
+  const int y = tft.height() - h;
+  tft.fillRect(0, y, w, h, TFT_NAVY);
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_WHITE, TFT_NAVY);
+  char line[64];
+  snprintf(line, sizeof(line), "AP: %s   HASLO: %s   http://%s",
+           AP_SSID, AP_PASSWORD, WiFi.softAPIP().toString().c_str());
+  tft.setCursor(6, y + 9);
+  tft.print(line);
+  return true;
+#else
+  return false;
+#endif
+}
+
 void requestRestart(unsigned long delayMs = 1500) {
   restartRequested = true;
   restartAtMs = millis() + delayMs;
@@ -30667,6 +30696,7 @@ void setup() {
   delay(50);
   bootSequenceActive = false;
   drawScreen(currentScreen);
+  drawApInfoBanner();
   resetTftAutoSwitchTimer();
   if (currentScreen == SCREEN_HAM_CLOCK) {
     ensureScreenOrderValid();
@@ -30696,6 +30726,13 @@ void loop() {
   
   // Feed watchdog
   yield();
+
+  // W trybie AP co 3 s odswiez banner z SSID/haslem/IP (takze po wyjsciu z menu).
+  static unsigned long lastApBannerMs = 0;
+  if (apPortalActive() && (now - lastApBannerMs >= 3000)) {
+    lastApBannerMs = now;
+    drawApInfoBanner();
+  }
 
   // Log free heap memory every 30 seconds
   static unsigned long lastHeapLog = 0;
