@@ -36,6 +36,15 @@ Strona flashera: **`flash/index.html`** — wgrywa `merged-flash.bin` z przeglą
 - Uruchamiać **po** `tools/make_release.sh`. W WWW urządzenia link do flashera
   (sekcja „Wgraj firmware przez przeglądarkę") wskazuje na własną stronę
   projektu: `https://tom50505050.github.io/esp32-ham-clock-s3/flash/`.
+- **Przycisk wbudowany na stronie projektu (`download/index.html`):** w sekcji
+  LINKI (`github-flasher-box`) są DWA `<esp-web-install-button>` (touch /
+  notouch) — wgrywanie bez wychodzenia ze strony. Manifesty
+  (`manifest-touch.json`, `manifest-notouch.json`) leżą **obok** strony
+  (korzeń publikacji), a ścieżka do binarki w manifeście jest względna
+  (`merged-flash.bin` w tym samym katalogu) — dzięki temu działa niezależnie od
+  tego, czy Pages serwuje repo root czy `/docs`. `tools/make_flash_page.py`
+  zapisuje te manifesty do `/workspace/share/` i `download/`. Binarki w obu
+  korzeniach trzeba odświeżać z `dist/` (inaczej przycisk wgrywa starą wersję).
 - Publikacja: dowolny hosting HTTPS — GitHub Pages (repo → Settings → Pages,
   branch `main`, root) da `https://<user>.github.io/esp32-ham-clock-s3/flash/`.
 - **Nie mylić z OTA:** to nadal wgrywanie kablem USB przez WebSerial (tylko UI

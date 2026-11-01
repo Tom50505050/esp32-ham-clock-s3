@@ -75,6 +75,19 @@ def main():
         published.append(dst_root)
     print("opublikowano w:", ", ".join(published) if published else "(tylko flash/)")
 
+    # Manifesty dla przycisku <esp-web-install-button> wbudowanego na stronie
+    # projektu (download/index.html) - leza OBOK strony, a sciezka do binarki
+    # jest wzgledna (merged-flash.bin w tym samym katalogu, bo strona projektu
+    # i binarki publikowane sa razem w korzeniu GitHub Pages).
+    for root_dir in ("/workspace/share", os.path.join(ROOT, "download")):
+        if not os.path.isdir(root_dir):
+            continue
+        for key, bin_name, name in BUILDS:
+            with open(os.path.join(root_dir, "manifest-%s.json" % key), "w", encoding="utf-8") as f:
+                json.dump(manifest(name, bin_name), f, indent=2, ensure_ascii=False)
+                f.write("\n")
+        print("manifesty strony projektu w:", root_dir)
+
 
 if __name__ == "__main__":
     main()

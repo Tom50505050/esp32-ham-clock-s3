@@ -8,6 +8,17 @@
     <link rel="stylesheet" href="style.desktop.css" media="(min-width: 901px)">
     <link rel="stylesheet" href="style.mobile.css" media="(max-width: 900px)">
     <link rel="stylesheet" href="style.modern.css">
+    <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module"></script>
+    <style>
+        .esp-flasher-btn { display:inline-block; margin:4px 8px 4px 0; padding:9px 18px;
+            background:#4ed8ff; color:#04121f; border:0; border-radius:6px;
+            font-weight:700; font-size:14px; cursor:pointer; }
+        .esp-flasher-btn:hover { background:#7fe3ff; }
+        .esp-flasher-btn.alt { background:#2f4a6e; color:#dff0ff; }
+        .esp-flasher-btn.alt:hover { background:#3a5c86; }
+        .esp-flasher-hint { color:#9a9a9a; font-size:12px; margin-top:8px; }
+        .esp-flasher-dl { display:block; margin-top:8px; font-size:12px; }
+    </style>
 </head>
 <body>
     <a class="coffee-link" href="https://buycoffee.to/esp32hamclock" target="_blank" rel="noopener noreferrer">Jeśli Ci się podoba to POSTAW KAWĘ</a>
@@ -998,7 +1009,18 @@
                 </div>
                 <div class="github-release-box github-flasher-box">
                     <div class="github-release-label">&#9889; Wgraj firmware przez przeglądarkę</div>
-                    <a href="https://tom50505050.github.io/esp32-ham-clock-s3/flash/" target="_blank" rel="noopener" class="github-link">tom50505050.github.io/esp32-ham-clock-s3/flash</a>
+                    <esp-web-install-button manifest="manifest-touch.json">
+                        <button class="esp-flasher-btn" slot="activate">&#9889; Wgraj (z dotykiem)</button>
+                        <span slot="unsupported" class="esp-flasher-hint">Twoja przeglądarka nie obsługuje WebSerial &mdash; użyj Chrome/Edge/Opera.</span>
+                        <span slot="not-allowed" class="esp-flasher-hint">Strona musi być otwarta po HTTPS, aby wgrywać firmware.</span>
+                    </esp-web-install-button>
+                    <esp-web-install-button manifest="manifest-notouch.json">
+                        <button class="esp-flasher-btn alt" slot="activate">&#9889; Wgraj (bez dotyku)</button>
+                        <span slot="unsupported" class="esp-flasher-hint">Twoja przeglądarka nie obsługuje WebSerial &mdash; użyj Chrome/Edge/Opera.</span>
+                        <span slot="not-allowed" class="esp-flasher-hint">Strona musi być otwarta po HTTPS, aby wgrywać firmware.</span>
+                    </esp-web-install-button>
+                    <div class="esp-flasher-hint">Płytka: ESP32-S3-WROOM-1 N16R8 (16 MB). Kabel USB z danymi, Chrome/Edge/Opera, strona po HTTPS. Pełna instrukcja: <a href="flash/" class="github-link">flash/</a>.</div>
+                    <a href="https://tom50505050.github.io/esp32-ham-clock-s3/flash/" target="_blank" rel="noopener" class="github-link esp-flasher-dl">tom50505050.github.io/esp32-ham-clock-s3/flash</a>
                 </div>
                 <h3 class="prop-section-title prop-section-title-secondary">Polecane</h3>
                 <table class="prop-metrics-table links-desc-table">
