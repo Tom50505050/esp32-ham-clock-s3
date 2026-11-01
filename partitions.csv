@@ -1,10 +1,10 @@
 # Tablica partycji dla ESP32-S3 N16R8 (16 MB flash)
-# Dwa sloty OTA + ~8.9 MB LittleFS (mapy .bmp, ikony, index.html) + coredump.
-# app1 skrocone do 3.5 MB, zeby zwiekszyc LittleFS (firmware zajmuje ~1.6 MB).
+# Jeden slot aplikacji (bez OTA - firmware wgrywany przez WebSerial/merged-flash)
+# + duzy LittleFS (~12.5 MB) na uploady z WWW (mapy .bmp, ikony pogodowe, splash).
+# Slot OTA (app1) oddany na LittleFS: OTA nie jest uzywane, a daje +3.5 MB bufora.
 # Nazwa,     Type, SubType,  Offset,   Size,     Flags
 nvs,         data, nvs,      0x9000,   0x5000,
 otadata,     data, ota,      0xe000,   0x2000,
-app0,        app,  ota_0,    0x10000,  0x380000,
-app1,        app,  ota_1,    0x390000, 0x370000,
-littlefs,    data, spiffs,   0x700000, 0x8F0000,
+app0,        app,  ota_0,    0x10000,  0x3F0000,
+littlefs,    data, spiffs,   0x400000, 0xBF0000,
 coredump,    data, coredump, 0xFF0000, 0x10000,

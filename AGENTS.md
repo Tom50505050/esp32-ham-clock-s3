@@ -18,8 +18,9 @@ w firmware, **nie** w LittleFS — nie zabierają miejsca na uploady z WWW):
 - Generator: `.mock/gen_modern_icons.py` (z `.mock/fluent3d/*.png` i `.mock/cell_*.png`).
 - **Ekran klasyczny** (`drawAprsAlertClassic`) bez zmian — nadal ikony 48×48 z
   LittleFS (`/aprs_icons/bmp/*.bmp`, `drawAprsAlertFsIcon`).
-- Budżet: firmware 1.85 MB / slot 3.5 MB (50.5%, zapas ~1.7 MB);
-  LittleFS 8.94 MB, `data/` 5.28 MB → **~3.65 MB wolne na uploady WWW**.
+- Budżet: firmware 1.85 MB / slot 3.94 MB (44.9%, zapas ~2.1 MB);
+  LittleFS **11.94 MB**, `data/` 5.28 MB → **~4.9 MB wolne na uploady WWW**
+  (po oddaniu slotu OTA na LittleFS — patrz „Powiększenie LittleFS" niżej).
 
 
 ## Alert APRS: styl nowoczesny + klasyczny, ikona domu 3D (31.10.2026)
@@ -2650,11 +2651,19 @@ Naprawa:
 
 ## Powiększenie LittleFS (partitions.csv)
 
-- app0 0x10000/0x380000 (3.5 MB), app1 0x390000/0x370000 (3.5 MB),
-  littlefs 0x700000/0x8F0000 (~8.9 MB), coredump 0xFF0000/0x10000.
-- Wczesniej app0/app1 po 4 MB, littlefs 0x810000/0x7E0000 (~7.9 MB).
-- Offsets w firmware (main.cpp), tools/make_release.sh i dokumentacji zmienione
-  na 0x700000. UWAGA: zmiana tablicy partycji wymaga wgrania calego merged-flash
+- **01.11.2026:** slot OTA `app1` (3.5 MB) oddany na LittleFS — OTA **nie jest
+  używane** (brak `Update.h`/`esp_ota`; firmware wgrywany przez WebSerial/merged-flash).
+  Nowa tablica: app0 0x10000/**0x3F0000** (3.94 MB), littlefs **0x400000/0xBF0000**
+  (**11.94 MB**), coredump 0xFF0000/0x10000. Bufor WWW: ~1.9 MB → **~4.9 MB**.
+  Offsets 0x700000 → **0x400000** w: `tools/make_release.sh`, `main.cpp`
+  (manual + tabela WWW), `README_S3.md`, `INSTRUKCJA.md`, `download/README_S3.md`.
+- Wcześniej (31.10): app0 0x10000/0x380000, app1 0x390000/0x370000,
+  littlefs 0x700000/0x8F0000 (~8.9 MB); jeszcze wcześniej app0/app1 po 4 MB,
+  littlefs 0x810000/0x7E0000 (~7.9 MB).
+- UWAGA: zmiana tablicy partycji wymaga wgrania całego merged-flash
   (albo partitions.bin + littlefs.bin) - sam uploadfs nie wystarczy.
-- LittleFS montuje sie z offsetu z tablicy partycji, wiec po zmianie rozmiaru
-  stary littlefs.bin trzeba wgrac od nowa (obszar 0x700000..0xFF0000).
+- LittleFS montuje się z offsetu z tablicy partycji, więc po zmianie rozmiaru
+  stary littlefs.bin trzeba wgrać od nowa (obszar 0x400000..0xFF0000).
+- **Bufor WWW = LittleFS wolne po odjęciu `data/`.** Uwaga na zaokrąglanie do
+  bloków 4 kB: `data/` to 675 plików, więc 5.28 MB zajmuje realnie ~7.0 MB.
+  Wolne = 11.94 − 7.04 ≈ **4.9 MB** (LittleFS `usedBytes()` też liczy blokami).
