@@ -417,6 +417,11 @@ enum ScreenType : uint8_t {
 // przy issDrawWorldMap(). Wbudowany w firmware, wiec nie zalezy od LittleFS.
 #include "iss_worldmask.h"
 
+// Ikony ekranu APRS w stylu nowoczesnym (24 symbole, 64x64 RGB565). Wbudowane
+// w firmware (nie w LittleFS), zeby nie zabierac miejsca na uploady z WWW.
+// Generator: .mock/gen_modern_icons.py. Tlo = kolor karty (0x0884).
+#include "aprs_modern_icons.h"
+
 #define TFT_UI_WIDTH 480
 #define TFT_UI_HEIGHT 320
 
@@ -14247,6 +14252,71 @@ static void drawAprsAlertHouseBitmap(int x, int y, int size) {
   }
 }
 
+// Rysuje ikone ekranu nowoczesnego z tablicy RGB565 (64x64). Tlo = kolor karty,
+// wiec wypelnia caly kwadrat bez sentinela (bez narzutu w LittleFS). Skalowanie
+// najblizszy-sasiad, jak drawAprsAlertHouseBitmap.
+static void drawAprsModernBitmap(const uint16_t *bmp, int x, int y, int size) {
+  const int W = APRS_MODERN_ICON_W;
+  const int H = APRS_MODERN_ICON_H;
+  for (int iy = 0; iy < H; iy++) {
+    int dy = y + (int)((long)iy * size / H);
+    int dy2 = y + (int)((long)(iy + 1) * size / H);
+    if (dy2 <= dy) dy2 = dy + 1;
+    for (int ix = 0; ix < W; ix++) {
+      int dx = x + (int)((long)ix * size / W);
+      int dx2 = x + (int)((long)(ix + 1) * size / W);
+      if (dx2 <= dx) dx2 = dx + 1;
+      tft.fillRect(dx, dy, dx2 - dx, dy2 - dy, bmp[iy * W + ix]);
+    }
+  }
+}
+
+// Tablica RGB565 dla skrotu symbolu APRS albo nullptr (wtedy ikona wektorowa).
+// HOUSE/WX/DIGI nie maja tu wpisu: HOUSE i WX rysuje drawAprsAlertHouseBitmap
+// (WX dodatkowo z plakietka "WX"), DIGI ma ikone wektorowa.
+static const uint16_t *aprsModernIconFor(const String &key) {
+  if (key == "CAR")      return APRS_MICON_CAR;
+  if (key == "TRUCK")    return APRS_MICON_TRUCK;
+  if (key == "VAN")      return APRS_MICON_VAN;
+  if (key == "ROVER")    return APRS_MICON_ROVER;
+  if (key == "BIKE")     return APRS_MICON_BIKE;
+  if (key == "HUMAN")    return APRS_MICON_HUMAN;
+  if (key == "SHIP")     return APRS_MICON_SHIP;
+  if (key == "GLIDER")   return APRS_MICON_GLIDER;
+  if (key == "AMBUL")    return APRS_MICON_AMBUL;
+  if (key == "FIRETRK")  return APRS_MICON_FIRETRK;
+  if (key == "FIRE")     return APRS_MICON_FIRE;
+  if (key == "HOSP")     return APRS_MICON_HOSP;
+  if (key == "DIGI")     return APRS_MICON_DIGI;
+  if (key == "REPEATER") return APRS_MICON_REPEATER;
+  if (key == "YAGI")     return APRS_MICON_YAGI;
+  if (key == "MICERPT")  return APRS_MICON_MICERPT;
+  if (key == "NODE")     return APRS_MICON_NODE;
+  if (key == "LORA")     return APRS_MICON_LORA;
+  if (key == "LAPTOP")   return APRS_MICON_LAPTOP;
+  if (key == "LOGIN")    return APRS_MICON_LOGIN;
+  if (key == "GRID")     return APRS_MICON_GRID;
+  if (key == "EOC")      return APRS_MICON_EOC;
+  if (key == "ICP")      return APRS_MICON_ICP;
+  if (key == "TRKSTOP")  return APRS_MICON_TRKSTOP;
+  return nullptr;
+}
+
+// Plakietka "WX" w prawym dolnym rogu ikony pogodowej (wariant A).
+static void drawAprsModernWxBadge(int x, int y, int size) {
+  const uint16_t ACCENT = 0x3697;
+  int bw = (int)(size * 0.52f);
+  int bh = (int)(size * 0.30f);
+  int bx = x + size - bw - 1;
+  int by = y + size - bh - 1;
+  tft.fillRoundRect(bx, by, bw, bh, 3, ACCENT);
+  tft.drawRoundRect(bx, by, bw, bh, 3, TFT_WHITE);
+  tft.setTextColor(TFT_BLACK);
+  tft.setTextSize(1);
+  tft.setCursor(bx + (bw - 12) / 2, by + (bh - 8) / 2);
+  tft.print("WX");
+}
+
 static void drawAprsAlertModern(const APRSStation &station) {
   const uint16_t BG     = 0x0000;  // czarne tlo
   const uint16_t CARD   = 0x0884;  // #0b1220 karta
@@ -14322,19 +14392,29 @@ static void drawAprsAlertModern(const APRSStation &station) {
   aprsModernPanel(10, 160, 224, 112, CARD, BORDER);
   aprsModernLabel(22, 168, "STACJA", FAINT);
 
+  // Ikona stacji: HOUSE i WX = bitmapa domu z kodu (WX dodatkowo plakietka "WX"),
+  // pozostale symbole = 64x64 RGB565 z aprs_modern_icons.h. Gdy brak wpisu w
+  // tablicy - dotychczasowa ikona wektorowa (fallback).
   String iconShort = getAPRSSymbolShort(station);
-  if (iconShort == "HOUSE" || iconShort == "WX" || iconShort == "DIGI") {
-    drawAprsAlertHouseBitmap(90, 184, 64);
+  const int iconX = 90, iconY = 184, iconPx = 64;
+  if (iconShort == "HOUSE" || iconShort == "WX") {
+    drawAprsAlertHouseBitmap(iconX, iconY, iconPx);
+    if (iconShort == "WX") drawAprsModernWxBadge(iconX, iconY, iconPx);
   } else {
-    tft.fillRoundRect(74, 188, 80, 56, 6, CARD2);
-    tft.drawRoundRect(74, 188, 80, 56, 6, BORDER);
-    int cx = 114, topY = 196;
-    if (iconShort == "CAR") {
-      drawAprsAlertCarIcon(cx, topY, TFT_RED);
-    } else if (iconShort == "HUMAN") {
-      drawAprsAlertHumanIcon(cx, topY);
+    const uint16_t *micon = aprsModernIconFor(iconShort);
+    if (micon) {
+      drawAprsModernBitmap(micon, iconX, iconY, iconPx);
     } else {
-      drawAprsAlertHouseIcon(cx, topY);
+      tft.fillRoundRect(74, 188, 80, 56, 6, CARD2);
+      tft.drawRoundRect(74, 188, 80, 56, 6, BORDER);
+      int cx = 114, topY = 196;
+      if (iconShort == "CAR") {
+        drawAprsAlertCarIcon(cx, topY, TFT_RED);
+      } else if (iconShort == "HUMAN") {
+        drawAprsAlertHumanIcon(cx, topY);
+      } else {
+        drawAprsAlertHouseIcon(cx, topY);
+      }
     }
   }
 

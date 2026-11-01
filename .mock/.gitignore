@@ -1,0 +1,10 @@
+# Robocze zrodla i podglady mockupow - nie commitujemy (duze).
+# Do regeneracji aprs_modern_icons.h wystarcza: gen_modern_icons.py,
+# fluent3d/*.png oraz wycinki cell_0_1.png (#2 repeater) i cell_2_2.png (#11 yagi).
+*.jpg
+*.png
+!cell_0_1.png
+!cell_2_2.png
+!fluent3d/*.png
+variants/
+__pycache__/

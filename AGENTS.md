@@ -3,6 +3,25 @@
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
 
+## APRS styl nowoczesny: pełny zestaw ikon w firmware (01.11.2026)
+Ekran nowoczesny (`drawAprsAlertModern`) ma teraz komplet ikon symboli APRS —
+24 symbole jako tablice RGB565 64×64 w **`aprs_modern_icons.h`** (wbudowane
+w firmware, **nie** w LittleFS — nie zabierają miejsca na uploady z WWW):
+- źródła: **Fluent Emoji 3D** (MIT) dla pojazdów/obiektów oraz wycinki z
+  `yagi.jpg` dla **REPEATER (#2)** i **YAGI (#11)** (arkusz 4×4 z repo beta),
+- tło ikon = kolor karty `0x0884`, więc wtapiają się w kartę bez sentinela
+  (decoder BMP nie obsługuje przezroczystości),
+- **HOUSE** i **WX** nadal rysuje `drawAprsAlertHouseBitmap` (bitmapa domu
+  z kodu); **WX** dodatkowo dostaje plakietkę „WX" (`drawAprsModernWxBadge`),
+- **DIGI** = ikona `antenna_bars` z tablicy, reszta bez wpisu → wektorowy fallback.
+- Wybór: `aprsModernIconFor(key)` + `drawAprsModernBitmap(bmp,x,y,size)`.
+- Generator: `.mock/gen_modern_icons.py` (z `.mock/fluent3d/*.png` i `.mock/cell_*.png`).
+- **Ekran klasyczny** (`drawAprsAlertClassic`) bez zmian — nadal ikony 48×48 z
+  LittleFS (`/aprs_icons/bmp/*.bmp`, `drawAprsAlertFsIcon`).
+- Budżet: firmware 1.85 MB / slot 3.5 MB (50.5%, zapas ~1.7 MB);
+  LittleFS 8.94 MB, `data/` 5.28 MB → **~3.65 MB wolne na uploady WWW**.
+
+
 ## Alert APRS: styl nowoczesny + klasyczny, ikona domu 3D (31.10.2026)
 Ekran alertu APRS (`ALERT_Screen`) ma teraz dwa warianty wybierane **globalnym**
 ustawieniem wyglądu ekranów (`screen1ClockStyle`, menu ZEGAR → „WYGLAD EKRANOW"):

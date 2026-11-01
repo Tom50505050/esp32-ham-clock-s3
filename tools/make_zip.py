@@ -10,7 +10,7 @@ os.chdir(ROOT)
 ROOT_FILES = [
     "flash_touch_test.bat", "platformio.ini", "flash_touch_test.sh", "AGENTS.md",
     "partitions.csv", ".gitignore", "main.cpp", "flash.bat", "tft_setup.h",
-    "iss_worldmask.h", "flash.sh", "README_S3.md", "PINOUT.md", "INSTRUKCJA.md",
+    "iss_worldmask.h", "aprs_modern_icons.h", "flash.sh", "README_S3.md", "PINOUT.md", "INSTRUKCJA.md",
     "RELEASE_NOTES.md", "README.md",
 ]
 # Do paczki trafiaja tylko scalone obrazy (merged-flash*.bin) - zawieraja
