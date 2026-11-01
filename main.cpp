@@ -14160,6 +14160,46 @@ static void updateStatusRgbLed() {
 
 static void drawAprsAlertClassic(const APRSStation &station);
 
+// Ikony APRS 48x48 z LittleFS (/aprs_icons/bmp/<nazwa>.bmp) dla ekranu
+// klasycznego. Styl nowoczesny nadal uzywa wbudowanych ikon wektorowych.
+// Gdy pliku brak (albo LittleFS niegotowy) - zwraca false i caller rysuje
+// dotychczasowy wektorowy odpowiednik, wiec dziala tez bez wgranych ikon.
+static bool drawAprsAlertFsIcon(const APRSStation &station, int centerX, int centerY) {
+  if (!littleFsReady) {
+    return false;
+  }
+  String key = getAPRSSymbolShort(station);
+  String name;
+  if (key == "HOUSE")         name = "house";
+  else if (key == "CAR")      name = "car";
+  else if (key == "DIGI")     name = "digi";
+  else if (key == "REPEATER") name = "repeater";
+  else if (key == "HUMAN")    name = "human";
+  else if (key == "LAPTOP" || key == "LOGIN") name = "laptop";
+  else if (key == "WX")       name = "wx";
+  else if (key == "SHIP")     name = "ship";
+  else if (key == "AMBUL")    name = "ambul";
+  else if (key == "BIKE")     name = "bike";
+  else if (key == "ICP")      name = "icp";
+  else if (key == "FIRE")     name = "fire";
+  else if (key == "FIRETRK")  name = "firetrk";
+  else if (key == "HOSP")     name = "hosp";
+  else if (key == "YAGI")     name = "yagi";
+  else if (key == "GLIDER")   name = "glider";
+  else if (key == "TRUCK")    name = "truck";
+  else if (key == "VAN")      name = "van";
+  else if (key == "ROVER")    name = "rover";
+  else if (key == "EOC")      name = "eoc";
+  else if (key == "TRKSTOP")  name = "trkstop";
+  else if (key == "MICERPT")  name = "micerpt";
+  else if (key == "NODE")     name = "node";
+  else if (key == "GRID")     name = "grid";
+  else if (key == "LORA")     name = "lora_a";
+  else                        name = "house";
+  const int iconPx = 48;
+  return drawBmpFromFS("/aprs_icons/bmp/" + name + ".bmp", centerX - iconPx / 2, centerY - iconPx / 2);
+}
+
 static void aprsModernPanel(int x, int y, int w, int h, uint16_t fill, uint16_t border) {
   tft.fillRoundRect(x, y, w, h, 8, fill);
   tft.drawRoundRect(x, y, w, h, 8, border);
@@ -14493,16 +14533,20 @@ static void drawAprsAlertClassic(const APRSStation &station) {
   
   int iconCenterX = frameX + frameW - 130;
   int iconCenterY = frameY + frameH - 140;
-  
-  if (iconShort == "CAR") {
-    drawAprsAlertCarIcon(iconCenterX, iconCenterY, iconColor);
-  } else if (iconShort == "HOUSE") {
-    drawAprsAlertHouseIcon(iconCenterX, iconCenterY);
-  } else if (iconShort == "HUMAN") {
-    drawAprsAlertHumanIcon(iconCenterX, iconCenterY);
-  } else {
-    // DomyĹ›lnie dom
-    drawAprsAlertHouseIcon(iconCenterX, iconCenterY);
+
+  // Najpierw ikona z LittleFS (/aprs_icons/bmp, 48x48, czarne tlo).
+  // Gdy pliku brak - dotychczasowy wektorowy odpowiednik.
+  if (!drawAprsAlertFsIcon(station, iconCenterX, iconCenterY)) {
+    if (iconShort == "CAR") {
+      drawAprsAlertCarIcon(iconCenterX, iconCenterY, iconColor);
+    } else if (iconShort == "HOUSE") {
+      drawAprsAlertHouseIcon(iconCenterX, iconCenterY);
+    } else if (iconShort == "HUMAN") {
+      drawAprsAlertHumanIcon(iconCenterX, iconCenterY);
+    } else {
+      // Domyslnie dom
+      drawAprsAlertHouseIcon(iconCenterX, iconCenterY);
+    }
   }
 
   // Typ stacji pod ikonÄ… - dostosowany do nowej pozycji
