@@ -2606,3 +2606,24 @@ Naprawa:
 - animacje przeniesiono PO `handleTouchNavigation()` (zeby klatka nie
   opozniala odczytu dotyku), w UI_Task jest teraz: (1) rysunki zadan, (2) odczyt
   dotyku, (3) animacja radaru.
+
+
+## Ikony APRS na ekranie klasycznym (aprs.fi)
+
+- Ikony APRS 48x48 pochodza z zestawu aprs.fi (hessu/aprs-symbols, CC BY-SA 4.0).
+  Zrodla sprite'ow i skrypty generujace sa w `.mock/` (nie commitowane do firmware).
+- Gotowe pliki: `data/aprs_icons/` - `*.png` (na czarnym tle, domyslne),
+  `bmp/*.bmp` (BMP 24-bit, format drawBmpFromFS()), `transparent/*.png`.
+- Firmware: drawAprsAlertFsIcon() mapuje getAPRSSymbolShort() na nazwe pliku i
+  rysuje /aprs_icons/bmp/<nazwa>.bmp; brak pliku -> fallback do ikon wektorowych.
+  Uzywane TYLKO w stylu klasycznym (drawAprsAlertClassic); nowoczesny bez zmian.
+- Wazne: drawPngFromFS() rysuje pelne wiersze ekranu (wspolrzedne ignorowane,
+  origin 0,0) - do ikon w punkcie uzywac drawBmpFromFS() (rysuje prostokat ikony).
+- Merged-flash: tools/make_release.sh scala bootloader+partitions+boot_app0+
+  firmware+littlefs; LittleFS z ikonami wymaga buildfs PRZED scaleniem.
+
+## Srodowisko (resety)
+
+- Po resecie PlatformIO bywa usuwany: pip install platformio (~/.local/bin,
+  export PATH="$HOME/.local/bin:$PATH").
+- Podglad WWW: bash tools/serve.sh (serwuje /workspace/share/ na porcie 12000).
