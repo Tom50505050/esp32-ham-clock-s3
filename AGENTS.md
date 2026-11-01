@@ -3,6 +3,25 @@
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
 
+## Wgrywanie firmware przez stronę WWW (ESP Web Tools) (01.11.2026)
+Strona flashera: **`flash/index.html`** — wgrywa `merged-flash.bin` z przeglądarki
+(bez instalowania esptool). Używa **ESP Web Tools** (`<esp-web-install-button>`,
+`https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module`).
+- **Wymaga HTTPS** (WebSerial) i Chrome/Edge/Opera. `http://` → „not-allowed".
+- Manifesty generowane przez `tools/make_flash_page.py`:
+  `flash/manifest-touch.json` (merged-flash.bin) i `flash/manifest-notouch.json`;
+  każdy: `chipFamily: ESP32-S3`, jeden part `{path, offset:0}`,
+  `new_install_prompt_erase: true` (czysty flash przy pierwszym wgraniu).
+- Generator kopiuje `dist/*.bin` do `flash/` i publikuje do
+  `/workspace/share/flash/` (HTTPS) oraz `download/flash/`.
+- Uruchamiać **po** `tools/make_release.sh`. W WWW urządzenia link do flashera
+  (sekcja „Wgraj firmware przez przeglądarkę") wskazuje na zewnętrzny host.
+- Publikacja: dowolny hosting HTTPS — GitHub Pages (repo → Settings → Pages,
+  branch `main`, root) da `https://<user>.github.io/esp32-ham-clock-s3/flash/`.
+- **Nie mylić z OTA:** to nadal wgrywanie kablem USB przez WebSerial (tylko UI
+  w przeglądarce). Firmware nie ma OTA — dlatego slot app1 oddany na LittleFS.
+
+
 ## APRS styl nowoczesny: pełny zestaw ikon w firmware (01.11.2026)
 Ekran nowoczesny (`drawAprsAlertModern`) ma teraz komplet ikon symboli APRS —
 24 symbole jako tablice RGB565 64×64 w **`aprs_modern_icons.h`** (wbudowane

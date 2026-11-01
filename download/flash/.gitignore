@@ -1,0 +1,3 @@
+# Scalone obrazy to kopie z dist/ - publikowane przez tools/make_flash_page.py,
+# nie commitowane (repo i tak trzyma je w dist/ i download/).
+*.bin

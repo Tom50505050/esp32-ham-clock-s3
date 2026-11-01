@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32-HAM-CLOCK — wgrywanie firmware przez przeglądarkę</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module"></script>
+<style>
+  :root { --bg:#1b1b1b; --card:#2a2a2a; --card2:#232323; --line:#3a3a3a;
+          --txt:#e0e0e0; --mut:#9a9a9a; --teal:#4ed8ff; --green:#59d65e; --amber:#ffbe78; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height:1.5; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 28px 18px 60px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h1 .v { color: var(--teal); font-size: 15px; font-weight: 600; }
+  .sub { color: var(--mut); margin: 0 0 26px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:20px 22px; margin-bottom:18px; }
+  .card h2 { margin:0 0 6px; font-size:18px; }
+  .card p { margin:6px 0 16px; color:var(--mut); font-size:14px; }
+  esp-web-install-button { margin-right: 12px; }
+  .warn { border-left:4px solid var(--amber); background:var(--card2); border-radius:8px;
+          padding:12px 16px; font-size:14px; margin:0 0 18px; }
+  .warn b { color: var(--amber); }
+  ol { padding-left: 20px; } li { margin: 4px 0; }
+  code { background:#151515; border:1px solid var(--line); border-radius:4px; padding:1px 6px; font-size:13px; }
+  a { color: var(--teal); }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .dl { font-size:13px; color:var(--mut); }
+  .foot { color:var(--mut); font-size:12px; text-align:center; margin-top:26px; }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px;
+           background:#12331f; color:var(--green); border:1px solid #1e5a34; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ESP32-HAM-CLOCK <span class="v">wgrywanie firmware</span></h1>
+  <p class="sub">Wgrywanie działa w przeglądarce — bez instalowania programów. Płytka: <b>ESP32-S3-WROOM-1 N16R8</b> (16 MB flash).</p>
+
+  <div class="warn">
+    <b>Wymagania:</b> Chrome, Edge lub Opera (WebSerial), kabel USB z danymi, wolny port szeregowy
+    (zamknij monitor portu). Strona musi być otwarta po <b>HTTPS</b>.
+  </div>
+
+  <div class="warn">
+    <b>Ważne (zmiana partycji 01.11.2026):</b> LittleFS przeniesiony na <code>0x400000</code>, slot OTA usunięty.
+    Wgrywaj <b>cały scalony obraz</b> — inaczej urządzenie może nie wystartować. Obraz zawiera bootloader,
+    tablicę partycji, firmware i LittleFS; nic więcej nie trzeba wgrywać.
+  </div>
+
+  <div class="card">
+    <h2>Wariant z dotykiem (XPT2046)</h2>
+    <p>Dla płytek <b>z podłączonym panelem dotykowym</b>. Plik: <code>merged-flash.bin</code>.</p>
+    <div class="row">
+      <esp-web-install-button manifest="manifest-touch.json">
+        <button slot="activate">⚡ Wgraj firmware (dotyk)</button>
+        <span slot="unsupported">Twoja przeglądarka nie obsługuje WebSerial — użyj Chrome/Edge.</span>
+        <span slot="not-allowed">Ta strona musi być otwarta po HTTPS.</span>
+      </esp-web-install-button>
+      <a class="dl" href="merged-flash.bin" download>pobierz merged-flash.bin</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Wariant bez dotyku</h2>
+    <p>Dla płytek <b>bez</b> panelu dotykowego (XPT2046 odłączony — wiszące MISO dawałoby fałszywe dotknięcia).
+       Plik: <code>merged-flash-notouch.bin</code>.</p>
+    <div class="row">
+      <esp-web-install-button manifest="manifest-notouch.json">
+        <button slot="activate">⚡ Wgraj firmware (bez dotyku)</button>
+        <span slot="unsupported">Twoja przeglądarka nie obsługuje WebSerial — użyj Chrome/Edge.</span>
+        <span slot="not-allowed">Ta strona musi być otwarta po HTTPS.</span>
+      </esp-web-install-button>
+      <a class="dl" href="merged-flash-notouch.bin" download>pobierz merged-flash-notouch.bin</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Jak to zrobić</h2>
+    <ol>
+      <li>Podłącz płytkę kablem USB (port USB, nie UART).</li>
+      <li>Kliknij przycisk powyżej i wybierz port szeregowy (np. <code>COM9</code>, <code>/dev/ttyACM0</code>).</li>
+      <li>Jeśli nie ma portu: przytrzymaj <b>BOOT</b>, naciśnij <b>RST</b>, puść <b>BOOT</b> — wejdź w tryb wgrywania.</li>
+      <li>Poczekaj na <b>“Installed”</b>, naciśnij <b>RST</b>. Urządzenie startuje (AP: <code>ESP32-HAM-CLOCK</code> / <code>1234567890</code>).</li>
+    </ol>
+    <p class="badge">Dotyczy wydania v1.2d</p>
+  </div>
+
+  <p class="foot">Generator: <code>tools/make_flash_page.py</code> · flasher: <a href="https://esphome.github.io/esp-web-tools/" target="_blank" rel="noopener">ESP Web Tools</a> (open source).</p>
+</div>
+</body>
+</html>
