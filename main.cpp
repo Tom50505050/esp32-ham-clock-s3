@@ -649,6 +649,25 @@ private:
 
 HamClockTFT tft;
 
+// TFT_eSPI NIE jest bezpieczny watkowo: flaga 'locked' jest wspolna dla zadan,
+// a begin/endTransaction operuja na jednym mutexie SPI. Gdy dwa zadania rysuja
+// naraz (w trybie AP: loopTask rysuje banner co 3 s, a UI_Task odswieza zegar
+// co 1 s), jedno zadanie zwalnia mutex SPI drugiego -> "assert failed:
+// xQueueGenericSend" -> panic i restart. Serializujemy WSZYSTKIE rysowania
+// jednym mutexem rekurencyjnym (rekurencyjny, bo funkcje rysujace wolaja sie
+// nawzajem, np. drawScreen -> drawHamClock -> ...).
+SemaphoreHandle_t tftMutex = nullptr;
+
+static inline bool tftLock(uint32_t timeoutMs = UINT32_MAX) {
+  if (tftMutex == nullptr) return true;  // przed inicjalizacja - brak rywalizacji
+  TickType_t t = (timeoutMs == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeoutMs);
+  return xSemaphoreTakeRecursive(tftMutex, t) == pdTRUE;
+}
+
+static inline void tftUnlock() {
+  if (tftMutex != nullptr) xSemaphoreGiveRecursive(tftMutex);
+}
+
 // ========== WSPOLNY STYL "ISS TRACKER" ==========
 // Ciemne karty + akcenty teal/niebieski. Uzywane przez wszystkie ekrany, zeby
 // wyglad byl spojny z ekranem ISS TRACKER (SCREEN_ISS_PASS_TRACKING).
@@ -2971,7 +2990,9 @@ void applyTftRotation() {
   Serial.print("*** Applying tft.setRotation(");
   Serial.print(tftRotation);
   Serial.println(") ***");
+  tftLock();
   tft.setRotation(tftRotation);
+  tftUnlock();
 }
 
 void applyTftInversion() {
@@ -2979,6 +3000,7 @@ void applyTftInversion() {
   Serial.print("*** Applying tft.invertDisplay(");
   Serial.print(tftInvertColors ? "true" : "false");
   Serial.println(") ***");
+  tftLock();
   tft.invertDisplay(tftInvertColors);
   
   // Fallback direct register write for ILI9488/ST7796
@@ -2987,6 +3009,7 @@ void applyTftInversion() {
   Serial.print(tftInvertColors ? "21" : "20");
   Serial.println(" ***");
   tft.writecommand(tftInvertColors ? 0x21 : 0x20);
+  tftUnlock();
 }
 
 void initTFT() {
@@ -23449,7 +23472,7 @@ String getManualPL() {
     "Na podstawie projektu: Konrad Wisniewski SP3KON (z uĹĽyciem AI)\n"
     "Kontakt: SP9TNV@gmail.com\n\n"
     "Wgrywanie przez przeglÄ…darkÄ™ (ESP Web Tools)\n"
-    "- Strona: https://jason2866.github.io/WebSerial_ESPTool/\n"
+    "- Strona: https://tom50505050.github.io/esp32-ham-clock-s3/flash/\n"
     "- Wymagany Chrome lub Edge (WebSerial).\n"
     "- Pliki znajdujÄ… siÄ™ w folderze: build\\esp32s3\\\n"
     "- Dotyczy: ESP32-S3-WROOM-1 N16R8 (16MB flash, 8MB PSRAM, tablica partycji partitions.csv).\n\n"
@@ -23570,7 +23593,7 @@ static void rawUploadFinish() {
   }
   // Nie odswiezamy tu ekranu startowego - WWW po uploadzie robi redirect (GET /),
   // ktory i tak rysuje splash. Odswiezanie tutaj powodowalo miganie ekranu.
-  if (currentScreen == SCREEN_PSK_MAP) drawPskMap();
+  if (currentScreen == SCREEN_PSK_MAP && tftLock(0)) { drawPskMap(); tftUnlock(); }
 }
 
 // Przerywa biezacy upload RAW z powodu braku miejsca: zamyka i usuwa czesciowy
@@ -23652,7 +23675,7 @@ static void handleUpload(const String &targetForced) {
       mpUploadActive = false;
       Serial.printf("[UPLOAD] multipart koniec: %s (%d B)\n", mpUploadPath.c_str(), (int)upload.totalSize);
       // Splash odswiezy GET / po przekierowaniu (patrz /upload_splash) - bez podwojnego rysowania.
-      if (currentScreen == SCREEN_PSK_MAP) drawPskMap();
+      if (currentScreen == SCREEN_PSK_MAP && tftLock(0)) { drawPskMap(); tftUnlock(); }
     } else if (upload.status == UPLOAD_FILE_ABORTED) {
       mpUploadActive = false;
       Serial.println("[UPLOAD] multipart przerwany");
@@ -24470,7 +24493,7 @@ void setupWebServer() {
     html += "<h3>Sposób 1: WebSerial ESPTool (przeglądarka) - NAJPROSTSZY</h3>";
     html += "<div class='success'><strong>Najprostsza metoda - bez instalowania programów.</strong></div>";
     html += "<ol>";
-    html += "<li>Otwórz stronę: <a href='https://jason2866.github.io/WebSerial_ESPTool/' target='_blank'>https://jason2866.github.io/WebSerial_ESPTool/</a></li>";
+    html += "<li>Otwórz stronę: <a href='https://tom50505050.github.io/esp32-ham-clock-s3/flash/' target='_blank'>https://tom50505050.github.io/esp32-ham-clock-s3/flash/</a></li>";
     html += "<li>Podłącz ESP32-S3 przez USB</li>";
     html += "<li>Kliknij <strong>Connect</strong> i wybierz port COM</li>";
     html += "<li>Przytrzymaj <strong>BOOT</strong>, naciśnij <strong>RST</strong>, puść <strong>BOOT</strong></li>";
@@ -27203,6 +27226,11 @@ TaskHandle_t uiTaskHandle = nullptr;
 void uiTaskLoop(void *parameter) {
   (void)parameter;
   for (;;) {
+    // Cale rysowanie UI_Task pod wspolnym mutexem TFT (patrz tftMutex).
+    // Recursive, wiec zagniezdzone wywolania (drawScreen -> drawHamClock -> ...)
+    // sa bezpieczne. loopTask nie czeka dlugo - uzywa try-lock, wiec dlugie
+    // operacje sieciowe w handleTouchNavigation nie blokuja petli glownej.
+    tftLock();
     unsigned long now = millis();
 
     if (tftInitialized) {
@@ -27498,6 +27526,7 @@ void uiTaskLoop(void *parameter) {
       }
     }
 
+    tftUnlock();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
@@ -30568,6 +30597,16 @@ void setup() {
     pskMqttBufferMutex = xSemaphoreCreateMutex();
   }
 
+  // Mutex serializujacy dostep do TFT/SPI. TFT_eSPI nie jest bezpieczny
+  // watkowo (wspolna flaga 'locked' + jeden mutex SPI), a po TFT rysuja DWA
+  // zadania: UI_Task (rdzen 1, prio 2) i loopTask (rdzen 1, prio 1). Bez tego
+  // przy rownoleglym rysowaniu jedno zadanie zwalnia mutex SPI drugiego =>
+  // "assert failed: xQueueGenericSend" i restart. Rekurencyjny, bo funkcje
+  // rysujace wolaja sie nawzajem.
+  if (tftMutex == nullptr) {
+    tftMutex = xSemaphoreCreateRecursiveMutex();
+  }
+
   initStatusRgbLed();
   updateStatusRgbLed();
 
@@ -30855,7 +30894,10 @@ void loop() {
   static unsigned long lastApBannerMs = 0;
   if (apPortalActive() && (now - lastApBannerMs >= 3000)) {
     lastApBannerMs = now;
-    drawApInfoBanner();
+    if (tftLock(0)) {   // try-lock: nie blokuj serwera WWW, gdy UI_Task rysuje
+      drawApInfoBanner();
+      tftUnlock();
+    }
   }
 
   // Log free heap memory every 30 seconds
@@ -30951,10 +30993,10 @@ void loop() {
   gpsUpdate();
 
   // ObsĹ‚uga wygaszacza ekranu (Matrix)
-  checkScreenSaverTimeout();
+  if (tftLock(0)) { checkScreenSaverTimeout(); tftUnlock(); }
 
   // ObsĹ‚uga uĹ›pienia ekranu
-  checkScreenSleepTimeout();
+  if (tftLock(0)) { checkScreenSleepTimeout(); tftUnlock(); }
 
   // JeĹ›li jesteĹ›my offline, zostajemy w AP (portal) Ă˘â‚¬â€ť stabilnie.
   
@@ -31322,7 +31364,7 @@ void loop() {
   if (currentScreen == SCREEN_ISS_PASS_TRACKING && tftInitialized && !inMenu) {
     if (millis() - lastIssTftRefresh >= 1000) {
       lastIssTftRefresh = millis();
-      updateIssDynamicDisplay();
+      if (tftLock(0)) { updateIssDynamicDisplay(); tftUnlock(); }
     }
   }
 
@@ -31340,13 +31382,13 @@ void loop() {
 #endif
   
   // Odswiez ikone satelity w naglowku po zmianie stanu GPS (szary/szukanie/zielony).
-  refreshGpsIconIfChanged();
+  if (tftLock(0)) { refreshGpsIconIfChanged(); tftUnlock(); }
 
   // Aktualizacja pomiaru baterii (TP4056 + 18650)
 #ifdef BATTERY_MONITORING_ENABLED
   if (updateBatteryStatus()) {
     // Szybka aktualizacja ikony baterii (bez odĹ›wieĹĽania caĹ‚ego nagĹ‚Ăłwka)
-    drawBatteryQuickUpdate(true);
+    if (tftLock(0)) { drawBatteryQuickUpdate(true); tftUnlock(); }
     // Debug co 30 sekund - stan baterii
     static unsigned long lastBatteryLogMs = 0;
     if (millis() - lastBatteryLogMs >= 30000) {

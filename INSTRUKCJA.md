@@ -159,7 +159,7 @@ Objawy i naprawa: patrz §9 (Rozwiązywanie problemów).
 
 Firmware wgrywasz **jednym plikiem** przez przeglądarkę:
 
-**https://jason2866.github.io/WebSerial_ESPTool/**
+**https://tom50505050.github.io/esp32-ham-clock-s3/flash/**
 
 1. Otwórz powyższy link w **Chrome / Edge** (WebSerial działa tylko w przeglądarkach
    opartych na Chromium).

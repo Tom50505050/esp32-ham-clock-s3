@@ -15,7 +15,8 @@ Strona flashera: **`flash/index.html`** — wgrywa `merged-flash.bin` z przeglą
 - Generator kopiuje `dist/*.bin` do `flash/` i publikuje do
   `/workspace/share/flash/` (HTTPS) oraz `download/flash/`.
 - Uruchamiać **po** `tools/make_release.sh`. W WWW urządzenia link do flashera
-  (sekcja „Wgraj firmware przez przeglądarkę") wskazuje na zewnętrzny host.
+  (sekcja „Wgraj firmware przez przeglądarkę") wskazuje na własną stronę
+  projektu: `https://tom50505050.github.io/esp32-ham-clock-s3/flash/`.
 - Publikacja: dowolny hosting HTTPS — GitHub Pages (repo → Settings → Pages,
   branch `main`, root) da `https://<user>.github.io/esp32-ham-clock-s3/flash/`.
 - **Nie mylić z OTA:** to nadal wgrywanie kablem USB przez WebSerial (tylko UI
@@ -869,7 +870,7 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
   `firmware-notouch.bin`).
 - **Dystrybucja tylko scalona**: w wydaniach GitHub i w dokumentacji
   udostepniamy WYLACZNIE `merged-flash.bin` i `merged-flash-notouch.bin`.
-  Wgrywanie przez przegladarke: https://jason2866.github.io/WebSerial_ESPTool/
+  Wgrywanie przez przegladarke: https://tom50505050.github.io/esp32-ham-clock-s3/flash/
   (plik + offset `0x0`). Osobne `firmware.bin`, `littlefs.bin`, `bootloader.bin`,
   `boot_app0.bin`, `partitions.bin` usuniete ze wszystkich wydan i z dokumentow.
 - **Opisy na GitHub**: repo + wszystkie release'y - fraza wyświetlacza zmieniona
@@ -1306,7 +1307,7 @@ kondensator przy 3V3). Firmware nie da się wtedy naprawić samym kodem.
 - ZIP: `python3 tools/make_zip.py` → `esp32-ham-clock-s3.zip` (oba scalone obrazy).
 - Wydania GitHub udostępniają TYLKO `merged-flash.bin` i
   `merged-flash-notouch.bin` + ZIP; wgrywanie przez WebSerial
-  (https://jason2866.github.io/WebSerial_ESPTool/, offset `0x0`).
+  (https://tom50505050.github.io/esp32-ham-clock-s3/flash/, offset `0x0`).
 
 ## Analiza logu COM9 (2026-10-11 23:25) — ESP32 jest SPRAWNY
 Log użytkownika (v1.4.1) potwierdza, że sprzęt działa, brak restartów:

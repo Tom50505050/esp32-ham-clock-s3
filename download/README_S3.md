@@ -244,7 +244,7 @@ Po `pio run` obrazy są w `dist/`. Do wgrania służą **dwa scalone pliki**:
 
 ### Wgrywanie przez przeglądarkę (WebSerial) — zalecane
 
-**https://jason2866.github.io/WebSerial_ESPTool/** — otwórz w Chrome/Edge,
+**https://tom50505050.github.io/esp32-ham-clock-s3/flash/** — otwórz w Chrome/Edge,
 podłącz płytkę, **Connect**, wybierz plik (`merged-flash.bin` albo
 `merged-flash-notouch.bin`), offset `0x0`, **Program**.
 
