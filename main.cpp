@@ -23377,7 +23377,7 @@ String getManualPL() {
     "1. bootloader.bin    0x0\n"
     "2. partitions.bin    0x8000\n"
     "3. firmware.bin      0x10000\n"
-    "4. littlefs.bin      0x810000\n\n"
+    "4. littlefs.bin      0x700000\n\n"
     "Po starcie urzÄ…dzenie tworzy AP: SSID ESP32-HAM-CLOCK, hasĹ‚o 1234567890\n"
     "(jeĹ›li brak konfiguracji WiFi).\n\n"
     "Konfiguracja WWW:\n"
@@ -24383,7 +24383,7 @@ void setupWebServer() {
     html += "<tr><td><code>partitions.bin</code></td><td><code>0x8000</code></td><td>Tablica partycji</td></tr>";
     html += "<tr><td><code>boot_app0.bin</code></td><td><code>0xe000</code></td><td>Inicjalizacja OTA</td></tr>";
     html += "<tr><td><code>firmware.bin</code></td><td><code>0x10000</code></td><td>Główny program</td></tr>";
-    html += "<tr><td><code>littlefs.bin</code></td><td><code>0x810000</code></td><td>System plików (ikony, fonty, mapy)</td></tr>";
+    html += "<tr><td><code>littlefs.bin</code></td><td><code>0x700000</code></td><td>System plików (ikony, fonty, mapy)</td></tr>";
     html += "</table>";
     html += "<div class='note'>Adresy dotyczą tablicy partycji 16MB z tego projektu (patrz <code>partitions.csv</code>). Dla płytki 4MB LittleFS startuje pod 0x290000.</div>";
 
@@ -24407,7 +24407,7 @@ void setupWebServer() {
     html += "  0x8000   partitions.bin \\\n";
     html += "  0xe000   boot_app0.bin \\\n";
     html += "  0x10000  firmware.bin \\\n";
-    html += "  0x810000 littlefs.bin\n";
+    html += "  0x700000 littlefs.bin\n";
     html += "</pre>";
 
     html += "<h3>Sposób 3: PlatformIO (VS Code)</h3>";

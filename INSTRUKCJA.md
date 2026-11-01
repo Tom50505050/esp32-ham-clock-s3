@@ -16,7 +16,7 @@ rozbudowę i publikację artefaktów. Dokument uzupełnia (nie zastępuje) `READ
 ├── main.cpp                 # cały firmware (jeden szkic, ~19 tys. linii)
 ├── tft_setup.h              # konfiguracja TFT_eSPI: sterownik ILI9488 + piny + dotyk
 ├── platformio.ini           # 3 środowiska: n16r8, n16r8-notouch, n16r8-altpins
-├── partitions.csv           # 2x OTA po 4 MB + ~7,9 MB LittleFS + coredump
+├── partitions.csv           # 2x OTA + ~8,9 MB LittleFS + coredump
 ├── data/                    # zawartość LittleFS (gra do ESP32)
 │   ├── index.html           # panel WWW (PL)
 │   ├── indexEN.html         # panel WWW (EN)
@@ -195,7 +195,7 @@ ESPTOOL=/workspace/pio_core/packages/tool-esptoolpy/esptool.py
 python3 $ESPTOOL --chip esp32s3 merge_bin -o merged-flash.bin \
   --flash_mode dio --flash_freq 80m --flash_size 16MB \
   0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin \
-  0x10000 firmware.bin 0x810000 littlefs.bin
+  0x10000 firmware.bin 0x700000 littlefs.bin
 ```
 
 ### Publikacja artefaktów (ZIP)
@@ -310,7 +310,7 @@ pio run -e esp32-s3-n16r8 -t buildfs   # przepakuj LittleFS
 | Dotyk `x=0 y=0 z=4095` | T_DO/MISO (GPIO 14) nie dochodzi — brak wspólnej GND lub zły styk. |
 | Reset przy WiFi/TLS | Za słabe zasilanie; sprawdź PSRAM (OPI). |
 | Bootloop `SHA-256 comparison failed` | Wgraj od nowa po `erase_flash`, całym `merged-flash.bin` pod `0x0`. |
-| Brak LittleFS | `pio run -t uploadfs`; sprawdź offset partycji `0x810000`. |
+| Brak LittleFS | `pio run -t uploadfs`; sprawdź offset partycji `0x700000`. |
 
 ---
 
@@ -318,8 +318,8 @@ pio run -e esp32-s3-n16r8 -t buildfs   # przepakuj LittleFS
 
 - `board_build.arduino.memory_type = qio_opi` = quad flash + octal PSRAM.
 - `-DBOARD_HAS_PSRAM` włącza 8 MB PSRAM (dużo zapasu na sprite'y TFT).
-- Firmware zajmuje ~1,42 MB z 4 MB partycji `app0`; RAM ~26%.
-- LittleFS ~7,9 MB — mapy BMP + 254 flagi PNG + 254 flagi BMP + fonty VLW (~4,1 MB danych).
+- Firmware zajmuje ~1,65 MB z 3,5 MB partycji `app0`; RAM ~34%.
+- LittleFS ~8,9 MB — mapy BMP + 254 flagi PNG + 254 flagi BMP + ikony APRS 48x48 + fonty VLW.
 
 ---
 

@@ -230,7 +230,7 @@ wgraj cały zestaw z `data/`.
 Fonty VLW: firmware szuka ich pod `/fonts/Inter-RegularNN.vlw`. Pliki `data/fonts/`
 są wgrywane razem z LittleFS przez `-t uploadfs` — albo od razu przez `dist/merged-flash.bin`.
 
-Adres startowy partycji LittleFS w tej tablicy to `0x810000` (patrz `partitions.csv`) —
+Adres startowy partycji LittleFS w tej tablicy to `0x700000` (patrz `partitions.csv`) —
 przy ręcznym wgrywaniu `.bin` używaj tego offsetu, nie `0x290000` z instrukcji dla 4 MB.
 
 ## 7. Gotowe obrazy (katalog `dist/`)
@@ -265,7 +265,7 @@ esptool.py --chip esp32s3 --port COM9 --baud 921600 write_flash 0x0 merged-flash
 python -m esptool --chip esp32s3 merge-bin -o merged-flash.bin \
   --flash-mode dio --flash-freq 80m --flash-size 16MB \
   0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin \
-  0x10000 firmware.bin 0x810000 littlefs.bin
+  0x10000 firmware.bin 0x700000 littlefs.bin
 ```
 
 > **Tryb flash = DIO.** Wszystkie obrazy są zbudowane w trybie `dio`

@@ -826,7 +826,7 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
   Scalanie: `python -m esptool --chip esp32s3 merge-bin -o dist/merged-flash.bin
   --flash-mode dio --flash-freq 80m --flash-size 16MB 0x0 bootloader.bin
   0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin
-  0x810000 littlefs.bin` (analogicznie `merged-flash-notouch.bin` z
+  0x700000 littlefs.bin` (analogicznie `merged-flash-notouch.bin` z
   `firmware-notouch.bin`).
 - **Dystrybucja tylko scalona**: w wydaniach GitHub i w dokumentacji
   udostepniamy WYLACZNIE `merged-flash.bin` i `merged-flash-notouch.bin`.
@@ -1185,7 +1185,7 @@ pio run -e esp32-s3-n16r8 -t uploadfs # LittleFS (data/)
 - **Dotyk:** `TOUCH_ENABLED` w `tft_setup.h` (0 = wyłączony). Przy niepodłączonym XPT2046 wiszące MISO daje fałszywe dotknięcia i samo otwiera menu ustawień TFT.
 - Arduino IDE nie ma mechanizmu `-I`/`tft_setup.h` — ustawienia trzeba wpisać w `User_Setup.h`.
 - Inwersja kolorów ILI9488: `TFT_INVERSION_ON` (kod wykrywa makro).
-- Instrukcja wbudowana w WWW (sekcja montażu + `getManualPL()`) zaktualizowana pod S3 (piny, adresy flash, bootloader 0x0, LittleFS 0x810000).
+- Instrukcja wbudowana w WWW (sekcja montażu + `getManualPL()`) zaktualizowana pod S3 (piny, adresy flash, bootloader 0x0, LittleFS 0x700000).
 
 ## Reset po połączeniu WiFi — ROZWIĄZANE (2026-10-11)
 Objaw: ESP restartuje się przy wejściu na stronę WWW po WiFi. Log: `***ERROR*** A stack overflow in task loopTask` / `Stack canary watchpoint triggered (loopTask)`.
@@ -1263,7 +1263,7 @@ kondensator przy 3V3). Firmware nie da się wtedy naprawić samym kodem.
 - Scalanie (esptool 5.x używa `merge-bin`): `python -m esptool --chip esp32s3
   merge-bin -o merged-flash.bin --flash-mode dio --flash-freq 80m --flash-size
   16MB 0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000
-  firmware.bin 0x810000 littlefs.bin` (wariant `-notouch` z `firmware-notouch.bin`).
+  firmware.bin 0x700000 littlefs.bin` (wariant `-notouch` z `firmware-notouch.bin`).
 - ZIP: `python3 tools/make_zip.py` → `esp32-ham-clock-s3.zip` (oba scalone obrazy).
 - Wydania GitHub udostępniają TYLKO `merged-flash.bin` i
   `merged-flash-notouch.bin` + ZIP; wgrywanie przez WebSerial
@@ -1436,7 +1436,7 @@ Pobrano 15 ikon (50x50, 24-bit BI_RGB) z repo Tom50505050/esp32-ham-clock:
   FORECAST) automatycznie korzystaja z tych plikow (fallback: rysowana ikona).
 - Rozszerzenia -w (biala ramka) NIE sa uzywane przez firmware - nie dodano.
 - littlefs.bin zawiera ikony; merged-flash.bin je osadza.
-- Wgrywanie: merged-flash.bin (0x0) albo osobno littlefs.bin (0x810000).
+- Wgrywanie: merged-flash.bin (0x0) albo osobno littlefs.bin (0x700000).
 
 
 ## Pelny folder data/ + prawdziwa mapa satelitow (12.10.2026)
@@ -2627,3 +2627,15 @@ Naprawa:
 - Po resecie PlatformIO bywa usuwany: pip install platformio (~/.local/bin,
   export PATH="$HOME/.local/bin:$PATH").
 - Podglad WWW: bash tools/serve.sh (serwuje /workspace/share/ na porcie 12000).
+
+
+## Powiększenie LittleFS (partitions.csv)
+
+- app0 0x10000/0x380000 (3.5 MB), app1 0x390000/0x370000 (3.5 MB),
+  littlefs 0x700000/0x8F0000 (~8.9 MB), coredump 0xFF0000/0x10000.
+- Wczesniej app0/app1 po 4 MB, littlefs 0x810000/0x7E0000 (~7.9 MB).
+- Offsets w firmware (main.cpp), tools/make_release.sh i dokumentacji zmienione
+  na 0x700000. UWAGA: zmiana tablicy partycji wymaga wgrania calego merged-flash
+  (albo partitions.bin + littlefs.bin) - sam uploadfs nie wystarczy.
+- LittleFS montuje sie z offsetu z tablicy partycji, wiec po zmianie rozmiaru
+  stary littlefs.bin trzeba wgrac od nowa (obszar 0x700000..0xFF0000).

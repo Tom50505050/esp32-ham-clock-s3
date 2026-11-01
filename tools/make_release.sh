@@ -17,7 +17,7 @@ merge() {
     0x8000 "$b/partitions.bin" \
     0xe000 "$BOOT_APP0" \
     0x10000 "$b/firmware.bin" \
-    0x810000 "$b/littlefs.bin"
+    0x700000 "$b/littlefs.bin"
 }
 
 merge esp32-s3-n16r8        dist/merged-flash.bin
