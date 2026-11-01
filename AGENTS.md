@@ -2,6 +2,25 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Wątki i TFT: zawsze trzymaj `tftMutex` (13.10.2026)
+TFT_eSPI **nie jest bezpieczny wątkowo** (wspólna flaga `locked` + jeden mutex
+SPI). Po TFT rysują dwa zadania: `UI_Task` (rdzeń 1, prio 2) i `loopTask`
+(rdzeń 1, prio 1, czyli `loop()` + handlery HTTP). Bez serializacji jedno
+zadanie zwalnia mutex SPI drugiego → `assert failed: xQueueGenericSend` →
+panic i restart. Objawia się najbardziej na **świeżo wgranym** firmware (brak
+WiFi w NVS → tryb AP → `loopTask` rysuje `drawApInfoBanner()` co 3 s, gdy
+`UI_Task` odświeża zegar co 1 s).
+
+Rozwiązanie: jeden **rekurencyjny** mutex `tftMutex`
+(`xSemaphoreCreateRecursiveMutex`, tworzony w `setup()`) + `tftLock()/tftUnlock()`.
+- `uiTaskLoop` trzyma mutex przez całą iterację rysowania.
+- `loopTask` (i handlery HTTP) używają **try-lock** `tftLock(0)` — nie blokują
+  serwera WWW, gdy `UI_Task` długo rysuje.
+- Rekurencyjny, bo funkcje rysujące wołają się nawzajem (`drawScreen` →
+  `drawHamClock` → ...).
+- Nowe miejsce rysujące po TFT z `loop()`/handlera **musi** objąć wywołanie
+  `if (tftLock(0)) { ...; tftUnlock(); }`.
+
 
 ## Wgrywanie firmware przez stronę WWW (ESP Web Tools) (01.11.2026)
 Strona flashera: **`flash/index.html`** — wgrywa `merged-flash.bin` z przeglądarki
