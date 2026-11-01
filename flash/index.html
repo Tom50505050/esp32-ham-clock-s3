@@ -39,9 +39,11 @@
   <p class="sub">Wgrywanie działa w przeglądarce — bez instalowania programów. Płytka: <b>ESP32-S3-WROOM-1 N16R8</b> (16 MB flash).</p>
 
   <div class="warn">
-    <b>Wymagania:</b> Chrome, Edge lub Opera (WebSerial), kabel USB z danymi, wolny port szeregowy
-    (zamknij monitor portu). Strona musi być otwarta po <b>HTTPS</b>.
+    <b>Wymagania:</b> komputer z Chrome (zalecane), Edge lub Opera (WebSerial), kabel USB z danymi,
+    wolny port szeregowy (zamknij monitor portu). Strona musi być otwarta po <b>HTTPS</b>.
   </div>
+
+  <div id="browser-status" class="warn" style="display:none"></div>
 
   <div class="warn">
     <b>Ważne (zmiana partycji 01.11.2026):</b> LittleFS przeniesiony na <code>0x400000</code>, slot OTA usunięty.
@@ -89,5 +91,27 @@
 
   <p class="foot">Generator: <code>tools/make_flash_page.py</code> · flasher: <a href="https://esphome.github.io/esp-web-tools/" target="_blank" rel="noopener">ESP Web Tools</a> (open source).</p>
 </div>
+<script>
+(function () {
+  var el = document.getElementById('browser-status');
+  if (!el) return;
+  var isChrome = /Chrome|Chromium|Edg|OPR/.test(navigator.userAgent);
+  var ok = ('serial' in navigator) && window.isSecureContext;
+  var msg, color;
+  if (ok) {
+    msg = '✅ ' + (isChrome ? 'Chrome' : 'Przeglądarka') + ' obsługuje WebSerial — możesz wgrywać firmware.';
+    color = 'var(--green)';
+  } else if (!window.isSecureContext) {
+    msg = '⚠️ Otwórz tę stronę po HTTPS — inaczej WebSerial nie zadziała.';
+    color = 'var(--amber)';
+  } else {
+    msg = '⚠️ Ta przeglądarka nie obsługuje WebSerial. Użyj Chrome (zalecane), Edge lub Opera.';
+    color = 'var(--amber)';
+  }
+  el.style.display = 'block';
+  el.style.borderLeftColor = color;
+  el.innerHTML = '<b style="color:' + color + '">' + msg + '</b>';
+})();
+</script>
 </body>
 </html>
