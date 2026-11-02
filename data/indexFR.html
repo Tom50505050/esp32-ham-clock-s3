@@ -248,6 +248,13 @@
                     </label>
                     <small>Coché : la luminosité diminue automatiquement le soir/nuit (heure locale + données OWM) et revient au maximum la journée. Décoché : le curseur ci-dessus agit comme un assombrissement manuel constant.</small>
                 </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="tft_panel_brighten" name="tft_panel_brighten" style="width: auto;">
+                        <span>ÉCLAIRCIR LE PANNEAU (GAMMA)</span>
+                    </label>
+                    <small>Augmente la luminosité perçue de l’écran (milieu de la courbe gamma + VCOM). N’affecte pas le rétroéclairage – utile avec les thèmes sombres.</small>
+                </div>
             </div>
 
             <div class="config-section">
@@ -2522,6 +2529,7 @@
             document.getElementById('tft_night_dimming').value = nightDimmingValue;
             document.getElementById('tft_night_dimming_value').textContent = nightDimmingValue;
             document.getElementById('tft_night_dim_auto').checked = data.tft_night_dim_auto === true;
+            document.getElementById('tft_panel_brighten').checked = data.tft_panel_brighten === true;
             const tftLangSelect = document.getElementById('tft_lang');
             if (tftLangSelect) {
                 tftLangSelect.value = data.tft_lang || "pl";
@@ -3264,6 +3272,7 @@
             bat_cal_v: parseFloat(document.getElementById('bat_cal_v').value) || 0,
             tft_night_dimming: parseInt(document.getElementById('tft_night_dimming').value) || 0,
             tft_night_dim_auto: document.getElementById('tft_night_dim_auto').checked,
+            tft_panel_brighten: document.getElementById('tft_panel_brighten').checked,
             tft_lang: (document.getElementById('tft_lang') ? document.getElementById('tft_lang').value : "pl"),
             tft_style: (document.getElementById('tft_style') ? document.getElementById('tft_style').value : "dark"),
             table_size: (document.getElementById('table_size') ? document.getElementById('table_size').value : "normal"),

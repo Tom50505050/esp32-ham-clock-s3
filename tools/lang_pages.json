@@ -588,7 +588,9 @@
     "Brightness reduction (0-100%):": "Helligkeitsreduktion (0-100%):",
     "Reduces brightness by the selected percentage.": "Reduziert die Helligkeit um den gewählten Prozentsatz.",
     "AUTO-DIMMING EVENING": "AUTO-DIMMUNG ABENDS",
-    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Aktiviert: Die Helligkeit wird automatisch am Abend/Nacht verringert (lokale Zeit + OWM-Daten) und kehrt tagsüber zur vollen Helligkeit zurück. Deaktiviert: Der Schieberegler oben wirkt als konstante manuelle Abdunklung."
+    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Aktiviert: Die Helligkeit wird automatisch am Abend/Nacht verringert (lokale Zeit + OWM-Daten) und kehrt tagsüber zur vollen Helligkeit zurück. Deaktiviert: Der Schieberegler oben wirkt als konstante manuelle Abdunklung.",
+    "BRIGHTEN PANEL (GAMMA)": "PANEL AUFHELLEN (GAMMA)",
+    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Erhöht die wahrgenommene Bildschirmhelligkeit (Mitte der Gammakurve + VCOM). Fasst die Hintergrundbeleuchtung nicht an – hilfreich bei dunklen Designs."
   },
   "es": {
     " (storm) and": " (tormenta) y",
@@ -1180,7 +1182,9 @@
     "Brightness reduction (0-100%):": "Reducción de brillo (0-100%):",
     "Reduces brightness by the selected percentage.": "Reduce el brillo en el porcentaje seleccionado.",
     "AUTO-DIMMING EVENING": "ATENUACION AUTOMATICA NOCTURNA",
-    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Marcado: el brillo disminuye automáticamente por la tarde/noche (hora local + datos OWM) y vuelve al máximo durante el día. Desmarcado: el control deslizante de arriba actúa como atenuación manual constante."
+    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Marcado: el brillo disminuye automáticamente por la tarde/noche (hora local + datos OWM) y vuelve al máximo durante el día. Desmarcado: el control deslizante de arriba actúa como atenuación manual constante.",
+    "BRIGHTEN PANEL (GAMMA)": "ACLARAR PANEL (GAMMA)",
+    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Aumenta el brillo percibido de la pantalla (medio de la curva gamma + VCOM). No toca la retroiluminación: útil con temas oscuros."
   },
   "fr": {
     " (storm) and": " (orage) et",
@@ -1773,7 +1777,9 @@
     "Brightness reduction (0-100%):": "Réduction de luminosité (0-100 %) :",
     "Reduces brightness by the selected percentage.": "Réduit la luminosité du pourcentage sélectionné.",
     "AUTO-DIMMING EVENING": "DIMMING AUTO LE SOIR",
-    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Coché : la luminosité diminue automatiquement le soir/nuit (heure locale + données OWM) et revient au maximum la journée. Décoché : le curseur ci-dessus agit comme un assombrissement manuel constant."
+    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Coché : la luminosité diminue automatiquement le soir/nuit (heure locale + données OWM) et revient au maximum la journée. Décoché : le curseur ci-dessus agit comme un assombrissement manuel constant.",
+    "BRIGHTEN PANEL (GAMMA)": "ÉCLAIRCIR LE PANNEAU (GAMMA)",
+    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Augmente la luminosité perçue de l’écran (milieu de la courbe gamma + VCOM). N’affecte pas le rétroéclairage – utile avec les thèmes sombres."
   },
   "ru": {
     " (storm) and": " (гроза) и",
@@ -2364,6 +2370,8 @@
     "Brightness reduction (0-100%):": "Снижение яркости (0-100%):",
     "Reduces brightness by the selected percentage.": "Уменьшает яркость на выбранный процент.",
     "AUTO-DIMMING EVENING": "АВТО-ЗАТЕМНЕНИЕ ВЕЧЕРОМ",
-    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Отмечено: яркость снижается автоматически вечером/ночью (локальное время + данные OWM) и возвращается к полной днём. Снято: ползунок выше работает как постоянное ручное затемнение."
+    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Отмечено: яркость снижается автоматически вечером/ночью (локальное время + данные OWM) и возвращается к полной днём. Снято: ползунок выше работает как постоянное ручное затемнение.",
+    "BRIGHTEN PANEL (GAMMA)": "УВЕЛИЧИТЬ ЯРКОСТЬ ПАНЕЛИ (ГАММА)",
+    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Повышает воспринимаемую яркость экрана (середина гамма-кривой + VCOM). Не влияет на подсветку — помогает в тёмных темах."
   }
 }

@@ -350,6 +350,8 @@ void wakeUpFromSleep();
 void applyEffectiveBacklight();
 void setBacklightPercentRaw(int percent);
 bool tftIsNightTime();
+void applyPanelBrightnessBoost();
+void initTFTGamma();
 
 void savePreferences();
 void locatorToLatLon(String locator, double &lat, double &lon);
@@ -696,6 +698,7 @@ static const int UI_FOOTER_Y = 300;
 int backlightPercent = TFT_BACKLIGHT;
 int tftNightDimmingPercent = 0;   // nocne obnizenie jasnosci (0-100%), z WWW
 bool tftNightDimmingAuto = false; // automatyczne przyciemnianie wieczorem (z WWW/menu TFT)
+bool tftPanelBrighten = false;    // rozjasnienie panelu przez gamma/VCOM (z WWW)
 
 // ========== DOTYK (XPT2046) ==========
 // Piny docelowe dla ESP32-S3 N16R8 (zewnętrzny ILI9488 + XPT2046 na wspólnym SPI).
@@ -3065,6 +3068,51 @@ void applyTftInversion() {
   tftUnlock();
 }
 
+// Optymalizacja jasnosci/odczucia panelu ILI9488 (03.11.2026).
+// Podswietlenie (PWM) jest juz na 100%; dodatkowy zapas daje rozjasnienie
+// srodka krzywej gamma (szarze i kolory robia sie "jasniejsze") oraz lekko
+// podbity VCOM (czern nie jest tak "zapadnieta"). Delikatnie, zeby nie popsac
+// kontrastu ani nie wprowadzic pasow. Wylaczane z WWW (tft_panel_brighten).
+// Bezpieczne po tft.begin(): wysyla tylko rejestry gamma/VCOM i nic nie rusza
+// w trybie SPI wspoldzielonym (wykonywane pod tftLock).
+// Przywraca domyslna (fabryczna) gammę i VCOM panelu ILI9488 - odwraca
+// rozjasnienie z applyPanelBrightnessBoost. Wartosci identyczne z sekwencja
+// startupowa TFT_eSPI (ILI9488_Init.h).
+void initTFTGamma() {
+  if (!tftInitialized) return;
+  static const uint8_t gamP[] = {0x00,0x03,0x09,0x08,0x16,0x0A,0x3F,0x78,0x4C,0x09,0x0A,0x08,0x16,0x1A,0x0F};
+  static const uint8_t gamN[] = {0x00,0x16,0x19,0x03,0x0F,0x05,0x32,0x45,0x46,0x04,0x0E,0x0D,0x35,0x37,0x0F};
+  tft.writecommand(0xE0);
+  for (uint8_t v : gamP) tft.writedata(v);
+  tft.writecommand(0xE1);
+  for (uint8_t v : gamN) tft.writedata(v);
+  tft.writecommand(0xC5);
+  tft.writedata(0x00);
+  tft.writedata(0x12);
+  tft.writedata(0x80);
+  Serial.println("[TFT] Fabryczna gamma/VCOM przywrocona");
+}
+
+void applyPanelBrightnessBoost() {
+  if (!tftInitialized) return;
+  tftLock();
+  // Positive Gamma (E0) - podbicie srodka (mid-tony) o ~+4..6.
+  static const uint8_t gamP[] = {0x00,0x03,0x09,0x08,0x16,0x0A,0x3F,0x7C,0x50,0x0A,0x0C,0x09,0x18,0x1B,0x0F};
+  // Negative Gamma (E1) - analogicznie.
+  static const uint8_t gamN[] = {0x00,0x16,0x19,0x03,0x0F,0x05,0x34,0x49,0x4A,0x05,0x10,0x0F,0x37,0x39,0x0F};
+  tft.writecommand(0xE0);
+  for (uint8_t v : gamP) tft.writedata(v);
+  tft.writecommand(0xE1);
+  for (uint8_t v : gamN) tft.writedata(v);
+  // VCOM Control (C5) - natezenie podswietlenia ciemnych obszarow.
+  tft.writecommand(0xC5);
+  tft.writedata(0x00);
+  tft.writedata(0x16);
+  tft.writedata(0x80);
+  tftUnlock();
+  Serial.println("[TFT] Rozjasnienie panelu (gamma/VCOM) wlaczone");
+}
+
 void initTFT() {
   Serial.println("=== Inicjalizacja TFT ===");
   Serial.printf("TFT setup info=%s\n", USER_SETUP_INFO);
@@ -3123,6 +3171,9 @@ void initTFT() {
   tftInitialized = true;
   inMenu = false;
   menuOption = 0;
+  if (tftPanelBrighten) {
+    applyPanelBrightnessBoost();
+  }
   
   Serial.println("=== TFT zainicjalizowany OK ===");
   
@@ -23067,6 +23118,8 @@ void loadPreferences() {
   // Klucz NVS musi miec <=15 znakow (inaczej nvs_set fails KEY_TOO_LONG).
   // "tft_night_dim_auto" (17) nie zapisywal sie - zmieniono na "tft_dim_auto".
   tftNightDimmingAuto = preferences->getBool("tft_dim_auto", false);
+  // Rozjasnienie panelu (gamma/VCOM) - domyslnie wlaczone (jasniejszy ekran).
+  tftPanelBrighten = preferences->getBool("tft_panel_br", true);
   tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", tftInvertColors));
   tftLanguage = preferences->getUChar("tft_lang", TFT_LANG_PL);
   if (tftLanguage >= TFT_LANG_COUNT) tftLanguage = TFT_LANG_PL;
@@ -23340,6 +23393,7 @@ void savePreferences() {
   preferences->putInt("tft_backlight", backlightPercent);
   preferences->putInt("tft_night_dim", tftNightDimmingPercent);
   preferences->putBool("tft_dim_auto", tftNightDimmingAuto);
+  preferences->putBool("tft_panel_br", tftPanelBrighten);
   preferences->putBool("tft_inv", sanitizeTftInvertSetting(tftInvertColors));
   preferences->putUChar("tft_lang", tftLanguage);
   preferences->putUChar("tft_tbl_size", dxTableSizeMode);
@@ -25158,6 +25212,16 @@ void setupWebServer() {
         Serial.printf("[BL] auto-sciemnianie wieczorem = %s\n", tftNightDimmingAuto ? "ON" : "OFF");
         applyEffectiveBacklight();
       }
+      if (doc["tft_panel_brighten"].is<bool>()) {
+        tftPanelBrighten = doc["tft_panel_brighten"].as<bool>();
+        Serial.printf("[TFT] rozjasnienie panelu = %s\n", tftPanelBrighten ? "ON" : "OFF");
+        if (tftInitialized) {
+          tftLock();
+          initTFTGamma();  // przywroc domyslna gama/VCOM zanim zastosujemy nowy stan
+          tftUnlock();
+          if (tftPanelBrighten) applyPanelBrightnessBoost();
+        }
+      }
       if (doc["tft_invert"].is<bool>()) {
         bool receivedValue = doc["tft_invert"].as<bool>();
         Serial.print("*** Received tft_invert from JSON: ");
@@ -25957,6 +26021,7 @@ void setupWebServer() {
     doc["tft_backlight"] = backlightPercent;
     doc["tft_night_dimming"] = tftNightDimmingPercent;
     doc["tft_night_dim_auto"] = tftNightDimmingAuto;
+    doc["tft_panel_brighten"] = tftPanelBrighten;
     doc["tft_invert"] = sanitizeTftInvertSetting(tftInvertColors);
     doc["tft_rotation"] = tftRotation;
     doc["tft_lang"] = tftLangToCode(tftLanguage);
