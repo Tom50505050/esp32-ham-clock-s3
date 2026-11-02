@@ -5,8 +5,8 @@ Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b**, **v1.2c** i **v1.2d** 
 **ILI9488 na 3.5" i 4" 480×320** po SPI i panelem dotykowym XPT2046.
 
 > **Wgrywanie przez przeglądarkę (WebSerial):**
-> https://jason2866.github.io/WebSerial_ESPTool/ — wybierz **`merged-flash.bin`**
-> (płytka z dotykiem) albo **`merged-flash-notouch.bin`** (bez dotyku), offset `0x0`.
+> https://tom50505050.github.io/esp32-ham-clock-s3/flash/ — kliknij
+> **„Wgraj firmware (dotyk)"** albo **„Wgraj firmware (bez dotyku)"**.
 > W wydaniach dostępne są **tylko te dwa pliki** — osobne obrazy `firmware.bin`,
 > `littlefs.bin`, `bootloader.bin`, `boot_app0.bin` i `partitions.bin` zostały
 > usunięte ze wszystkich wydań.
@@ -262,8 +262,8 @@ narzędzia podglądu nagłówka. Pozostałe ekrany, zależności i układ partyc
 
 ## Wgrywanie
 
-Przez przeglądarkę: **https://jason2866.github.io/WebSerial_ESPTool/** — wybierz
-`merged-flash.bin` (albo `merged-flash-notouch.bin`) i offset `0x0`.
+Przez przeglądarkę: **https://tom50505050.github.io/esp32-ham-clock-s3/flash/** —
+kliknij „Wgraj firmware (dotyk)" albo „Wgraj firmware (bez dotyku)".
 
 ```bash
 esptool.py -p COM9 write_flash 0x0 merged-flash.bin
@@ -452,8 +452,8 @@ z UI WWW oraz narzędzia podglądu. Pozostałe ekrany i zależności bez zmian.
 
 ## Wgrywanie
 
-Przez przeglądarkę: **https://jason2866.github.io/WebSerial_ESPTool/** — wybierz
-`merged-flash.bin` (albo `merged-flash-notouch.bin`) i offset `0x0`.
+Przez przeglądarkę: **https://tom50505050.github.io/esp32-ham-clock-s3/flash/** —
+kliknij „Wgraj firmware (dotyk)" albo „Wgraj firmware (bez dotyku)".
 
 ```bash
 esptool.py -p COM9 write_flash 0x0 merged-flash.bin
@@ -566,8 +566,8 @@ oraz narzędzia projektu. Pozostałe ekrany i zależności bez zmian.
 
 ## Wgrywanie
 
-Przez przeglądarkę: **https://jason2866.github.io/WebSerial_ESPTool/** — wybierz
-`merged-flash.bin` (albo `merged-flash-notouch.bin`) i offset `0x0`.
+Przez przeglądarkę: **https://tom50505050.github.io/esp32-ham-clock-s3/flash/** —
+kliknij „Wgraj firmware (dotyk)" albo „Wgraj firmware (bez dotyku)".
 
 ```bash
 esptool.py -p COM9 write_flash 0x0 merged-flash.bin

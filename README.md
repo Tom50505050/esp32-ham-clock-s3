@@ -86,8 +86,8 @@ W `dist/` oraz `download/` znajdują się zbudowane artefakty:
 - `esp32-ham-clock-s3.zip` — paczka projektu (źródła + `data/` + pliki `.bin`).
 
 Wgrywanie przez przeglądarkę (WebSerial):
-**https://jason2866.github.io/WebSerial_ESPTool/** — wybierz `merged-flash.bin`
-(płytka z dotykiem) albo `merged-flash-notouch.bin` (bez dotyku), offset `0x0`.
+**https://tom50505050.github.io/esp32-ham-clock-s3/flash/** — kliknij przycisk „Wgraj firmware (dotyk)"
+albo „Wgraj firmware (bez dotyku)".
 
 ```bash
 esptool.py -p COM9 write_flash 0x0 merged-flash.bin
@@ -390,9 +390,8 @@ Poniżej pełne zestawienie zmian wprowadzonych od wydania **v1** do **v1.2**
 
 ### Wgrywanie z wydania
 
-Przez przeglądarkę (WebSerial): **https://jason2866.github.io/WebSerial_ESPTool/** —
-wybierz `merged-flash.bin` (płytka z dotykiem) albo `merged-flash-notouch.bin`
-(bez dotyku), offset `0x0`.
+Przez przeglądarkę (WebSerial): **https://tom50505050.github.io/esp32-ham-clock-s3/flash/** —
+kliknij „Wgraj firmware (dotyk)" albo „Wgraj firmware (bez dotyku)".
 
 ```bash
 # cały obraz (firmware + LittleFS) - offset 0x0
