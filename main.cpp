@@ -23486,13 +23486,21 @@ String formatUptime(unsigned long ms) {
 }
 
 // Serwuje plik z LittleFS. Zwraca false, gdy system plikow niedostepny lub brak pliku.
-static bool streamLittleFsFile(const char *path, const char *contentType) {
+static bool streamLittleFsFile(const char *path, const char *contentType, int maxAgeSec = -1) {
   if (!littleFsReady || !LittleFS.exists(path)) {
     return false;
   }
   File f = LittleFS.open(path, "r");
   if (!f) {
     return false;
+  }
+  // Cache-Control wylaczony (maxAgeSec<0) => brak naglowka (stare zachowanie).
+  // maxAgeSec=0 => "no-cache" (zawsze rewalidacja, uzywane dla obrazkow ktore
+  // uzytkownik moze podmienic przez upload - tam URL nie ma cache-buster'a).
+  if (maxAgeSec > 0) {
+    server->sendHeader("Cache-Control", String("public, max-age=") + String(maxAgeSec));
+  } else if (maxAgeSec == 0) {
+    server->sendHeader("Cache-Control", "no-cache");
   }
   server->streamFile(f, contentType);
   f.close();
@@ -26229,7 +26237,8 @@ void setupWebServer() {
       lc.toLowerCase();
       const char *ct = lc.endsWith(".png") ? "image/png"
                      : lc.endsWith(".bmp") ? "image/bmp" : "image/jpeg";
-      if (streamLittleFsFile(path.c_str(), ct)) return;
+      // no-cache: obrazek moze byc podmieniony uploadem - URL ma ?t= w WWW.
+      if (streamLittleFsFile(path.c_str(), ct, 0)) return;
     }
     server->send(404, "text/plain", "no icon");
   });
@@ -26258,7 +26267,8 @@ void setupWebServer() {
         lc.toLowerCase();
         const char *ct = lc.endsWith(".png") ? "image/png"
                        : lc.endsWith(".bmp") ? "image/bmp" : "image/jpeg";
-        if (streamLittleFsFile(c, ct)) return;
+        // no-cache: obrazki podmieniane uploadem (URL z ?t= w WWW).
+        if (streamLittleFsFile(c, ct, 0)) return;
         break;
       }
     }
@@ -26278,7 +26288,8 @@ void setupWebServer() {
         lc.toLowerCase();
         const char *ct = lc.endsWith(".png") ? "image/png"
                        : lc.endsWith(".bmp") ? "image/bmp" : "image/jpeg";
-        if (streamLittleFsFile(c, ct)) return;
+        // no-cache: obrazki podmieniane uploadem (URL z ?t= w WWW).
+        if (streamLittleFsFile(c, ct, 0)) return;
         break;
       }
     }
@@ -26299,14 +26310,18 @@ void setupWebServer() {
     server->send(200, "text/html; charset=utf-8", html);
   });
   
-  // Prawdziwa mapa swiata (BMP 480x320) - tlo dla sledzenia satelitow w WWW
+  // Prawdziwa mapa swiata (BMP 480x320) - tlo dla sledzenia satelitow w WWW.
+  // Statyczny zasob firmware (dolaczony do LittleFS) - dlugi cache.
   server->on("/mapa_swiat.bmp", HTTP_GET, []() {
-    if (!streamLittleFsFile("/Mapa swiata.bmp", "image/bmp")) {
+    if (!streamLittleFsFile("/Mapa swiata.bmp", "image/bmp", 86400)) {
       server->send(404, "text/plain", "not found");
     }
   });
 
-  // Ikony pogodowe (/icon50/*.bmp) i flagi krajow (/flags/*.png) z LittleFS
+  // Ikony pogodowe (/icon50/*.bmp) i flagi krajow (/flags/*.png) z LittleFS.
+  // To stale zasoby firmware (nie podmieniane uploadem) - dlugi cache; mapa
+  // satelitarna (satellite.js) pobiera je co odswiezenie i bez cache robiloby
+  // sie wolno (ladowanie grafik przez WWW trwalo dlugo).
   server->onNotFound([]() {
     String path = server->uri();
     if (path.indexOf("..") >= 0) {
@@ -26314,11 +26329,11 @@ void setupWebServer() {
       return;
     }
     if (path.startsWith("/icon50/") && path.endsWith(".bmp")) {
-      if (streamLittleFsFile(path.c_str(), "image/bmp")) return;
+      if (streamLittleFsFile(path.c_str(), "image/bmp", 86400)) return;
     } else if (path.startsWith("/flags/") && path.endsWith(".png")) {
-      if (streamLittleFsFile(path.c_str(), "image/png")) return;
+      if (streamLittleFsFile(path.c_str(), "image/png", 86400)) return;
     } else if (path.startsWith("/tft_flags/") && path.endsWith(".bmp")) {
-      if (streamLittleFsFile(path.c_str(), "image/bmp")) return;
+      if (streamLittleFsFile(path.c_str(), "image/bmp", 86400)) return;
     }
     server->send(404, "text/plain", "not found");
   });
