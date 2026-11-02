@@ -13119,7 +13119,8 @@ void bootLogLine(const String &line) {
   }
 #endif
   if (bootSequenceActive) {
-    delay(500);
+    delay(120);  // 500ms -> 120ms: boot ~3x krotszy (mniej okna na fizyczne
+                 // obnizenie jasnosci podswietlenia podczas startu).
   }
 }
 
@@ -30873,6 +30874,15 @@ void setup() {
     if(LittleFS.begin(false, "/littlefs", 10, "littlefs")){
       Serial.println("[LittleFS] Mounted successfully!");
       littleFsReady = true;
+      // setup() trwa tu ~9s a loop()+watchdog backlight w tym czasie NIE dziala -
+      // defensywnie wymuszamy PWM i mierzymy napiecie (dowod na spadek zasilania
+      // przy intensywnym odczycie flasha, objawiajacy sie ciemnieniem liter).
+#ifdef ENABLE_TFT_DISPLAY
+      setBacklightPercentRaw(effectiveBacklightPercent());
+#endif
+#ifdef BATTERY_MONITORING_ENABLED
+      Serial.printf("[PWR] LittleFS mounted: %.2f V\n", readBatteryVoltage());
+#endif
     } else {
       Serial.printf("[LittleFS] Mount attempt %d FAILED\n", littleFsAttempts);
       delay(200);
@@ -30905,6 +30915,14 @@ void setup() {
       fileCount++;
     }
     root.close();
+    // Intensywny odczyt listingu flasha moze przejsciowo obnizyc napiecie/
+    // jasnosc podswietlenia. Wymusz PWM ponownie + zmierz napiecie.
+#ifdef ENABLE_TFT_DISPLAY
+    setBacklightPercentRaw(effectiveBacklightPercent());
+#endif
+#ifdef BATTERY_MONITORING_ENABLED
+    Serial.printf("[PWR] LittleFS listing done: %.2f V\n", readBatteryVoltage());
+#endif
     bool splashExists = LittleFS.exists("/splash.bmp");
     bool indexExists = LittleFS.exists("/index.html");
     bool mapaExists = LittleFS.exists("/mapa.bmp");
