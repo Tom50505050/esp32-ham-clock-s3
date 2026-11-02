@@ -3191,8 +3191,10 @@ void drawBootScreen() {
   if (!tftInitialized) {
     return;
   }
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_GREEN);
+  // Jasne (biale) tlo boot logu z ciemnym tekstem, zeby startup NIE wygladal
+  // jak "przygaszenie ekranu" (czarny ekran w trakcie LittleFS/Config load).
+  tft.fillScreen(TFT_WHITE);
+  tft.setTextColor(TFT_BLACK);
   tft.setTextSize(1);
   bootLogY = 2;
   tft.setCursor(2, bootLogY);
@@ -3202,13 +3204,13 @@ void tftBootPrintLine(const String &line) {
   if (!tftInitialized) {
     return;
   }
-  tft.setTextColor(TFT_GREEN);
+  tft.setTextColor(TFT_BLACK);
   tft.setTextSize(1);
   tft.setCursor(2, bootLogY);
   tft.print(line);
   bootLogY += BOOT_LOG_LINE_HEIGHT;
   if (bootLogY > 230) {
-    tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(TFT_WHITE);
     bootLogY = 2;
   }
 }
@@ -30902,8 +30904,14 @@ void setup() {
   yield();
 
   bootLogLine("Config load...");
+#ifdef BATTERY_MONITORING_ENABLED
+  Serial.printf("[PWR] Napiecie przed Config load: %.2f V\n", readBatteryVoltage());
+#endif
   bootLogLine("LittleFS ready: " + String(littleFsReady ? "YES" : "NO"));
   loadPreferences();
+#ifdef BATTERY_MONITORING_ENABLED
+  Serial.printf("[PWR] Napiecie po Config load: %.2f V\n", readBatteryVoltage());
+#endif
   alarmInitBuzzer();  // buzzer alarmu (piezo, GPIO 2) - gotowy od startu
 
   // Uruchom UART2 dla modulu GPS, jesli wlaczony w konfiguracji.
