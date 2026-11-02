@@ -3159,7 +3159,12 @@ void initTFT() {
 #endif
 
   applyTftRotation();
-  applyTftInversion();
+  // Wymus inwersje OFF na czas bootu (czarny ekran + biale litery), zamiast
+  // uzupelniac global (domyslnie true z TFT_INVERSION_ON w tft_setup.h). Bez
+  // tego boot startowal z 0x21 (inwersja ON), a po loadPreferences przechodzil
+  // na 0x20 -> nagla zmiana kolorow w okolicy "Config load".
+  tft.invertDisplay(false);
+  tft.writecommand(0x20);
   // Czarny (nie bialy) - init nie moze konczyc sie jasnym blyskiem, a ekran
   // startowy i tak zaczyna od czarnego tla (drawBootScreen/drawSplashScreen).
   tft.fillScreen(TFT_BLACK);
@@ -3197,10 +3202,10 @@ void drawBootScreen() {
   if (!tftInitialized) {
     return;
   }
-  // Jasne (biale) tlo boot logu z ciemnym tekstem, zeby startup NIE wygladal
-  // jak "przygaszenie ekranu" (czarny ekran w trakcie LittleFS/Config load).
-  tft.fillScreen(TFT_WHITE);
-  tft.setTextColor(TFT_BLACK);
+  // Czarny ekran bootu + BIALE litery (zyczenie uzytkownika). Inwersja jest
+  // OFF na czas bootu (wymuszona w initTFT), wiec kolor jest przewidywalny.
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
   bootLogY = 2;
   tft.setCursor(2, bootLogY);
@@ -3210,13 +3215,13 @@ void tftBootPrintLine(const String &line) {
   if (!tftInitialized) {
     return;
   }
-  tft.setTextColor(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
   tft.setCursor(2, bootLogY);
   tft.print(line);
   bootLogY += BOOT_LOG_LINE_HEIGHT;
   if (bootLogY > 230) {
-    tft.fillScreen(TFT_WHITE);
+    tft.fillScreen(TFT_BLACK);
     bootLogY = 2;
   }
 }
