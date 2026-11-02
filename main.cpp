@@ -3096,10 +3096,12 @@ void initTFTGamma() {
 void applyPanelBrightnessBoost() {
   if (!tftInitialized) return;
   tftLock();
-  // Positive Gamma (E0) - podbicie srodka (mid-tony) o ~+4..6.
-  static const uint8_t gamP[] = {0x00,0x03,0x09,0x08,0x16,0x0A,0x3F,0x7C,0x50,0x0A,0x0C,0x09,0x18,0x1B,0x0F};
+  // Positive Gamma (E0) - podbicie srodka (mid-tony). Zwiekszone (0x78->0x84),
+  // bo wczesniejsze +4..6 bylo niemal niezauwazalne; nadal w bezpiecznym
+  // zakresie (koncowe 0x0F = biel pozostaje biala, czern 0x00 bez zmian).
+  static const uint8_t gamP[] = {0x00,0x03,0x09,0x08,0x16,0x0A,0x3F,0x84,0x58,0x0A,0x0C,0x09,0x18,0x1B,0x0F};
   // Negative Gamma (E1) - analogicznie.
-  static const uint8_t gamN[] = {0x00,0x16,0x19,0x03,0x0F,0x05,0x34,0x49,0x4A,0x05,0x10,0x0F,0x37,0x39,0x0F};
+  static const uint8_t gamN[] = {0x00,0x16,0x19,0x03,0x0F,0x05,0x34,0x4E,0x50,0x05,0x10,0x0F,0x37,0x39,0x0F};
   tft.writecommand(0xE0);
   for (uint8_t v : gamP) tft.writedata(v);
   tft.writecommand(0xE1);
@@ -3107,7 +3109,7 @@ void applyPanelBrightnessBoost() {
   // VCOM Control (C5) - natezenie podswietlenia ciemnych obszarow.
   tft.writecommand(0xC5);
   tft.writedata(0x00);
-  tft.writedata(0x16);
+  tft.writedata(0x18);
   tft.writedata(0x80);
   tftUnlock();
   Serial.println("[TFT] Rozjasnienie panelu (gamma/VCOM) wlaczone");
@@ -3171,9 +3173,9 @@ void initTFT() {
   tftInitialized = true;
   inMenu = false;
   menuOption = 0;
-  if (tftPanelBrighten) {
-    applyPanelBrightnessBoost();
-  }
+  // UWAGA: tftPanelBrighten jest czytany dopiero w loadPreferences() (PO tej
+  // funkcji); wiec boost gamma NIE jest tu aplikowany. Zobacz setup() - boost
+  // jest aplikowany tam po loadPreferences(), z poprawna wartoscia z NVS.
   
   Serial.println("=== TFT zainicjalizowany OK ===");
   
@@ -30956,6 +30958,11 @@ void setup() {
   applyTouchRotation();
   setBacklightPercent(backlightPercent);
   applyEffectiveBacklight();  // Zastosuj też ręczne ściemnianie z NVS (02.11.2026)
+  // Rozjasnienie gamma/VCOM - TUTAJ, PO loadPreferences(), bo tftPanelBrighten
+  // jest czytany z NVS dopiero w loadPreferences() (initTFT() jest wczesniej).
+  if (tftPanelBrighten) {
+    applyPanelBrightnessBoost();
+  }
 #endif
   
   bootLogLine("WIFI starting...");
