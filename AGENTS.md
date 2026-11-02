@@ -33,6 +33,14 @@ Strona flashera: **`flash/index.html`** — wgrywa `merged-flash.bin` z przeglą
   `new_install_prompt_erase: true` (czysty flash przy pierwszym wgraniu).
 - Generator kopiuje `dist/*.bin` do `flash/` i publikuje do
   `/workspace/share/flash/` (HTTPS) oraz `download/flash/`.
+- **Ścieżka do binarki w manifeście zależy od lokalizacji** (binarki NIE są
+  duplikowane w `flash/` — wyklucza je `flash/.gitignore`):
+  - `flash/manifest-*.json` (repo, serwowane na Pages jako `/flash/`) →
+    `../download/merged-flash*.bin` (binarki są w `/download/`),
+  - `download/flash/` i `share/flash/` → `../merged-flash*.bin` (binarka
+    w katalogu nadrzędnym). Generator przepisuje też linki „pobierz" w kopii
+    `index.html` (`rewrite_bin_links`).
+  - `download/manifest-*.json` (strona projektu) → `merged-flash*.bin` (obok).
 - Uruchamiać **po** `tools/make_release.sh`. W WWW urządzenia link do flashera
   (sekcja „Wgraj firmware przez przeglądarkę") wskazuje na własną stronę
   projektu: `https://tom50505050.github.io/esp32-ham-clock-s3/flash/`.
