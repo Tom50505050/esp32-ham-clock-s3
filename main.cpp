@@ -3024,9 +3024,12 @@ static void backlightWatchdogLoop() {
   }
   if (now - lastBacklightWatchdogMs < 1000) return;
   lastBacklightWatchdogMs = now;
-  applyEffectiveBacklight();
+  // setBacklightPercentRaw loguje TYLKO gdy percent != backlightPercent
+  // (czyli gdy cos realnie zmienilo jasnosc); na co dzien jest cichy.
+  // applyEffectiveBacklight() logowal ZAWSZE -> zapychal serial log co sekunde.
+  setBacklightPercentRaw(effectiveBacklightPercent());
   static unsigned long lastBlWatchdogLogMs = 0;
-  if (now - lastBlWatchdogLogMs >= 30000) {
+  if (now - lastBlWatchdogLogMs >= 60000) {
     lastBlWatchdogLogMs = now;
     Serial.printf("[BL] watchdog: baza=%d%%, efekt=%d%%, night=%d\n",
                   backlightPercent, effectiveBacklightPercent(), tftIsNightTime() ? 1 : 0);
@@ -3107,9 +3110,12 @@ void applyPanelBrightnessBoost() {
   tft.writecommand(0xE1);
   for (uint8_t v : gamN) tft.writedata(v);
   // VCOM Control (C5) - natezenie podswietlenia ciemnych obszarow.
+  // Fabrycznie 0x12; 0x18 mocno podbijalo "czern" przez co czarne litery na
+  // bialym tle robily sie szare (odczucie "przygasajace litery"). Ograniczamy
+  // do 0x14 - wyczuwalny zysk bez psucia kontrastu liter.
   tft.writecommand(0xC5);
   tft.writedata(0x00);
-  tft.writedata(0x18);
+  tft.writedata(0x14);
   tft.writedata(0x80);
   tftUnlock();
   Serial.println("[TFT] Rozjasnienie panelu (gamma/VCOM) wlaczone");
@@ -23124,7 +23130,11 @@ void loadPreferences() {
   tftNightDimmingAuto = preferences->getBool("tft_dim_auto", false);
   // Rozjasnienie panelu (gamma/VCOM) - domyslnie wlaczone (jasniejszy ekran).
   tftPanelBrighten = preferences->getBool("tft_panel_br", true);
-  tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", tftInvertColors));
+  // Domyślna inwersja OFF: panel uzytkownika dzialal z OFF (log 08:07 -> 0x20),
+  // a TFT_INVERSION_ON w tft_setup.h wlaczal ja po czystym flash, przez co biale
+  // tlo bootu robilo sie CZARNE (ciemnienie liter). Startuj zawsze z OFF;
+  // uzytkownik moze wlaczyc przez WWW (tft_invert).
+  tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", false));
   tftLanguage = preferences->getUChar("tft_lang", TFT_LANG_PL);
   if (tftLanguage >= TFT_LANG_COUNT) tftLanguage = TFT_LANG_PL;
   dxTableSizeMode = preferences->getUChar("tft_tbl_size", DX_TABLE_SIZE_NORMAL);
@@ -23212,9 +23222,9 @@ void loadPreferences() {
   // restarcie byl aktywny od razu. Nie ruszamy, jesli uzytkownik ma wlasny
   // broker (nie pskreporter) albo juz sam przelaczyl tryb.
   if (pskMqttServer == "mqtt.pskreporter.info" &&
-      !preferences->getBool("psk_mqtt_default_migr", false)) {
+      !preferences->getBool("psk_mqtt_migr", false)) {
     pskMqttEnabled = true;
-    preferences->putBool("psk_mqtt_default_migr", true);
+    preferences->putBool("psk_mqtt_migr", true);
     preferences->putBool("psk_mqtt_en", true);
   }
 
@@ -23271,7 +23281,14 @@ void loadPreferences() {
   // TOCALL + blokada znakow + KISS TNC + monitor TNC2
   aprsToCall = sanitizeAprsToCall(preferences->getString(NVS_KEY_APRS_TOCALL, "APRS"));
   aprsAlertBlockCsv = sanitizeAprsAlertList(preferences->getString(NVS_KEY_APRS_ALERT_BLOCK, ""));
-  aprsAlertBlockEnabled = preferences->getBool("aprs_alrt_blk_en", true);
+  // NVS klucz max 15 znakow: stary "aprs_alrt_blk_en" (16) byl za dlugi i
+  // rzucal KEY_TOO_LONG. Nowy klucz "aprs_alrt_blk". Fallback na stary, zeby
+  // nie zgubic ustawienia sprzed migracji.
+  aprsAlertBlockEnabled = preferences->getBool("aprs_alrt_blk", true);
+  if (!preferences->isKey("aprs_alrt_blk") && preferences->isKey("aprs_alrt_blk_en")) {
+    aprsAlertBlockEnabled = preferences->getBool("aprs_alrt_blk_en", true);
+    preferences->putBool("aprs_alrt_blk", aprsAlertBlockEnabled);
+  }
   aprsKissEnabled = preferences->getBool(NVS_KEY_APRS_KISS_EN, false);
   aprsKissHost = preferences->getString(NVS_KEY_APRS_KISS_HOST, "");
   aprsKissPort = preferences->getInt(NVS_KEY_APRS_KISS_PORT, 8001);
@@ -23465,7 +23482,7 @@ void savePreferences() {
   preferences->putBool(NVS_KEY_APRS_ALERT_WX_ENABLED, aprsAlertWxEnabled);
   preferences->putString(NVS_KEY_APRS_TOCALL, aprsToCall);
   preferences->putString(NVS_KEY_APRS_ALERT_BLOCK, aprsAlertBlockCsv);
-  preferences->putBool("aprs_alrt_blk_en", aprsAlertBlockEnabled);
+  preferences->putBool("aprs_alrt_blk", aprsAlertBlockEnabled);
   preferences->putBool(NVS_KEY_APRS_KISS_EN, aprsKissEnabled);
   preferences->putString(NVS_KEY_APRS_KISS_HOST, aprsKissHost);
   preferences->putInt(NVS_KEY_APRS_KISS_PORT, aprsKissPort);
