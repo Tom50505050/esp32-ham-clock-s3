@@ -3004,6 +3004,32 @@ void applyEffectiveBacklight() {
   setBacklightPercentRaw(eff);
 }
 
+// Watchdog podswietlenia (03.11.2026): co 1 s wymusza poprawny PWM jasnosci.
+// Zabezpieczenie przed "samodzielnym sciemnianiem", gdy zadna funkcja firmware
+// nie zmienia jasnosci (brak logow [BL] w logu uzytkownika). Cos innego niz
+// main.cpp (zasilanie, zewnetrzny uklad, drugi kanal LEDC) nadpisuje duty -
+// tu co sekunde wracamy do wartosci docelowej. Co 30 s minimalny wpis w logu.
+static unsigned long lastBacklightWatchdogMs = 0;
+static void backlightWatchdogLoop() {
+#ifndef ENABLE_TFT_DISPLAY
+  return;
+#endif
+  unsigned long now = millis();
+  if (lastBacklightWatchdogMs == 0) {
+    lastBacklightWatchdogMs = now;
+    return;
+  }
+  if (now - lastBacklightWatchdogMs < 1000) return;
+  lastBacklightWatchdogMs = now;
+  applyEffectiveBacklight();
+  static unsigned long lastBlWatchdogLogMs = 0;
+  if (now - lastBlWatchdogLogMs >= 30000) {
+    lastBlWatchdogLogMs = now;
+    Serial.printf("[BL] watchdog: baza=%d%%, efekt=%d%%, night=%d\n",
+                  backlightPercent, effectiveBacklightPercent(), tftIsNightTime() ? 1 : 0);
+  }
+}
+
 void applyTouchRotation() {
 #if TOUCH_ENABLED
   Serial.print("*** Applying touch.setRotation(");
@@ -31100,6 +31126,7 @@ void loop() {
 
   // ObsĹ‚uga wygaszacza ekranu (Matrix)
   if (tftLock(0)) { checkScreenSaverTimeout(); tftUnlock(); }
+  backlightWatchdogLoop();
 
   // ObsĹ‚uga uĹ›pienia ekranu
   if (tftLock(0)) { checkScreenSleepTimeout(); tftUnlock(); }
