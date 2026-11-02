@@ -3235,7 +3235,7 @@ void drawWelcomeScreenYellow() {
   // Ekran powitalny moze byc zastapiony wlasna grafika (/welcome.<ext>),
   // wgrana przez WWW (zakladka TFT -> "Grafika na ekran", cel "Ekran powitalny").
   if (littleFsReady) {
-    for (const char *cand : {"/welcome.png", "/welcome.jpg", "/welcome.jpeg", "/welcome.bmp"}) {
+    for (const char *cand : {"/welcome.bmp", "/welcome.png", "/welcome.jpg", "/welcome.jpeg"}) {
       if (!LittleFS.exists(cand)) continue;
       if (drawImageFromFS(cand)) {
         Serial.printf("[Welcome] Zaladowano ekran powitalny: %s\n", cand);
@@ -3341,15 +3341,17 @@ void drawSplashScreen() {
   tft.fillScreen(TFT_BLACK);
   const int centerX = 240;
 
-  // Kolejnosc = priorytet. PNG/JPG dodane, bo firmware ma teraz dekodery.
+  // Kolejnosc = priorytet. /splash.bmp pierwszy, bo to udokumentowana nazwa
+  // pliku wgranego na urzadzenie - kazda nieudana proba to odczyt flasha
+  // (skok pradu = chwilowe przygaszenie podswietlenia).
   static const char *splashCandidates[] = {
+    "/splash.bmp",
+    "/splash_16bit.bmp",
+    "/splash16.bmp",
     "/splash.png",
     "/splash.jpg",
     "/splash.jpeg",
     "/icon50/splash.bmp",
-    "/splash.bmp",
-    "/splash_16bit.bmp",
-    "/splash16.bmp",
     "/boot.bmp",
     "/boot.png",
     "/logo.bmp",
@@ -13118,10 +13120,9 @@ void bootLogLine(const String &line) {
     tftBootPrintLine(line);
   }
 #endif
-  if (bootSequenceActive) {
-    delay(120);  // 500ms -> 120ms: boot ~3x krotszy (mniej okna na fizyczne
-                 // obnizenie jasnosci podswietlenia podczas startu).
-  }
+  // Bez sztucznego opoznienia: kazde delay() to dodatkowa sekunda patrzenia
+  // na boot log, a skoki poboru pradu przy odczycie flasha powoduja wtedy
+  // widoczne przygaszenie podswietlenia (napiecie siada). Boot ma byc krotki.
 }
 
 // ========== FUNKCJE POMOCNICZE ==========
@@ -30905,6 +30906,10 @@ void setup() {
     bootLogLine("LittleFS: BRAK - sprawdz schemat partycji!");
   } else {
     Serial.printf("[LittleFS] Total: %d, Used: %d, Free: %d\n", LittleFS.totalBytes(), LittleFS.usedBytes(), LittleFS.totalBytes() - LittleFS.usedBytes());
+    // Listing plikow i sondowanie sciezek to kilkadziesiat odczytow flasha pod
+    // rzad = skok poboru pradu i widoczne przygaszenie podswietlenia na starcie.
+    // Wlaczane tylko do diagnostyki: -DTFT_BOOT_VERBOSE w platformio.ini.
+#ifdef TFT_BOOT_VERBOSE
     Serial.println("[LittleFS] Listing root files:");
     File root = LittleFS.open("/", "r");
     File file = root.openNextFile();
@@ -30915,14 +30920,16 @@ void setup() {
       fileCount++;
     }
     root.close();
-    // Intensywny odczyt listingu flasha moze przejsciowo obnizyc napiecie/
-    // jasnosc podswietlenia. Wymusz PWM ponownie + zmierz napiecie.
+#endif
+    // Intensywny odczyt flasha moze przejsciowo obnizyc napiecie/jasnosc
+    // podswietlenia. Wymusz PWM ponownie + zmierz napiecie.
 #ifdef ENABLE_TFT_DISPLAY
     setBacklightPercentRaw(effectiveBacklightPercent());
 #endif
 #ifdef BATTERY_MONITORING_ENABLED
     Serial.printf("[PWR] LittleFS listing done: %.2f V\n", readBatteryVoltage());
 #endif
+#ifdef TFT_BOOT_VERBOSE
     bool splashExists = LittleFS.exists("/splash.bmp");
     bool indexExists = LittleFS.exists("/index.html");
     bool mapaExists = LittleFS.exists("/mapa.bmp");
@@ -30931,6 +30938,7 @@ void setup() {
     Serial.printf("[LittleFS] /index.html: %s\n", indexExists ? "YES" : "NO");
     Serial.printf("[LittleFS] /mapa.bmp: %s\n", mapaExists ? "YES" : "NO");
     Serial.printf("[LittleFS] /Mapa swiata.bmp: %s\n", pskMapExists ? "YES" : "NO");
+#endif
     bootLogLine("LittleFS: OK");
   }
 
@@ -31068,10 +31076,12 @@ void setup() {
   
   // Aktualizuj wyĹ›wietlacz TFT (ekran startowy)
 #ifdef ENABLE_TFT_DISPLAY
-  // Ekran powitalny (czarny ekran, bialy tekst) - 20 s, dotyk pomija.
+  // Ekran powitalny (czarny ekran, bialy tekst) - krotko, dotyk pomija.
+  // Bylo 20 s: dlugi postoj na boot logu, gdy podswietlenie chwilowo siada
+  // przy odczycie flasha, wiec skrocono do 3 s.
   drawWelcomeScreenYellow();
   unsigned long welcomeStart = millis();
-  while ((millis() - welcomeStart) < 20000) {
+  while ((millis() - welcomeStart) < 3000) {
     uint16_t tx, ty;
     if (readTouchPoint(tx, ty)) {
       break;
@@ -31087,11 +31097,11 @@ void setup() {
   drawBatteryQuickUpdate(true);
 #endif
   
-  // Czekaj na dotyk lub timeout 10 sekund
+  // Czekaj na dotyk lub timeout (3 s, bylo 10 s)
   unsigned long splashStart = millis();
   bool splashSkipped = false;
   unsigned long lastBatteryUpdate = 0;
-  while (!splashSkipped && (millis() - splashStart) < 10000) {
+  while (!splashSkipped && (millis() - splashStart) < 3000) {
     uint16_t tx, ty;
     if (readTouchPoint(tx, ty)) {
       splashSkipped = true;
