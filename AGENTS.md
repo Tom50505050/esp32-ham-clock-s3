@@ -2738,3 +2738,21 @@ Naprawa:
 - **Bufor WWW = LittleFS wolne po odjęciu `data/`.** Uwaga na zaokrąglanie do
   bloków 4 kB: `data/` to 675 plików, więc 5.28 MB zajmuje realnie ~7.0 MB.
   Wolne = 11.94 − 7.04 ≈ **4.9 MB** (LittleFS `usedBytes()` też liczy blokami).
+
+## Ściemnianie ekranu / jasność — podsumowanie sesji 02-03.11.2026
+
+Użytkownik zgłaszał "ekran sam ciemnieje". Diagnoza (logi `[BL]`/`[SS]`):
+- Wszystkie programowe mechanizmy (wygaszacz `ss_enabled`, usypianie `screenSleep`, nocne obniżenie `tft_night_dim`) były **wyłączone** (`[BL] STAN: ... wygaszacz=0, usypianie=0`), PWM na 100%.
+- Rzeczywista przyczyna odczucia "ściemnienia": **przejście jasny splash → czarny ekran zegara** (HC_BG=0x0000) — normalna cecha LCD, nie usterka.
+
+Pierwotny realny błąd: klucz NVS `tft_night_dim_auto` (17 znaków) > 15 → `nvs_set_u8 KEY_TOO_LONG`; **zmieniony na `tft_dim_auto`** (12 znaków). Pamiętaj: **wszystkie klucze NVS ≤ 15 znaków**.
+
+Dodane w firmware (wszystko na `main`, commit `ca6baf4` HEAD):
+- `[BL] STAN: ...` diagnostic po `loadPreferences()`; `[SS] WYGASZACZ/USYPIENIE` logi.
+- `backlightWatchdogLoop()` (co 1 s `applyEffectiveBacklight()`; log co 30 s `[BL] watchdog: ...`).
+- `tftPanelBrighten` (NVS `tft_panel_br`, domyślnie TRUE): rozjaśnienie ILI9488 przez podbitą gamę `E0/E1` + VCOM `C5`; funkcje `applyPanelBrightnessBoost()` / `initTFTGamma()` (fabryczna gamma). Checkbox `tft_panel_brighten` w WWW (6 języków, `tools/lang_pages.json`), `/api/save` działa na żywo.
+- WWW caching: `streamLittleFsFile()` przyjmuje `maxAgeSec`; flaga/ikony/mapa 86400 s, preview uploadu no-cache.
+
+Build: 4 envy (esp32-s3-n16r8, -notouch, -altpins, -touchirq) OK. Artefakty: `dist/merged-flash{,-notouch}.bin`, `esp32-ham-clock-s3.zip`, duplikaty w `/workspace/share/`.
+Regeneracja języków: `python3 tools/gen_pages.py` (EN źródłem; tłumaczenia w `tools/lang_pages.json`).
+Pages: po push, status `built` (gh może wymagać `-H "Authorization: Bearer $GITHUB_TOKEN"`).
