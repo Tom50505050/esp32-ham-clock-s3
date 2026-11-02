@@ -2961,10 +2961,15 @@ void setBacklightPercent(int percent) {
 void setBacklightPercentRaw(int percent) {
   if (percent < MIN_BACKLIGHT_PERCENT) percent = MIN_BACKLIGHT_PERCENT;
   if (percent > 100) percent = 100;
-  if (percent != backlightPercent) {
-    Serial.printf("[BL] setBacklightPercentRaw: %d%% (baza=%d%%, nocne=%d%%, night=%d, icon=%s)\n",
-                  percent, backlightPercent, tftNightDimmingPercent, tftIsNightTime() ? 1 : 0,
-                  weatherData.iconCode.isEmpty() ? "-" : weatherData.iconCode.c_str());
+  // Log tylko przy realnej zmianie wypelnienia - watchdog wola te funkcje co
+  // sekunde, a porownanie z backlightPercent (wartoscia bazowa) logowalo przy
+  // kazdym wywolaniu, gdy aktywne bylo nocne obnizenie jasnosci.
+  static int lastPwmPercent = -1;
+  if (percent != lastPwmPercent) {
+    lastPwmPercent = percent;
+    Serial.printf("[BL] PWM -> %d%% (baza=%d%%, nocne=%d%%, auto=%d, night=%d)\n",
+                  percent, backlightPercent, tftNightDimmingPercent,
+                  tftNightDimmingAuto ? 1 : 0, tftIsNightTime() ? 1 : 0);
   }
   uint32_t dutyMax = (1U << BACKLIGHT_PWM_RES_BITS) - 1U;
   writeBacklightDuty((percent * dutyMax) / 100U);
@@ -2981,15 +2986,12 @@ bool tftIsNightTime() {
 
 int effectiveBacklightPercent() {
   int p = backlightPercent;
-  // Ściemnianie jasności (02.11.2026):
-  //  - AUTO WLACZONE (tftNightDimmingAuto): tylko wieczorem/nocą (wg. pory dnia
-  //    lub ikony OWM "n") o wartość tftNightDimmingPercent - ekran sam wraca do
-  //    pełnej jasności w dzień.
-  //  - AUTO WYLACZONE: suwak "Nocne obniżenie jasności" działa jako STALE ręczne
-  //    ściemnianie (o zadaną wartość, niezależnie od pory) - bez samoczynnego
-  //    włączania wieczorem.
-  if (tftNightDimmingPercent > 0 &&
-      (tftNightDimmingAuto ? tftIsNightTime() : true)) {
+  // Obnizenie jasnosci dziala WYLACZNIE jako tryb nocny: musi byc wlaczone
+  // "Auto noc" ORAZ musi byc noc. Wczesniej przy wylaczonym auto suwak
+  // dzialal jako stale sciemnianie - wtedy jasnosc 100% w menu dawala np. 70%
+  // PWM, wiec biale litery wygladaly na szare, a napiecie zasilania nie
+  // spadalo (mniejszy wypelnienie PWM, nie spadek napiecia).
+  if (tftNightDimmingPercent > 0 && tftNightDimmingAuto && tftIsNightTime()) {
     p = p - (p * tftNightDimmingPercent) / 100;
   }
   if (p < MIN_BACKLIGHT_PERCENT) p = MIN_BACKLIGHT_PERCENT;
@@ -3024,6 +3026,8 @@ static void backlightWatchdogLoop() {
   }
   if (now - lastBacklightWatchdogMs < 1000) return;
   lastBacklightWatchdogMs = now;
+  // Podczas bootu PWM jest wymuszony na 100% (biale litery na czarnym tle).
+  if (bootSequenceActive) return;
   // setBacklightPercentRaw loguje TYLKO gdy percent != backlightPercent
   // (czyli gdy cos realnie zmienilo jasnosc); na co dzien jest cichy.
   // applyEffectiveBacklight() logowal ZAWSZE -> zapychal serial log co sekunde.
@@ -31113,6 +31117,12 @@ void setup() {
   if (tftPanelBrighten) {
     applyPanelBrightnessBoost();
   }
+  // Podswietlenie na czas bootu: zawsze pelne, zeby boot log mial biale litery
+  // na czarnym tle. Wlaczone sciemnianie nocne wchodzi dopiero po starcie.
+  setBacklightPercentRaw(100);
+  Serial.printf("[BL] Boot: PWM 100%% (baza=%d%%, nocne=%d%%, auto=%d, efekt po starcie=%d%%)\n",
+                backlightPercent, tftNightDimmingPercent, tftNightDimmingAuto ? 1 : 0,
+                effectiveBacklightPercent());
 #endif
   
   bootLogLine("WIFI starting...");
@@ -31214,6 +31224,9 @@ void setup() {
   }
   delay(50);
   bootSequenceActive = false;
+  // Boot zakonczony: teraz dopiero wchodzi jasnosc docelowa (z nocnym
+  // obnizeniem, jesli aktywne). Podczas bootu PWM byl wymuszony na 100%.
+  applyEffectiveBacklight();
   drawScreen(currentScreen);
   drawApInfoBanner();
   resetTftAutoSwitchTimer();
