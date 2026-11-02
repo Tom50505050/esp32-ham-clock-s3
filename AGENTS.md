@@ -58,6 +58,21 @@ Strona flashera: **`flash/index.html`** — wgrywa `merged-flash.bin` z przeglą
 - **Nie mylić z OTA:** to nadal wgrywanie kablem USB przez WebSerial (tylko UI
   w przeglądarce). Firmware nie ma OTA — dlatego slot app1 oddany na LittleFS.
 
+## Publikacja na GitHub Pages i push (02.11.2026)
+- Repo: `Tom50505050/esp32-ham-clock-s3`, branch `main`, Pages: source = branch
+  `main`, root `/`, build_type `legacy`. Live: `.../flash/` (flasher) i
+  `.../download/index.html` (strona projektu z przyciskami).
+- **Push:** remote to czysty HTTPS. Uwierzytelnianie przez `gh` CLI:
+  `gh auth login --web` (device flow — kod wpisywany na github.com/login/device,
+  nic nie trafia do czatu), potem `gh auth setup-git`. Sekret `$GITHUB_TOKEN`
+  w środowisku agenta bywa **pusty** — wtedy używać `gh`/remote, nie API z tokenem.
+- **Commity są podpisywane GPG** (`commit.gpgsign=true`, klucz
+  `E488FAAFECAC49D96D7152124BCD02BCAF6D4670`). Po resecie sesji brak klucza w
+  keyringu → commit pada z „No secret key". Naprawa:
+  `export GNUPGHOME=/home/openhands/.gnupg && gpg --batch --import .gpg-release-key`.
+- **Push zmienia publiczne repo i Pages** — wymaga wyraźnej zgody użytkownika.
+- Po pushu Pages przebudowuje się ~30-60 s; build bywa `errored` przejściowo →
+  ponowić `gh api -X POST repos/.../pages/builds`.
 
 ## APRS styl nowoczesny: pełny zestaw ikon w firmware (01.11.2026)
 Ekran nowoczesny (`drawAprsAlertModern`) ma teraz komplet ikon symboli APRS —
