@@ -237,9 +237,16 @@
                     <small>Set backlight brightness for all screens</small>
                 </div>
                 <div class="form-group">
-                    <label>Night brightness reduction (0-100%): <span id="tft_night_dimming_value">0</span>%</label>
+                    <label>Brightness reduction (0-100%): <span id="tft_night_dimming_value">0</span>%</label>
                     <input type="range" id="tft_night_dimming" name="tft_night_dimming" min="0" max="100" value="0">
-                    <small>At night, brightness will be reduced by this percentage based on OpenWeatherMap day/night info</small>
+                    <small>Reduces brightness by the selected percentage.</small>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="tft_night_dim_auto" name="tft_night_dim_auto" style="width: auto;">
+                        <span>AUTO-DIMMING EVENING</span>
+                    </label>
+                    <small>Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.</small>
                 </div>
             </div>
 
@@ -2514,6 +2521,7 @@
             const nightDimmingValue = (data.tft_night_dimming !== undefined && data.tft_night_dimming !== null) ? data.tft_night_dimming : 0;
             document.getElementById('tft_night_dimming').value = nightDimmingValue;
             document.getElementById('tft_night_dimming_value').textContent = nightDimmingValue;
+            document.getElementById('tft_night_dim_auto').checked = data.tft_night_dim_auto === true;
             const tftLangSelect = document.getElementById('tft_lang');
             if (tftLangSelect) {
                 tftLangSelect.value = data.tft_lang || "pl";
@@ -3255,6 +3263,7 @@
             charger_module: (() => { const el = document.getElementById('charger_module'); const v = el ? parseInt(el.value, 10) : NaN; return Number.isFinite(v) ? v : 0; })(),
             bat_cal_v: parseFloat(document.getElementById('bat_cal_v').value) || 0,
             tft_night_dimming: parseInt(document.getElementById('tft_night_dimming').value) || 0,
+            tft_night_dim_auto: document.getElementById('tft_night_dim_auto').checked,
             tft_lang: (document.getElementById('tft_lang') ? document.getElementById('tft_lang').value : "pl"),
             tft_style: (document.getElementById('tft_style') ? document.getElementById('tft_style').value : "dark"),
             table_size: (document.getElementById('table_size') ? document.getElementById('table_size').value : "normal"),

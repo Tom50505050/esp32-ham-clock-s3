@@ -349,6 +349,7 @@ void enterScreenSleep();
 void wakeUpFromSleep();
 void applyEffectiveBacklight();
 void setBacklightPercentRaw(int percent);
+bool tftIsNightTime();
 
 void savePreferences();
 void locatorToLatLon(String locator, double &lat, double &lon);
@@ -694,6 +695,7 @@ static const int UI_FOOTER_Y = 300;
 #define TFT_BACKLIGHT 100
 int backlightPercent = TFT_BACKLIGHT;
 int tftNightDimmingPercent = 0;   // nocne obnizenie jasnosci (0-100%), z WWW
+bool tftNightDimmingAuto = false; // automatyczne przyciemnianie wieczorem (z WWW/menu TFT)
 
 // ========== DOTYK (XPT2046) ==========
 // Piny docelowe dla ESP32-S3 N16R8 (zewnętrzny ILI9488 + XPT2046 na wspólnym SPI).
@@ -2940,6 +2942,11 @@ static void writeBacklightDuty(uint32_t duty) {
 void setBacklightPercent(int percent) {
   if (percent < MIN_BACKLIGHT_PERCENT) percent = MIN_BACKLIGHT_PERCENT;
   if (percent > 100) percent = 100;
+  if (percent != backlightPercent) {
+    Serial.printf("[BL] setBacklightPercent: %d%% (nocne przyciemnianie=%d%%, night=%d, icon=%s)\n",
+                  percent, tftNightDimmingPercent, tftIsNightTime() ? 1 : 0,
+                  weatherData.iconCode.isEmpty() ? "-" : weatherData.iconCode.c_str());
+  }
   backlightPercent = percent;
   uint32_t dutyMax = (1U << BACKLIGHT_PWM_RES_BITS) - 1U;
   writeBacklightDuty((percent * dutyMax) / 100U);
@@ -2951,6 +2958,11 @@ void setBacklightPercent(int percent) {
 void setBacklightPercentRaw(int percent) {
   if (percent < MIN_BACKLIGHT_PERCENT) percent = MIN_BACKLIGHT_PERCENT;
   if (percent > 100) percent = 100;
+  if (percent != backlightPercent) {
+    Serial.printf("[BL] setBacklightPercentRaw: %d%% (baza=%d%%, nocne=%d%%, night=%d, icon=%s)\n",
+                  percent, backlightPercent, tftNightDimmingPercent, tftIsNightTime() ? 1 : 0,
+                  weatherData.iconCode.isEmpty() ? "-" : weatherData.iconCode.c_str());
+  }
   uint32_t dutyMax = (1U << BACKLIGHT_PWM_RES_BITS) - 1U;
   writeBacklightDuty((percent * dutyMax) / 100U);
 }
@@ -2966,7 +2978,15 @@ bool tftIsNightTime() {
 
 int effectiveBacklightPercent() {
   int p = backlightPercent;
-  if (tftNightDimmingPercent > 0 && tftIsNightTime()) {
+  // Ściemnianie jasności (02.11.2026):
+  //  - AUTO WLACZONE (tftNightDimmingAuto): tylko wieczorem/nocą (wg. pory dnia
+  //    lub ikony OWM "n") o wartość tftNightDimmingPercent - ekran sam wraca do
+  //    pełnej jasności w dzień.
+  //  - AUTO WYLACZONE: suwak "Nocne obniżenie jasności" działa jako STALE ręczne
+  //    ściemnianie (o zadaną wartość, niezależnie od pory) - bez samoczynnego
+  //    włączania wieczorem.
+  if (tftNightDimmingPercent > 0 &&
+      (tftNightDimmingAuto ? tftIsNightTime() : true)) {
     p = p - (p * tftNightDimmingPercent) / 100;
   }
   if (p < MIN_BACKLIGHT_PERCENT) p = MIN_BACKLIGHT_PERCENT;
@@ -2975,7 +2995,14 @@ int effectiveBacklightPercent() {
 }
 
 // Wypelnienie PWM z uwzglednieniem nocnego obnizenia (bez zmiany bazowej wartosci).
-void applyEffectiveBacklight() { setBacklightPercentRaw(effectiveBacklightPercent()); }
+void applyEffectiveBacklight() {
+  int eff = effectiveBacklightPercent();
+#ifdef ENABLE_TFT_DISPLAY
+  Serial.printf("[BL] applyEffectiveBacklight: efekt=%d%% (baza=%d%%, nocne=%d%%, night=%d)\n",
+                eff, backlightPercent, tftNightDimmingPercent, tftIsNightTime() ? 1 : 0);
+#endif
+  setBacklightPercentRaw(eff);
+}
 
 void applyTouchRotation() {
 #if TOUCH_ENABLED
@@ -8632,6 +8659,23 @@ void drawBrightnessMenu() {
   drawBrightnessSlider();
   drawThemeSlider();
 
+  // Przełącznik "Auto noc" (02.11.2026): czy suwak nocnego przyciemniania ma
+  // działać automatycznie wieczorem (WLACZ) czy stale ręcznie (WYLACZ).
+  const int nightTileW = 130;
+  const int nightTileH = 30;
+  const int nightGap = 10;
+  const int nightStartX = (480 - (2 * nightTileW + nightGap)) / 2;
+  const int nightY = 158;
+
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setTextSize(1);
+  tft.setCursor(10, 145);
+  String nightDimLabel = sanitizePolishToAscii(String(trStr("AUTO PRZYCIEMNIANIE WIECZOREM",
+     "AUTO DIMMING EVENING", "AUTO DIMMING ABENDS", "DIMMING AUTO SOIR", "AUTO ATENUACION NOCHE", "AUTO DIMMING ABENDS")));
+  tft.print(nightDimLabel);
+  drawFilterTile(nightStartX, nightY, nightTileW, nightTileH, "WLACZ", tftNightDimmingAuto);
+  drawFilterTile(nightStartX + nightTileW + nightGap, nightY, nightTileW, nightTileH, "WYLACZ", !tftNightDimmingAuto);
+
   // Etykieta jezyka lezy POD przyciskami (190..216) - przy 208 nachodzila na
   // przycisk USPIENIE i byla zaslaniana.
   const int langLabelY = 220;
@@ -8954,6 +8998,27 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   const int saverX = defaultX + btnW + btnGap;
   const int calibX = saverX + btnW + btnGap;
   const int closeX = calibX + btnW + btnGap;
+
+  // Przełącznik "Auto noc" - WLACZ / WYLACZ (02.11.2026)
+  const int nightTileW = 130;
+  const int nightTileH = 30;
+  const int nightGap = 10;
+  const int nightStartX = (480 - (2 * nightTileW + nightGap)) / 2;
+  const int nightY = 158;
+  if (isPointInRect(x, y, nightStartX, nightY, nightTileW, nightTileH)) {
+    tftNightDimmingAuto = true;
+    savePreferences();
+    applyEffectiveBacklight();
+    drawBrightnessMenu();
+    return;
+  }
+  if (isPointInRect(x, y, nightStartX + nightTileW + nightGap, nightY, nightTileW, nightTileH)) {
+    tftNightDimmingAuto = false;
+    savePreferences();
+    applyEffectiveBacklight();
+    drawBrightnessMenu();
+    return;
+  }
 
   if (isPointInRect(x, y, saveX, btnY, btnW, btnH)) {
     backlightPercent = brightnessMenuValue;
@@ -22965,9 +23030,13 @@ void loadPreferences() {
   backlightPercent = preferences->getInt("tft_backlight", TFT_BACKLIGHT);
   if (backlightPercent < MIN_BACKLIGHT_PERCENT) backlightPercent = MIN_BACKLIGHT_PERCENT;
   if (backlightPercent > 100) backlightPercent = 100;
+  // Ściemnianie jasności (02.11.2026): suwak = poziom (0-100%); tftNightDimmingAuto
+  // decyduje, czy ma się włączać automatycznie wieczorem (true), czy działać stale
+  // ręcznie (false). Wartości wczytywane z NVS, zapisywane na starcie ustawień.
   tftNightDimmingPercent = preferences->getInt("tft_night_dim", 0);
   if (tftNightDimmingPercent < 0) tftNightDimmingPercent = 0;
   if (tftNightDimmingPercent > 100) tftNightDimmingPercent = 100;
+  tftNightDimmingAuto = preferences->getBool("tft_night_dim_auto", false);
   tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", tftInvertColors));
   tftLanguage = preferences->getUChar("tft_lang", TFT_LANG_PL);
   if (tftLanguage >= TFT_LANG_COUNT) tftLanguage = TFT_LANG_PL;
@@ -23233,6 +23302,7 @@ void savePreferences() {
   preferences->putString("openwebrx_url", openWebRxUrl);
   preferences->putInt("tft_backlight", backlightPercent);
   preferences->putInt("tft_night_dim", tftNightDimmingPercent);
+  preferences->putBool("tft_night_dim_auto", tftNightDimmingAuto);
   preferences->putBool("tft_inv", sanitizeTftInvertSetting(tftInvertColors));
   preferences->putUChar("tft_lang", tftLanguage);
   preferences->putUChar("tft_tbl_size", dxTableSizeMode);
@@ -25029,10 +25099,18 @@ void setupWebServer() {
         if (v.length() > 24) v = v.substring(0, 24);
         if (v.length() > 0) batteryType = v;
       }
+      // Ściemnianie jasności (02.11.2026): suwak = poziom, tft_night_dim_auto =
+      // czy automatycznie wieczorem (true) czy stale ręcznie (false).
       if (doc["tft_night_dimming"].is<int>()) {
         tftNightDimmingPercent = doc["tft_night_dimming"].as<int>();
         if (tftNightDimmingPercent < 0) tftNightDimmingPercent = 0;
         if (tftNightDimmingPercent > 100) tftNightDimmingPercent = 100;
+        Serial.printf("[BL] sciemnianie = %d%%\n", tftNightDimmingPercent);
+        applyEffectiveBacklight();
+      }
+      if (doc["tft_night_dim_auto"].is<bool>()) {
+        tftNightDimmingAuto = doc["tft_night_dim_auto"].as<bool>();
+        Serial.printf("[BL] auto-sciemnianie wieczorem = %s\n", tftNightDimmingAuto ? "ON" : "OFF");
         applyEffectiveBacklight();
       }
       if (doc["tft_invert"].is<bool>()) {
@@ -25833,6 +25911,7 @@ void setupWebServer() {
     doc["battery_type"] = batteryType;
     doc["tft_backlight"] = backlightPercent;
     doc["tft_night_dimming"] = tftNightDimmingPercent;
+    doc["tft_night_dim_auto"] = tftNightDimmingAuto;
     doc["tft_invert"] = sanitizeTftInvertSetting(tftInvertColors);
     doc["tft_rotation"] = tftRotation;
     doc["tft_lang"] = tftLangToCode(tftLanguage);
@@ -30759,6 +30838,7 @@ void setup() {
   applyTftRotation();
   applyTouchRotation();
   setBacklightPercent(backlightPercent);
+  applyEffectiveBacklight();  // Zastosuj też ręczne ściemnianie z NVS (02.11.2026)
 #endif
   
   bootLogLine("WIFI starting...");
@@ -31368,10 +31448,12 @@ void loop() {
     }
   }
 
-  // Nocne obnizenie jasnosci - przelicz przy zmianie pory dnia (ikona OWM).
-  static bool lastNightState = false;
-  static bool lastNightStateInit = false;
-  if (tftNightDimmingPercent > 0) {
+  // Automatyczne przyciemnianie wieczorem (02.11.2026) - tylko gdy opcja
+  // tftNightDimmingAuto jest WŁĄCZONA. Przelicz jasność przy zmianie pory dnia
+  // (ikona OWM / godzina lokalna); gdy auto wyłączone, suwak działa stale ręcznie.
+  if (tftNightDimmingAuto) {
+    static bool lastNightState = false;
+    static bool lastNightStateInit = false;
     bool night = tftIsNightTime();
     if (!lastNightStateInit || night != lastNightState) {
       lastNightState = night;

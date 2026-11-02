@@ -584,7 +584,11 @@
     "Battery type:": "Akkutyp:",
     "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Freitextbeschreibung des Zelltyps/der Chemie (max. 24 Zeichen). Sichtbar auf dem ESP32-S3-Monitorbildschirm.",
     "Enable APRS alert: LED (GPIO 6) + sound (GPIO 2)": "APRS-Alarm aktivieren: LED (GPIO 6) + Ton (GPIO 2)",
-    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Schaltet das Blinken der blauen APRS-ALARM-LED (GPIO 6) und den kurzen \"Pip\"-Ton (Summer GPIO 2) ein/aus."
+    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Schaltet das Blinken der blauen APRS-ALARM-LED (GPIO 6) und den kurzen \"Pip\"-Ton (Summer GPIO 2) ein/aus.",
+    "Brightness reduction (0-100%):": "Helligkeitsreduktion (0-100%):",
+    "Reduces brightness by the selected percentage.": "Reduziert die Helligkeit um den gewählten Prozentsatz.",
+    "AUTO-DIMMING EVENING": "AUTO-DIMMUNG ABENDS",
+    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Aktiviert: Die Helligkeit wird automatisch am Abend/Nacht verringert (lokale Zeit + OWM-Daten) und kehrt tagsüber zur vollen Helligkeit zurück. Deaktiviert: Der Schieberegler oben wirkt als konstante manuelle Abdunklung."
   },
   "es": {
     " (storm) and": " (tormenta) y",
@@ -1172,7 +1176,11 @@
     "Battery type:": "Tipo de batería:",
     "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Descripción libre del tipo/química de la celda (máx. 24 car.). Mostrada en la pantalla de monitor ESP32-S3.",
     "Enable APRS alert: LED (GPIO 6) + sound (GPIO 2)": "Activar alerta APRS: LED (GPIO 6) + sonido (GPIO 2)",
-    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Activa/desactiva el parpadeo del LED azul de ALERTA APRS (GPIO 6) y el breve sonido \"pip\" (zumbador GPIO 2)."
+    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Activa/desactiva el parpadeo del LED azul de ALERTA APRS (GPIO 6) y el breve sonido \"pip\" (zumbador GPIO 2).",
+    "Brightness reduction (0-100%):": "Reducción de brillo (0-100%):",
+    "Reduces brightness by the selected percentage.": "Reduce el brillo en el porcentaje seleccionado.",
+    "AUTO-DIMMING EVENING": "ATENUACION AUTOMATICA NOCTURNA",
+    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Marcado: el brillo disminuye automáticamente por la tarde/noche (hora local + datos OWM) y vuelve al máximo durante el día. Desmarcado: el control deslizante de arriba actúa como atenuación manual constante."
   },
   "fr": {
     " (storm) and": " (orage) et",
@@ -1761,7 +1769,11 @@
     "Battery type:": "Type de batterie:",
     "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Description libre du type/de la chimie de la cellule (max 24 car.). Affichée sur l'écran moniteur ESP32-S3.",
     "Enable APRS alert: LED (GPIO 6) + sound (GPIO 2)": "Activer l'alerte APRS : LED (GPIO 6) + son (GPIO 2)",
-    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Active/désactive le clignotement de la LED d'ALERTE APRS bleue (GPIO 6) et le court son \"pip\" (buzzer GPIO 2)."
+    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Active/désactive le clignotement de la LED d'ALERTE APRS bleue (GPIO 6) et le court son \"pip\" (buzzer GPIO 2).",
+    "Brightness reduction (0-100%):": "Réduction de luminosité (0-100 %) :",
+    "Reduces brightness by the selected percentage.": "Réduit la luminosité du pourcentage sélectionné.",
+    "AUTO-DIMMING EVENING": "DIMMING AUTO LE SOIR",
+    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Coché : la luminosité diminue automatiquement le soir/nuit (heure locale + données OWM) et revient au maximum la journée. Décoché : le curseur ci-dessus agit comme un assombrissement manuel constant."
   },
   "ru": {
     " (storm) and": " (гроза) и",
@@ -2348,6 +2360,10 @@
     "Battery type:": "Тип аккумулятора:",
     "Free-text description of the cell type/chemistry (max 24 chars). Shown on the ESP32-S3 monitor screen.": "Свободное описание типа/химии ячейки (макс. 24 симв.). Отображается на экране монитора ESP32-S3.",
     "Enable APRS alert: LED (GPIO 6) + sound (GPIO 2)": "Включить тревогу APRS: LED (GPIO 6) + звук (GPIO 2)",
-    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Включает/выключает мигание синего LED ТРЕВОГИ APRS (GPIO 6) и короткий звук «пип» (зумер GPIO 2)."
+    "Turns the blue APRS ALERT LED (GPIO 6) blinking and the short \"pip\" sound (buzzer GPIO 2) on or off.": "Включает/выключает мигание синего LED ТРЕВОГИ APRS (GPIO 6) и короткий звук «пип» (зумер GPIO 2).",
+    "Brightness reduction (0-100%):": "Снижение яркости (0-100%):",
+    "Reduces brightness by the selected percentage.": "Уменьшает яркость на выбранный процент.",
+    "AUTO-DIMMING EVENING": "АВТО-ЗАТЕМНЕНИЕ ВЕЧЕРОМ",
+    "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Отмечено: яркость снижается автоматически вечером/ночью (локальное время + данные OWM) и возвращается к полной днём. Снято: ползунок выше работает как постоянное ручное затемнение."
   }
 }

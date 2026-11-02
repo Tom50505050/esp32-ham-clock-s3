@@ -237,9 +237,16 @@
                     <small>Règle la luminosité du rétroéclairage pour tous les écrans</small>
                 </div>
                 <div class="form-group">
-                    <label>Réduction de luminosité la nuit (0-100 %) : <span id="tft_night_dimming_value">0</span>%</label>
+                    <label>Réduction de luminosité (0-100 %) : <span id="tft_night_dimming_value">0</span>%</label>
                     <input type="range" id="tft_night_dimming" name="tft_night_dimming" min="0" max="100" value="0">
-                    <small>La nuit, la luminosité sera réduite de ce pourcentage selon les infos jour/nuit OpenWeatherMap</small>
+                    <small>Réduit la luminosité du pourcentage sélectionné.</small>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="tft_night_dim_auto" name="tft_night_dim_auto" style="width: auto;">
+                        <span>DIMMING AUTO LE SOIR</span>
+                    </label>
+                    <small>Coché : la luminosité diminue automatiquement le soir/nuit (heure locale + données OWM) et revient au maximum la journée. Décoché : le curseur ci-dessus agit comme un assombrissement manuel constant.</small>
                 </div>
             </div>
 
@@ -1673,15 +1680,15 @@
             initSplashUpload();
         };
 
-        // Transforme une erreur d'envoi en message lisible : 507 = plus d'espace
-        // dans LittleFS, un code HTTP, ou une erreur réseau (aucune réponse).
+        // Turns an upload error into a readable message: 507 = LittleFS out of
+        // space, an HTTP code, or a network error (no response).
         const uploadErrorMessage = (e) => {
             const raw = String(e && e.message ? e.message : e).replace('http ', '').trim();
             if (/^\d+$/.test(raw)) {
-                if (raw === '507') return "Plus d'espace sur l'appareil (LittleFS) : supprimez les fichiers inutilisés et réessayez.";
-                return "Échec de l'envoi (HTTP " + raw + ").";
+                if (raw === '507') return "No space left on the device (LittleFS) - delete unused files and retry.";
+                return "Upload failed (HTTP " + raw + ").";
             }
-            return "Erreur réseau : vérifiez la connexion avec l'appareil et réessayez.";
+            return "Network error - check the connection to the device and retry.";
         };
 
         let splashUploadInit = false;
@@ -2514,6 +2521,7 @@
             const nightDimmingValue = (data.tft_night_dimming !== undefined && data.tft_night_dimming !== null) ? data.tft_night_dimming : 0;
             document.getElementById('tft_night_dimming').value = nightDimmingValue;
             document.getElementById('tft_night_dimming_value').textContent = nightDimmingValue;
+            document.getElementById('tft_night_dim_auto').checked = data.tft_night_dim_auto === true;
             const tftLangSelect = document.getElementById('tft_lang');
             if (tftLangSelect) {
                 tftLangSelect.value = data.tft_lang || "pl";
@@ -3255,6 +3263,7 @@
             charger_module: (() => { const el = document.getElementById('charger_module'); const v = el ? parseInt(el.value, 10) : NaN; return Number.isFinite(v) ? v : 0; })(),
             bat_cal_v: parseFloat(document.getElementById('bat_cal_v').value) || 0,
             tft_night_dimming: parseInt(document.getElementById('tft_night_dimming').value) || 0,
+            tft_night_dim_auto: document.getElementById('tft_night_dim_auto').checked,
             tft_lang: (document.getElementById('tft_lang') ? document.getElementById('tft_lang').value : "pl"),
             tft_style: (document.getElementById('tft_style') ? document.getElementById('tft_style').value : "dark"),
             table_size: (document.getElementById('table_size') ? document.getElementById('table_size').value : "normal"),

@@ -237,9 +237,16 @@
                     <small>Устанавливает яркость подсветки для всех экранов</small>
                 </div>
                 <div class="form-group">
-                    <label>Снижение яркости ночью (0-100%): <span id="tft_night_dimming_value">0</span>%</label>
+                    <label>Снижение яркости (0-100%): <span id="tft_night_dimming_value">0</span>%</label>
                     <input type="range" id="tft_night_dimming" name="tft_night_dimming" min="0" max="100" value="0">
-                    <small>Ночью яркость будет снижена на этот процент по данным день/ночь OpenWeatherMap</small>
+                    <small>Уменьшает яркость на выбранный процент.</small>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="tft_night_dim_auto" name="tft_night_dim_auto" style="width: auto;">
+                        <span>АВТО-ЗАТЕМНЕНИЕ ВЕЧЕРОМ</span>
+                    </label>
+                    <small>Отмечено: яркость снижается автоматически вечером/ночью (локальное время + данные OWM) и возвращается к полной днём. Снято: ползунок выше работает как постоянное ручное затемнение.</small>
                 </div>
             </div>
 
@@ -1673,15 +1680,15 @@
             initSplashUpload();
         };
 
-        // Преобразует ошибку загрузки в понятное сообщение: 507 = нет места
-        // в LittleFS, код HTTP или ошибка сети (нет ответа).
+        // Turns an upload error into a readable message: 507 = LittleFS out of
+        // space, an HTTP code, or a network error (no response).
         const uploadErrorMessage = (e) => {
             const raw = String(e && e.message ? e.message : e).replace('http ', '').trim();
             if (/^\d+$/.test(raw)) {
-                if (raw === '507') return "Недостаточно места на устройстве (LittleFS) — удалите неиспользуемые файлы и повторите.";
-                return "Ошибка загрузки (HTTP " + raw + ").";
+                if (raw === '507') return "No space left on the device (LittleFS) - delete unused files and retry.";
+                return "Upload failed (HTTP " + raw + ").";
             }
-            return "Ошибка сети — проверьте соединение с устройством и повторите.";
+            return "Network error - check the connection to the device and retry.";
         };
 
         let splashUploadInit = false;
@@ -2514,6 +2521,7 @@
             const nightDimmingValue = (data.tft_night_dimming !== undefined && data.tft_night_dimming !== null) ? data.tft_night_dimming : 0;
             document.getElementById('tft_night_dimming').value = nightDimmingValue;
             document.getElementById('tft_night_dimming_value').textContent = nightDimmingValue;
+            document.getElementById('tft_night_dim_auto').checked = data.tft_night_dim_auto === true;
             const tftLangSelect = document.getElementById('tft_lang');
             if (tftLangSelect) {
                 tftLangSelect.value = data.tft_lang || "pl";
@@ -3255,6 +3263,7 @@
             charger_module: (() => { const el = document.getElementById('charger_module'); const v = el ? parseInt(el.value, 10) : NaN; return Number.isFinite(v) ? v : 0; })(),
             bat_cal_v: parseFloat(document.getElementById('bat_cal_v').value) || 0,
             tft_night_dimming: parseInt(document.getElementById('tft_night_dimming').value) || 0,
+            tft_night_dim_auto: document.getElementById('tft_night_dim_auto').checked,
             tft_lang: (document.getElementById('tft_lang') ? document.getElementById('tft_lang').value : "pl"),
             tft_style: (document.getElementById('tft_style') ? document.getElementById('tft_style').value : "dark"),
             table_size: (document.getElementById('table_size') ? document.getElementById('table_size').value : "normal"),
