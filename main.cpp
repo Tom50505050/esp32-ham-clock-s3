@@ -3165,6 +3165,7 @@ void initTFT() {
   // na 0x20 -> nagla zmiana kolorow w okolicy "Config load".
   tft.invertDisplay(false);
   tft.writecommand(0x20);
+  Serial.println("[TFT] Boot: inwersja OFF (0x20) - czarne tlo, biale litery");
   // Czarny (nie bialy) - init nie moze konczyc sie jasnym blyskiem, a ekran
   // startowy i tak zaczyna od czarnego tla (drawBootScreen/drawSplashScreen).
   tft.fillScreen(TFT_BLACK);
@@ -23133,8 +23134,11 @@ void loadPreferences() {
   // Klucz NVS musi miec <=15 znakow (inaczej nvs_set fails KEY_TOO_LONG).
   // "tft_night_dim_auto" (17) nie zapisywal sie - zmieniono na "tft_dim_auto".
   tftNightDimmingAuto = preferences->getBool("tft_dim_auto", false);
-  // Rozjasnienie panelu (gamma/VCOM) - domyslnie wlaczone (jasniejszy ekran).
-  tftPanelBrighten = preferences->getBool("tft_panel_br", true);
+  // Rozjasnienie panelu (gamma/VCOM) - domyslnie WYLACZONE. Podbicie gamma
+  // +VCOM obnizalo kontrast bialych liter/cyfr na czarnym tle (wygladaly na
+  // ciemniejsze). Fabryczna krzywa daje najczystszy, najjasniejszy bialy
+  // tekst. Opcja pozostaje w WWW na zyczenie uzytkownika.
+  tftPanelBrighten = preferences->getBool("tft_panel_br", false);
   // Domyślna inwersja OFF: panel uzytkownika dzialal z OFF (log 08:07 -> 0x20),
   // a TFT_INVERSION_ON w tft_setup.h wlaczal ja po czystym flash, przez co biale
   // tlo bootu robilo sie CZARNE (ciemnienie liter). Startuj zawsze z OFF;
