@@ -20891,6 +20891,7 @@ void checkScreenSaverTimeout() {
   unsigned long timeoutMs = (unsigned long)screenSaverTimeoutMin * 60000UL; // minuty na ms
   if (now - screenSaverLastActivityMs >= timeoutMs) {
     // WĹ‚Ä…cz wygaszacz z poruszajÄ…cym siÄ™ zegarem
+    Serial.printf("[SS] WYGASZACZ START (%d min bezczynnosci) - przyciemnieje ekran\n", screenSaverTimeoutMin);
     screenSaverActive = true;
     screenSaverPrevScreen = currentScreen;
     // WyczyĹ›Ä‡ ekran i zresetuj pozycjÄ™ zegara
@@ -22828,6 +22829,7 @@ void enterScreenSleep() {
   // zeby nie zostawic uzytkownika z czarnym ekranem i wlaczonym podswietleniem.
   if (!touchReady) return;
 
+  Serial.println("[SS] USYPIENIE EKRANU (screenSleep) - writeBacklightDuty(0)");
   screenSleepActive = true;
   screenSleepPrevScreen = currentScreen;
 
@@ -23036,7 +23038,9 @@ void loadPreferences() {
   tftNightDimmingPercent = preferences->getInt("tft_night_dim", 0);
   if (tftNightDimmingPercent < 0) tftNightDimmingPercent = 0;
   if (tftNightDimmingPercent > 100) tftNightDimmingPercent = 100;
-  tftNightDimmingAuto = preferences->getBool("tft_night_dim_auto", false);
+  // Klucz NVS musi miec <=15 znakow (inaczej nvs_set fails KEY_TOO_LONG).
+  // "tft_night_dim_auto" (17) nie zapisywal sie - zmieniono na "tft_dim_auto".
+  tftNightDimmingAuto = preferences->getBool("tft_dim_auto", false);
   tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", tftInvertColors));
   tftLanguage = preferences->getUChar("tft_lang", TFT_LANG_PL);
   if (tftLanguage >= TFT_LANG_COUNT) tftLanguage = TFT_LANG_PL;
@@ -23243,6 +23247,13 @@ void loadPreferences() {
   }
   
   Serial.println("Konfiguracja wczytana");
+  // Diagnostyka auto-ściemniania (02.11.2026): pokazuje na starcie co by mogło
+  // gasić ekran, gdy użytkownik zgłasza "ekran sam się ściemnia".
+#ifdef ENABLE_TFT_DISPLAY
+  Serial.printf("[BL] STAN: baza=%d%%, nocne=%d%%, auto=%d, night=%d, wygaszacz=%d, usypianie=%d\n",
+                backlightPercent, tftNightDimmingPercent, tftNightDimmingAuto ? 1 : 0,
+                tftIsNightTime() ? 1 : 0, screenSaverEnabled ? 1 : 0, screenSleepEnabled ? 1 : 0);
+#endif
 }
 
 void savePreferences() {
@@ -23302,7 +23313,7 @@ void savePreferences() {
   preferences->putString("openwebrx_url", openWebRxUrl);
   preferences->putInt("tft_backlight", backlightPercent);
   preferences->putInt("tft_night_dim", tftNightDimmingPercent);
-  preferences->putBool("tft_night_dim_auto", tftNightDimmingAuto);
+  preferences->putBool("tft_dim_auto", tftNightDimmingAuto);
   preferences->putBool("tft_inv", sanitizeTftInvertSetting(tftInvertColors));
   preferences->putUChar("tft_lang", tftLanguage);
   preferences->putUChar("tft_tbl_size", dxTableSizeMode);
