@@ -4777,12 +4777,19 @@ static bool clockFontHasFile(uint8_t idx, bool forTime) {
   return ESP.getFreeHeap() > 24000 && ESP.getMaxAllocHeap() > 4096;
 }
 
+// Podglad cache fontow VLW (definicja nizej, przy rysowaniu zegara).
+static const uint8_t *vlwFontCached(const char *path);
+
 // Laduje czcionke VLW i sprawdza, czy metryki faktycznie trafily do RAM.
 // TFT_eSPI::loadFont() nie zwraca bledu - przy braku pamieci ustawia
 // fontLoaded, ale loadMetrics() nie alokuje tablic glifow. Wykrywamy to po
 // gUnicode == nullptr, aby nie rysowac smieci i nie wyciekac metrykami.
 static bool clockLoadFont(const String &name) {
-  tft.loadFont(name, LittleFS);
+  String path = name;
+  if (!path.endsWith(".vlw")) path += ".vlw";
+  const uint8_t *cached = vlwFontCached(path.c_str());
+  if (cached) tft.loadFont(cached);
+  else tft.loadFont(name, LittleFS);
   if (tft.fontLoaded && tft.gUnicode != nullptr) return true;
   if (tft.fontLoaded) tft.unloadFont();
   return false;
@@ -5022,6 +5029,84 @@ static void clockFontPreviewBand(int x, int y, int w, int h, const char *callTex
   tft.setTextDatum(TL_DATUM);
 }
 
+// Cache plikow VLW w PSRAM.
+//
+// Ekran zegara jest przerysowywany co sekunde i kazde przerysowanie wczytywalo
+// Inter-Regular20 (74 KB) + Inter-Regular12 (37 KB) z LittleFS. Te skoki
+// odczytu flasha obnizaja napiecie zasilania i podswietlenie przygasa na
+// wszystkich ekranach. Fonty sa niezmienne, wiec czytamy je raz i trzymamy
+// w PSRAM; loadFont(array) czyta glify wprost z tego bufora.
+struct VlwCacheEntry {
+  char path[48];
+  uint8_t *data;
+  size_t len;
+  uint32_t lastUse;
+};
+
+static const int VLW_CACHE_SLOTS = 6;
+static VlwCacheEntry vlwCache[VLW_CACHE_SLOTS];
+static int vlwCacheCount = 0;
+static uint32_t vlwUseCounter = 0;
+
+static const uint8_t *vlwFontCached(const char *path) {
+  for (int i = 0; i < vlwCacheCount; i++) {
+    if (vlwCache[i].data && strcmp(vlwCache[i].path, path) == 0) {
+      vlwCache[i].lastUse = ++vlwUseCounter;
+      return vlwCache[i].data;
+    }
+  }
+  if (!littleFsReady) return nullptr;
+
+  File f = LittleFS.open(path, "r");
+  if (!f) return nullptr;
+  size_t size = f.size();
+  if (size < 64 || size > 262144) {  // sanity check
+    f.close();
+    return nullptr;
+  }
+
+  uint8_t *buf = (uint8_t *)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!buf) buf = (uint8_t *)malloc(size);
+  if (!buf) {
+    f.close();
+    Serial.printf("[FONT] Brak pamieci na cache %s (%u B)\n", path, (unsigned)size);
+    return nullptr;
+  }
+
+  size_t readBytes = f.read(buf, size);
+  f.close();
+  if (readBytes != size) {
+    free(buf);
+    return nullptr;
+  }
+
+  int slot = -1;
+  for (int i = 0; i < vlwCacheCount; i++) {
+    if (!vlwCache[i].data) { slot = i; break; }
+  }
+  if (slot < 0) {
+    if (vlwCacheCount < VLW_CACHE_SLOTS) {
+      slot = vlwCacheCount++;
+    } else {
+      // LRU: podglad w menu czcionek wczytuje kilkanascie fontow, wiec bez
+      // usuwania najdawniej uzywanego font zegara wypadlby z cache.
+      slot = 0;
+      for (int i = 1; i < VLW_CACHE_SLOTS; i++) {
+        if (vlwCache[i].lastUse < vlwCache[slot].lastUse) slot = i;
+      }
+      free(vlwCache[slot].data);
+    }
+  }
+
+  snprintf(vlwCache[slot].path, sizeof(vlwCache[0].path), "%s", path);
+  vlwCache[slot].data = buf;
+  vlwCache[slot].len = size;
+  vlwCache[slot].lastUse = ++vlwUseCounter;
+  Serial.printf("[FONT] Cache %s (%u B) - odczyty flasha przy przerysowaniu wylaczone\n",
+                path, (unsigned)size);
+  return buf;
+}
+
 // ================= EKRAN 1: STARSZA WERSJA (v1.4.3) =================
 // Klasyczny uklad: pomaranczowy naglowek z logo/klockiem/WiFi/bateria,
 // ramka ze znakiem + duzy zegar cyfrowy + data + imieniny, adres IP i strzalki.
@@ -5094,8 +5179,9 @@ void drawHamClockClassic() {
   }
 
   int dateY = timeY + 84;
-  if (littleFsReady && LittleFS.exists(ROBOTO_FONT20_FILE) && ESP.getFreeHeap() > 80000) {
-    tft.loadFont(ROBOTO_FONT20_NAME, LittleFS);
+  const uint8_t *vlw20 = vlwFontCached(ROBOTO_FONT20_FILE);
+  if (vlw20) {
+    tft.loadFont(vlw20);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setCursor(max(10, (screenW - tft.textWidth(dateText)) / 2), dateY);
     tft.print(dateText);
@@ -5113,8 +5199,9 @@ void drawHamClockClassic() {
     String nameDayText = getPolishNameDay();
     if (nameDayText.length() > 0) {
       int nameDayY = dateY + 30;
-      if (littleFsReady && LittleFS.exists(ROBOTO_FONT12_FILE) && ESP.getFreeHeap() > 80000) {
-        tft.loadFont(ROBOTO_FONT12_NAME, LittleFS);
+      const uint8_t *vlw12 = vlwFontCached(ROBOTO_FONT12_FILE);
+      if (vlw12) {
+        tft.loadFont(vlw12);
         tft.setTextColor(TFT_RADIO_ORANGE, TFT_BLACK);
         tft.setCursor(max(10, (screenW - tft.textWidth(nameDayText)) / 2), nameDayY);
         tft.print(nameDayText);
@@ -5252,8 +5339,9 @@ static void hamClockModernDate() {
   }
 
   int dateY = 130 + 84;
-  if (littleFsReady && LittleFS.exists(ROBOTO_FONT20_FILE) && ESP.getFreeHeap() > 80000) {
-    tft.loadFont(ROBOTO_FONT20_NAME, LittleFS);
+  const uint8_t *vlw20 = vlwFontCached(ROBOTO_FONT20_FILE);
+  if (vlw20) {
+    tft.loadFont(vlw20);
     tft.setTextColor(HC_WHITE, HC_BG);
     tft.setCursor(max(10, (480 - tft.textWidth(dateText)) / 2), dateY);
     tft.print(dateText);
@@ -5272,8 +5360,9 @@ static void hamClockModernNameDay() {
   String nameDayText = getPolishNameDay();
   if (nameDayText.length() == 0) return;
   int nameDayY = 130 + 84 + 30;
-  if (littleFsReady && LittleFS.exists(ROBOTO_FONT12_FILE) && ESP.getFreeHeap() > 80000) {
-    tft.loadFont(ROBOTO_FONT12_NAME, LittleFS);
+  const uint8_t *vlw12 = vlwFontCached(ROBOTO_FONT12_FILE);
+  if (vlw12) {
+    tft.loadFont(vlw12);
     tft.setTextColor(HC_CYAN, HC_BG);
     tft.setCursor(max(10, (480 - tft.textWidth(nameDayText)) / 2), nameDayY);
     tft.print(nameDayText);
@@ -11974,8 +12063,9 @@ void drawWeatherBody() {
   bool fontLoaded = false;
   int descY = 105;
   int descX = 400; // PrzesuniÄ™te bardziej w prawo dla 480px
-  if (littleFsReady && LittleFS.exists(ROBOTO_FONT12_FILE) && ESP.getFreeHeap() > 80000) {
-    tft.loadFont(ROBOTO_FONT12_NAME, LittleFS);
+  const uint8_t *vlw12 = vlwFontCached(ROBOTO_FONT12_FILE);
+  if (vlw12) {
+    tft.loadFont(vlw12);
     fontLoaded = true;
     tft.setTextColor(TFT_LIGHTGREY);
     tft.setTextDatum(MC_DATUM);
