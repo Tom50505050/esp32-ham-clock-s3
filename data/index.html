@@ -726,6 +726,7 @@
                 <div class="form-group">
                     <label>Wybierz obraz:</label>
                     <input type="file" id="img-file" accept="image/png,image/jpeg,image/bmp,image/gif,image/webp">
+                    <small id="img-est" style="display:none;"></small>
                 </div>
                 <div class="form-group">
                     <label>Dopasowanie do 480×320:</label>
@@ -757,6 +758,7 @@
                 <div class="form-group" style="border-top:1px solid #2a3357;padding-top:12px;">
                     <label>Ekran powitalny — wgraj jako JPG / PNG / BMP (z możliwością konwersji):</label>
                     <input type="file" id="welcome-direct-file" accept=".png,.jpg,.jpeg,.bmp">
+                    <small id="welcome-direct-est" style="display:none;"></small>
                     <small>Zastępuje <b>ekran powitalny</b> (ekran z wersją i autorami programu) wgranym obrazem. Zalecane 480×320. Firmware dekoduje JPG (TJpg), PNG (pngle) i BMP.</small>
                     <div style="margin-top:8px;">
                         <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
@@ -901,6 +903,7 @@
                             <img id="wx-storm-preview" src="/wxicon_preview?type=storm" alt="" style="width:96px;height:96px;object-fit:contain;background:#000;border:1px solid #2a3357;">
                         </div>
                         <input type="file" id="wx-storm-file" accept="image/png,image/jpeg,image/bmp,image/gif,image/webp">
+                        <small id="wx-storm-est" style="display:none;"></small>
                         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
                             <button type="button" class="btn" id="wx-storm-btn" style="background:#4a6a4a;">⬆️ Wgraj ikonę burzy</button>
                             <button type="button" class="btn" id="wx-storm-reset" style="background:#6a4a4a;">↩️ Domyślna</button>
@@ -913,6 +916,7 @@
                             <img id="wx-wind-preview" src="/wxicon_preview?type=wind" alt="" style="width:96px;height:96px;object-fit:contain;background:#000;border:1px solid #2a3357;">
                         </div>
                         <input type="file" id="wx-wind-file" accept="image/png,image/jpeg,image/bmp,image/gif,image/webp">
+                        <small id="wx-wind-est" style="display:none;"></small>
                         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
                             <button type="button" class="btn" id="wx-wind-btn" style="background:#4a6a4a;">⬆️ Wgraj ikonę wiatru</button>
                             <button type="button" class="btn" id="wx-wind-reset" style="background:#6a4a4a;">↩️ Domyślna</button>
@@ -1510,6 +1514,7 @@
                         <tr><th><a href="https://aprst.pl" target="_blank" rel="noopener">aprst.pl</a></th><td>Polski serwis APRS - tracker i monitor aprs w czasie rzeczywistym w wykonaniu Artura SQ3A.</td></tr>
                         <tr><th><a href="https://sp3bob.altervista.org" target="_blank" rel="noopener">sp3bob.altervista.org</a></th><td>Strona Marcina SP3BOB &mdash; strona dla każdego pasjonata krótkofalerstwa.</td></tr>
                         <tr><th><a href="https://olgierd.github.io/coaxcalculator/" target="_blank" rel="noopener">olgierd.github.io/coaxcalculator</a></th><td>Kalkulator strat na popularnych kablach koncentrycznych &mdash; autorstwa Ogierda SQ3SWF.</td></tr>
+                        <tr><th><a href="https://sq5cba.pl/kalkulator-anten.html" target="_blank" rel="noopener">Jak daleko poleci Twój sygnał</a></th><td>Kalkulator zasięgu i propagacji dla krótkofalowców.</td></tr>
                         <tr><th><a href="https://ekalk.eu/index_pl.html" target="_blank" rel="noopener">ekalk.eu</a></th><td>Bezpłatne kalkulatory online dla elektroników i radioamatorów.</td></tr>
                     </tbody>
                 </table>
@@ -1608,6 +1613,69 @@
             return "Blad sieci - sprawdz polaczenie z urzadzeniem i sprobuj ponownie.";
         };
 
+        // Szacunkowy czas wgrywania grafiki na ESP32. Firmware zapisuje raw
+        // korpus do LittleFS w blokach (RAW_WRITE); realna przepustowosc zalezy
+        // od wi-fi, wiec zapamietujemy pomiary z poprzednich uploadow
+        // (kB/s) i korzystamy ze sredniej (fallback ~60 kB/s przy braku pomiaru).
+        const estStoreKey = "upSpeedKBs";
+        // Rozmiar wynikowego pliku 480x320 RGB565 BMP (16 bpp + naglowki) -
+        // tyle zawsze wysyla konwersja w przegladarce.
+        const EST_BMP565_480x320 = 960 * 320 + 66;
+        const getEstSpeed = () => {
+            try {
+                const v = localStorage.getItem(estStoreKey);
+                const n = v ? parseFloat(v) : NaN;
+                if (isFinite(n) && n > 5) return n;
+            } catch (e) { /* localStorage niedostepny */ }
+            return 60; // bezpieczny domysl. powolne wifi
+        };
+        // Nowy pomiar laczymy ze starym (50/50), zeby jeden wolny upload
+        // (np. przy slabszym wifi) nie zafalszowal kolejnych szacunkow.
+        const setEstSpeed = (kbPerSec) => {
+            const prev = getEstSpeed();
+            const blend = prev > 0 ? (prev + kbPerSec) / 2 : kbPerSec;
+            try { localStorage.setItem(estStoreKey, blend.toFixed(1)); } catch (e) {}
+        };
+        const fmtEstBytes = (n) => {
+            if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(2) + " MB";
+            if (n >= 1024) return (n / 1024).toFixed(0) + " KB";
+            return n + " B";
+        };
+        const fmtEstTime = (sec) => {
+            sec = Math.max(0, sec);
+            if (sec >= 60) return Math.floor(sec / 60) + " min " + Math.floor(sec % 60) + " s";
+            if (sec >= 10) return Math.round(sec) + " s";
+            return sec.toFixed(1) + " s";
+        };
+        // Aktualizuje znacznik <small> estymatorem na bazie rozmiaru pliku.
+        const updateEstimate = (elId, bytes) => {
+            const el = document.getElementById(elId);
+            if (!el) return;
+            if (!bytes || bytes <= 0) { el.style.display = 'none'; el.textContent = ''; return; }
+            const speed = getEstSpeed(); // kB/s
+            const sec = (bytes / 1024) / speed;
+            el.textContent = "Szacowany czas wgrywania: " + fmtEstTime(sec) +
+                " (" + fmtEstBytes(bytes) + " / " + speed.toFixed(0) + " kB/s)";
+            el.style.display = '';
+        };
+        // Pomiar rzeczywistej predkosci uploadu: mierzy czas fetch POST i
+        // zapisuje srednia do localStorage. Uzywa go kazdy upload grafiki.
+        const estMeasureUpload = async (url, blob, headers) => {
+            const started = Date.now();
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: headers,
+                body: blob
+            });
+            const kb = (blob.size || 0) / 1024;
+            const sec = (Date.now() - started) / 1000;
+            if (kb >= 20 && sec >= 0.2) { // male pliki daja niemiarodajny pomiar
+                const kbs = kb / sec;
+                if (isFinite(kbs) && kbs > 5 && kbs < 5000) setEstSpeed(kbs);
+            }
+            return resp;
+        };
+
         let splashUploadInit = false;
         const initSplashUpload = () => {
             if (splashUploadInit) return;
@@ -1661,14 +1729,11 @@
                 const convertOn = !convert || convert.checked;
                 btn.disabled = true;
                 const send = (blob, name) => {
-                    fetch('/upload_welcome', {
-                        method: 'POST',
-                        headers: {
+                    updateEstimate('welcome-direct-est', blob.size);
+                    estMeasureUpload('/upload_welcome', blob, {
                             'Content-Type': 'application/octet-stream',
                             'X-Filename': name
-                        },
-                        body: blob
-                    })
+                        })
                         .then(r => {
                             if (!r.ok) throw new Error('http ' + r.status);
                             status.textContent = "Wgrano. Zrestartuj urządzenie, aby zobaczyć nowy ekran powitalny.";
@@ -1692,6 +1757,19 @@
                     send(file, file.name);
                 }
             });
+            // Szacunek pokazywany od razu po wyborze pliku (przed kliknięciem),
+            // zalezny od tego, czy plik zostanie skonwertowany do BMP 480x320.
+            const estWelcome = () => {
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) { updateEstimate('welcome-direct-est', 0); return; }
+                const conv = document.getElementById('welcome-direct-convert');
+                const on = !conv || conv.checked;
+                const bytes = on ? EST_BMP565_480x320 : file.size;
+                updateEstimate('welcome-direct-est', bytes);
+            };
+            fileInput.addEventListener('change', estWelcome);
+            const convBox = document.getElementById('welcome-direct-convert');
+            if (convBox) convBox.addEventListener('change', estWelcome);
         };
 
         // ===== Konwersja grafiki JPG/PNG/BMP -> BMP 16-bit RGB565 (480x320) =====
@@ -1790,6 +1868,7 @@
             imgConvertedBlob = buildBmp565(rgba);
             const kb = (imgConvertedBlob.size / 1024).toFixed(1);
             status.textContent = "Gotowe: 480x320, 16-bit RGB565 BMP (" + kb + " KB). Mozesz wyslac na ESP32.";
+            updateEstimate('img-est', imgConvertedBlob.size);
         };
 
         const uploadConvertedImage = () => {
@@ -1803,15 +1882,11 @@
             // Surowe cialo (RAW) zamiast multipart - parser multipart w WebServer
             // gubi sie przy wiekszych plikach (reset polaczenia). Firmware czyta
             // korpus wg Content-Length w blokach.
-            fetch(url, {
-                method: 'POST',
-                headers: {
+            estMeasureUpload(url, imgConvertedBlob, {
                     'Content-Type': 'application/octet-stream',
                     'X-Filename': imgConvertedName,
                     'X-Upload-Target': target
-                },
-                body: imgConvertedBlob
-            })
+                })
                 .then(r => r.ok ? r.text() : Promise.reject(r.status))
                 .then(() => {
                     status.textContent = "OK - obraz zapisany na urzadzeniu.";
@@ -1841,6 +1916,9 @@
                 const file = fileInput.files && fileInput.files[0];
                 if (!file) return;
                 imgConvertedName = (file.name.replace(/\.[^.]+$/, '') || 'image') + '_480x320.bmp';
+                // Szacunek liczony dla wysylanego BMP 480x320 (rozmiar po konwersji),
+                // a nie dla rozmiaru pliku zrodlowego.
+                updateEstimate('img-est', EST_BMP565_480x320);
                 const url = URL.createObjectURL(file);
                 const im = new Image();
                 im.onload = () => {
@@ -1940,6 +2018,7 @@
         const wxUploadIcon = (type, fileInput, statusEl, btn) => {
             const file = fileInput && fileInput.files && fileInput.files[0];
             if (!file) { statusEl.textContent = "Wybierz plik obrazu."; return; }
+            const estId = (type === 'storm') ? 'wx-storm-est' : 'wx-wind-est';
             const url = URL.createObjectURL(file);
             const im = new Image();
             btn.disabled = true;
@@ -1960,15 +2039,12 @@
                 URL.revokeObjectURL(url);
                 const blob = buildBmp565(rgba, WX_ICON_W, WX_ICON_H);
                 const target = (type === 'storm') ? 'wxicon_storm' : 'wxicon_wind';
-                fetch('/upload_' + target, {
-                    method: 'POST',
-                    headers: {
+                updateEstimate(estId, blob.size);
+                estMeasureUpload('/upload_' + target, blob, {
                         'Content-Type': 'application/octet-stream',
                         'X-Filename': (file.name.replace(/\.[^.]+$/, '') || 'icon') + '_icon.bmp',
                         'X-Upload-Target': target
-                    },
-                    body: blob
-                })
+                    })
                     .then(r => r.json().then(j => r.ok ? j : Promise.reject(j.message || r.status)))
                     .then(() => { statusEl.textContent = "OK - ikona zapisana na urządzeniu."; wxRefreshPreviews(); })
                     .catch(e => { statusEl.textContent = "Błąd wysyłania: " + e; })
@@ -2003,12 +2079,14 @@
             wReset.addEventListener('click', () => wxResetIcon('wind', wStatus));
             sFile.addEventListener('change', () => {
                 const f = sFile.files && sFile.files[0];
+                updateEstimate('wx-storm-est', f ? EST_BMP565_480x320 : 0);
                 if (f) { const u = URL.createObjectURL(f); const im = new Image();
                     im.onload = () => { wxStormImg = im; wxRenderAlert(true, im); URL.revokeObjectURL(u); };
                     im.onerror = () => URL.revokeObjectURL(u); im.src = u; }
             });
             wFile.addEventListener('change', () => {
                 const f = wFile.files && wFile.files[0];
+                updateEstimate('wx-wind-est', f ? EST_BMP565_480x320 : 0);
                 if (f) { const u = URL.createObjectURL(f); const im = new Image();
                     im.onload = () => { wxWindImg = im; wxRenderAlert(false, im); URL.revokeObjectURL(u); };
                     im.onerror = () => URL.revokeObjectURL(u); im.src = u; }
@@ -4081,7 +4159,7 @@
                     const conn = document.getElementById('sys-conn');
                     const ip = document.getElementById('sys-ip-chip');
                     const heap = document.getElementById('sys-heap-chip');
-                    if (dot) dot.classList.add('online');
+                    if (dot) dot.classList.add('is-online');
                     if (conn) conn.textContent = 'online';
                     if (ip) ip.textContent = cfg.ip || '--';
                     if (heap) heap.textContent = cfg.heap ? (cfg.heap / 1024).toFixed(0) + ' KB' : '--';
@@ -4089,7 +4167,7 @@
                 .catch(() => {
                     const dot = document.getElementById('sys-dot');
                     const conn = document.getElementById('sys-conn');
-                    if (dot) dot.classList.remove('online');
+                    if (dot) dot.classList.remove('is-online');
                     if (conn) conn.textContent = 'offline';
                 });
         };

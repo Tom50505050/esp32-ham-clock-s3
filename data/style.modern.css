@@ -105,7 +105,7 @@ body {
     color: var(--bad);
 }
 
-.sys-dot.online { background: var(--good); color: var(--good); }
+.sys-dot.is-online { background: var(--good); color: var(--good); }
 
 /* ---------- Nawigacja ---------- */
 .nav {

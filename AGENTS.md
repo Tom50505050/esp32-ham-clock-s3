@@ -2,6 +2,33 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## WWW: szacowany czas wgrywania grafiki (02.11.2026)
+W zakładkach „Ekran TFT" i „ALERT" (oraz przy ekranie powitalnym) pod wyborem
+pliku pojawia się `<small id="...-est">` z szacowanym czasem uploadu.
+- Helpery w `<script>` (PL ~L1617, EN analogicznie): `estStoreKey="upSpeedKBs"`,
+  `getEstSpeed()` (domyślnie 60 kB/s), `setEstSpeed()`, `fmtEstBytes()`,
+  `fmtEstTime()`, `updateEstimate(id, bytes)`, `estMeasureUpload(url, blob, headers)`.
+- `estMeasureUpload()` mierzy realny czas `fetch` POST-a i zapisuje **średnią
+  kroczącą 50/50** w `localStorage`; pomiar jest ignorowany gdy plik < 20 kB
+  albo czas < 0,2 s (małe pliki dają niemiarodajny wynik).
+- Rozmiar brany do szacunku to **wynikowy BMP 480×320 RGB565**
+  (`EST_BMP565_480x320 = 960*320+66` B), a nie rozmiar pliku źródłowego —
+  konwersja i tak wysyła BMP.
+- `updateEstimate()` wołane przy wyborze pliku (listenery `change`) oraz przed
+  każdym POST-em. Identyfikatory: `img-est`, `welcome-direct-est`,
+  `wx-storm-est`, `wx-wind-est`.
+- Etykieta szacunku jest w całości w jednym literale („Szacowany czas wgrywania:
+  ” / „Estimated upload time: ” + „ / ” + „ kB/s”), żeby słownik
+  `tools/lang_pages.json` tłumaczył całość — nie składać tekstu z kawałków
+  tłumaczonych osobno.
+
+## gen_pages.py: nie używaj słów ze słownika jako tokenów klas CSS (02.11.2026)
+`tools/gen_pages.py` tłumaczy literały JS, więc `classList.add('online')` w EN
+stawało się w FR `classList.add('en ligne')` → `DOMTokenList` rzuca
+`InvalidCharacterError` i przerywa handler (pasek statusu nigdy nie pokazywał
+„online"). Token klasy zmieniono na `is-online` (CSS `.sys-dot.is-online`).
+Zasada: identyfikatory techniczne (klasy, id, klucze) muszą być nieprzetłumaczalne.
+
 ## Wątki i TFT: zawsze trzymaj `tftMutex` (13.10.2026)
 TFT_eSPI **nie jest bezpieczny wątkowo** (wspólna flaga `locked` + jeden mutex
 SPI). Po TFT rysują dwa zadania: `UI_Task` (rdzeń 1, prio 2) i `loopTask`
@@ -2750,9 +2777,17 @@ Pierwotny realny błąd: klucz NVS `tft_night_dim_auto` (17 znaków) > 15 → `n
 Dodane w firmware (wszystko na `main`, commit `ca6baf4` HEAD):
 - `[BL] STAN: ...` diagnostic po `loadPreferences()`; `[SS] WYGASZACZ/USYPIENIE` logi.
 - `backlightWatchdogLoop()` (co 1 s `applyEffectiveBacklight()`; log co 30 s `[BL] watchdog: ...`).
-- `tftPanelBrighten` (NVS `tft_panel_br`, domyślnie TRUE): rozjaśnienie ILI9488 przez podbitą gamę `E0/E1` + VCOM `C5`; funkcje `applyPanelBrightnessBoost()` / `initTFTGamma()` (fabryczna gamma). Checkbox `tft_panel_brighten` w WWW (6 języków, `tools/lang_pages.json`), `/api/save` działa na żywo.
+- `tftPanelBrighten` (NVS `tft_panel_br`, domyślnie **FALSE**): rozjaśnienie ILI9488 przez podbitą gamę `E0/E1` + VCOM `C5`; funkcje `applyPanelBrightnessBoost()` / `initTFTGamma()` (fabryczna gamma). Checkbox `tft_panel_brighten` w WWW (6 języków, `tools/lang_pages.json`), `/api/save` działa na żywo. **UWAGA (hotfix 02.11.2026):** wersje z ranka (ca6baf4/408dd8b) miały domyślne TRUE i zapisywały `tft_panel_br=true` do NVS; zmiana samego domyślnego nie czyści urządzeń. W `loadPreferences()` działa jednorazowa migracja: `if (tftPanelBrighten && !getBool("tft_pbr_mig")) { false + putBool + putBool("tft_pbr_mig", true) }`. W `setup()` przed boostem zawsze `initTFTGamma()` (deterministyczny boot). Logi: `[TFT] Gamma/VCOM: ...`, `[BL] STAN: ... gamma_boost=0/1`.
 - WWW caching: `streamLittleFsFile()` przyjmuje `maxAgeSec`; flaga/ikony/mapa 86400 s, preview uploadu no-cache.
 
 Build: 4 envy (esp32-s3-n16r8, -notouch, -altpins, -touchirq) OK. Artefakty: `dist/merged-flash{,-notouch}.bin`, `esp32-ham-clock-s3.zip`, duplikaty w `/workspace/share/`.
 Regeneracja języków: `python3 tools/gen_pages.py` (EN źródłem; tłumaczenia w `tools/lang_pages.json`).
 Pages: po push, status `built` (gh może wymagać `-H "Authorization: Bearer $GITHUB_TOKEN"`).
+
+## Widoczność AP (ESP32-HAM-CLOCK) po flashowaniu — naprawa 03.11.2026
+Użytkownik: „po wgraniu programu brak sieci wifi esp32-ham-clock na PC". Zmiany w `startAPMode()`:
+- **Przyczyna znaleziona w `WiFiGeneric.cpp`:** `WiFi.setTxPower()` wołane PRZED `WiFi.softAP()` zwraca false w ciszy („Neither AP or STA has been started") — czyli stary `11 dBm` nigdy nie był aplikowany, a AP startował z mocą domyślną. Mimo to kawałek podbijał do `19.5 dBm` — i robi to teraz **PO** `softAP()`, co faktycznie podnosi zasięg (beacony silniejsze → PC/laptop widzi sieć).
+- **Deterministyczny softAP:** `WiFi.softAPConfig(192.168.4.1/24)` + `WiFi.softAP(AP_SSID, AP_PASSWORD, 1, 0, 4)` (kanał 1, widoczny, max 4 klientów). Sprawdzany kod powrotny; w razie faila pełny `WiFi.mode(WIFI_OFF)` → `WIFI_AP` → ponowna proba.
+- Logi serial: `AP Mode: softAP() = OK/BLAD`, `AP Mode: tx power = 20 dBm`, `AP Mode uruchomiony`, `SSID:`.
+- Zasada: **pełna moc AP 19.5 dBm** jest bezpieczna (brownout detector wyłączony w setup, beacony nie ciągną wiele). Nie wracać do 11 dBm — to była główna przyczyna „niewidzialnej" sieci.
+- Jeśli po tym nadal nie ma AP na PC: użytkownik ma **zapisane dane STA w NVS** (NVS nie jest kasowane przez merged-flash!) i urządzenie łączy się z routerem domowym zamiast startować AP. Wtedy szukać po IP z sieci domowej (banner TFT pokazuje IP po połączeniu STA), ewentualnie zmienić SSID/hasło w WWW (sekcja WIFI) na puste – wtedy po zapisie i resecie wróci portal AP.

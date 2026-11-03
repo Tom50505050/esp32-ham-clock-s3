@@ -3087,6 +3087,13 @@ void applyTftInversion() {
 // startupowa TFT_eSPI (ILI9488_Init.h).
 void initTFTGamma() {
   if (!tftInitialized) return;
+  // MAKSYMALNY KONTRAST BIELI (02.11.2026).
+  // Krzywa pozostaje FABRYCZNA - to najjasniejszy mozliwy punkt bieli: ostatni
+  // rejestr E0/E1 = 0x0F (pelna amplituda bieli), pierwszy = 0x00 (czerń).
+  // Jakiekolwiek podbicie rejestrow mid/high (jak w applyPanelBrightnessBoost)
+  // i VCOM (0x14/0x18) unosi szarosc i PSULO kontrast bialych liter - sprawdzone
+  // w commicie 8cc2c4c. Dla maksymalnego kontrastu: czysta biel (0x0F) na
+  // najglebszej czerni, VCOM fabryczny 0x12.
   static const uint8_t gamP[] = {0x00,0x03,0x09,0x08,0x16,0x0A,0x3F,0x78,0x4C,0x09,0x0A,0x08,0x16,0x1A,0x0F};
   static const uint8_t gamN[] = {0x00,0x16,0x19,0x03,0x0F,0x05,0x32,0x45,0x46,0x04,0x0E,0x0D,0x35,0x37,0x0F};
   tft.writecommand(0xE0);
@@ -3097,7 +3104,7 @@ void initTFTGamma() {
   tft.writedata(0x00);
   tft.writedata(0x12);
   tft.writedata(0x80);
-  Serial.println("[TFT] Fabryczna gamma/VCOM przywrocona");
+  Serial.println("[TFT] Gamma/VCOM fabryczna = MAKSYMALNY KONTRAST BIELI (czysta biel, gleboka czern)");
 }
 
 void applyPanelBrightnessBoost() {
@@ -20324,8 +20331,28 @@ void startAPMode() {
   // Stabilny portal konfiguracyjny: sam AP (bez STA w tle),
   // Ă„Ä…Ă„Ëťeby nie gubiÄ‚â€žĂ˘â‚¬Ë‡ poĂ„Ä…Ă˘â‚¬ĹˇÄ‚â€žĂ˘â‚¬Â¦czenia na telefonie/PC przy zmianie kanaĂ„Ä…Ă˘â‚¬Ĺˇu przez STA.
   WiFi.mode(WIFI_AP);
-  WiFi.setTxPower(WIFI_POWER_11dBm); // ogranicz prad WiFi - mniejsze ryzyko brownout/resetow
-  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  // Stala siec: 192.168.4.1, kanal 1 (domyslny), SSID widoczny (hidden=0).
+  WiFi.softAPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
+  bool apOk = WiFi.softAP(AP_SSID, AP_PASSWORD, 1, 0, 4);
+  Serial.printf("AP Mode: softAP() = %s\n", apOk ? "OK" : "BLAD");
+  if (!apOk) {
+    // Druga proba (np. po wczesniejszym STA z wlaczonym radiem) - czysty stan.
+    WiFi.mode(WIFI_OFF);
+    delay(100);
+    WiFi.mode(WIFI_AP);
+    apOk = WiFi.softAP(AP_SSID, AP_PASSWORD, 1, 0, 4);
+    Serial.printf("AP Mode (ponowna proba): %s\n", apOk ? "OK" : "BLAD");
+  }
+  if (apOk) {
+    // MAKSYMALNA MOC AP (19.5 dBm). UWAGA: setTxPower trzeba wywolac DUZO
+    // PO softAP() - przed startem AP zwraca false bez efektu (WiFiGeneric.cpp).
+    // Wczesniejsze "11 dBm" (oszczedzanie pradu) drastycznie skracalo zasieg,
+    // przez co PC/laptop w drugim pokoju nie "widzial" sieci ESP32-HAM-CLOCK.
+    // Detektor brownoutu jest wylaczony w setup(); beacony AP nie ciagna duzo
+    // pradu, wiec pelna moc jest bezpieczna dla zasilania.
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    Serial.printf("AP Mode: tx power = %d dBm\n", (int)WiFi.getTxPower());
+  }
   Serial.println("AP Mode uruchomiony");
   Serial.print("SSID: ");
   Serial.println(AP_SSID);
@@ -23235,6 +23262,18 @@ void loadPreferences() {
   // ciemniejsze). Fabryczna krzywa daje najczystszy, najjasniejszy bialy
   // tekst. Opcja pozostaje w WWW na zyczenie uzytkownika.
   tftPanelBrighten = preferences->getBool("tft_panel_br", false);
+  // Migracja v1.2d-po-poludniu: wersje z 02.11.2026 (ca6baf4/408dd8b) mialy
+  // "rozjasnienie panelu" domyslnie WLACZONE i zapisywaly tft_panel_br=true do NVS.
+  // Pozniejsza zmiana domyslnej wartosci nie czysci istniejacych urzadzen -
+  // stale true podbijalo gamme/VCOM, przez co biale litery/cyfry wygladaly
+  // CIEMNIEJ. Czyscimy ten klucz RAZ (fabryczna krzywa = najjasniejszy bialy,
+  // zgodnie z v1.2c). Uzytkownik moze jawnie wrocic do opcji z WWW.
+  if (tftPanelBrighten && !preferences->getBool("tft_pbr_mig", false)) {
+    tftPanelBrighten = false;
+    preferences->putBool("tft_panel_br", false);
+    preferences->putBool("tft_pbr_mig", true);
+    Serial.println("[TFT] Migracja: wylaczone stale rozjasnienie panelu (gamma/VCOM) z NVS");
+  }
   // Domyślna inwersja OFF: panel uzytkownika dzialal z OFF (log 08:07 -> 0x20),
   // a TFT_INVERSION_ON w tft_setup.h wlaczal ja po czystym flash, przez co biale
   // tlo bootu robilo sie CZARNE (ciemnienie liter). Startuj zawsze z OFF;
@@ -23455,9 +23494,10 @@ void loadPreferences() {
   // Diagnostyka auto-ściemniania (02.11.2026): pokazuje na starcie co by mogło
   // gasić ekran, gdy użytkownik zgłasza "ekran sam się ściemnia".
 #ifdef ENABLE_TFT_DISPLAY
-  Serial.printf("[BL] STAN: baza=%d%%, nocne=%d%%, auto=%d, night=%d, wygaszacz=%d, usypianie=%d\n",
+  Serial.printf("[BL] STAN: baza=%d%%, nocne=%d%%, auto=%d, night=%d, wygaszacz=%d, usypianie=%d, gamma_boost=%d\n",
                 backlightPercent, tftNightDimmingPercent, tftNightDimmingAuto ? 1 : 0,
-                tftIsNightTime() ? 1 : 0, screenSaverEnabled ? 1 : 0, screenSleepEnabled ? 1 : 0);
+                tftIsNightTime() ? 1 : 0, screenSaverEnabled ? 1 : 0, screenSleepEnabled ? 1 : 0,
+                tftPanelBrighten ? 1 : 0);
 #endif
 }
 
@@ -31114,6 +31154,12 @@ void setup() {
   applyEffectiveBacklight();  // Zastosuj też ręczne ściemnianie z NVS (02.11.2026)
   // Rozjasnienie gamma/VCOM - TUTAJ, PO loadPreferences(), bo tftPanelBrighten
   // jest czytany z NVS dopiero w loadPreferences() (initTFT() jest wczesniej).
+  // ZAWSZE przywroc najpierw fabryczna krzywa gamy/VCOM, zeby zadna sekwencja
+  // nie zostawila podbitej gamy z poprzedniego porzuconego stanu (np. stary
+  // tftPanelBrighten w NVS); boost tylko gdy uzytkownik jawnie wlaczyl opcje.
+  initTFTGamma();
+  Serial.printf("[TFT] Gamma/VCOM: %s (fabryczna krzywa = najjasniejszy bialy)\n",
+                tftPanelBrighten ? "rozjasnienie panelu AKTYWNE (WWW/opcja)" : "fabryczna (domyslnie)");
   if (tftPanelBrighten) {
     applyPanelBrightnessBoost();
   }

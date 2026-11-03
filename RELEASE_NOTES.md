@@ -13,6 +13,58 @@ Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b**, **v1.2c** i **v1.2d** 
 
 ---
 
+# ESP32-HAM-CLOCK v1.2d (hotfix 02.11.2026) — naprawa ściemniania białych liter
+
+Poprawka wydania **v1.2d** (02.11.2026) usuwająca ponowne ściemnianie białych
+liter/cyfr po aktualizacjach z dnia 02.11.2026. Objawy zgłoszone przez użytkownika:
+„dalej ściemnianie białego koloru… sprawdź czy inne kolory też się ściemniają…
+w wersji v1.2c nie było takiego czegoś i we wczesnych wersjach v1.2d".
+
+## Przyczyna
+- Rankiem 02.11.2026 dodano opcję „ROZJAŚNIJ PANEL (GAMMA)" — podbicie krzywej
+  gamma `E0/E1` i VCOM `C5` panelu ILI9488 (NVS `tft_panel_br`), **domyślnie
+  włączoną**. Jak wykazały testy (commit `8cc2c4c`), podbijanie **VCOM** unosi
+  poziom czerni, a zmiana gamma zmienia ton/poziom bieli — w efekcie **białe
+  litery/cyfry wyglądały ciemniej**, a inne kolory były przesunięte.
+- Poprawka `8cc2c4c` zmieniła **domyślną** wartość opcji na OFF, ale nie
+  wyczyściła **istniejących** urządzeń: klucz `tft_panel_br=true` zapisany w NVS
+  przez wcześniejsze wersje nadal włączał rozjaśnienie po każdym resecie.
+- Naprawa `6b5ca6f` dotyczyła tylko drugiej przyczyny (ściemnianie PWM w trybie
+  nocnym działało także przy ręcznej jasności), a ta nadal występowała.
+
+## Rozwiązanie
+- **Migracja NVS (jednorazowa):** jeśli w urządzeniu został `tft_panel_br=true`
+  bez jawnej zgody użytkownika, firmware przy najbliższym starcie **wyłącza**
+  rozjaśnienie i zapisuje znacznik `tft_pbr_mig`. Opcja pozostaje dostępna w WWW
+  jako świadome włączenie.
+- **Deterministyczna sekwencja bootu:** przed ewentualnym boostem gamma/VCOM
+  zawsze przywracana jest **fabryczna krzywa** (`initTFTGamma()`), więc żadna
+  niezaliczona sekwencja nie zostawia podbitej gamy.
+- **Test innych kolorów:** PWM podświetlenia ściemnia **wszystkie** kolory
+  równomiernie; gamma/VCOM przesuwa przede wszystkim biel i mid-tony. Po fixie
+  w trybie domyślnym oba mechanizmy są nieaktywne — identycznie jak w v1.2c.
+- **Diagnostyka w logu:** `[TFT] Gamma/VCOM: ...` oraz `[BL] STAN: ... gamma_boost=0/1`
+  jednoznacznie pokazują stan po starcie.
+
+Ponowna kompilacja całego projektu (4 środowiska), scalone obrazy
+`dist/merged-flash{,-notouch}.bin` i pakiet ZIP przebudowane.
+
+### Poprawka widoczności AP (ESP32-HAM-CLOCK) po flashowaniu
+Użytkownik zgłosił: „po wgraniu programu brak sieci wifi esp32-ham-clock na PC".
+- **`WiFi.setTxPower()` przed `WiFi.softAP()` nie robi nic** (zwraca false w ciszy —
+  „Neither AP or STA has been started", `WiFiGeneric.cpp`). Moc AP jest teraz
+  ustawiana **PO** starcie softAP na maksymalne **19.5 dBm** — beacony są silniejsze,
+  a PC/laptop (nawet kilka metrów dalej) widzi sieć.
+- Deterministyczna konfiguracja: `WiFi.softAPConfig(192.168.4.1/24)` +
+  `WiFi.softAP(AP_SSID, AP_PASSWORD, 1, 0, 4)` — kanał 1, SSID widoczny,
+  maks. 4 klientów, sprawdzany kod powrotny z ponowną próbą po `WIFI_OFF`.
+- Logi serial: `AP Mode: softAP() = OK/BLAD`, `AP Mode: tx power = 20 dBm`.
+- Uwaga: jeśli urządzenie ma zapisane dane STA w NVS, łączy się z routerem
+  domowym i NIE startuje AP — to normalne. Portal AP wróci po wpisaniu pustego
+  SSID w WWW (sekcja WIFI) i resecie.
+
+---
+
 # ESP32-HAM-CLOCK v1.2d — czcionki zegara, alert pogodowy i migotanie
 
 Wydanie **v1.2d** (23.10.2026) dla platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB

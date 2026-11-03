@@ -590,7 +590,10 @@
     "AUTO-DIMMING EVENING": "AUTO-DIMMUNG ABENDS",
     "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Aktiviert: Die Helligkeit wird automatisch am Abend/Nacht verringert (lokale Zeit + OWM-Daten) und kehrt tagsüber zur vollen Helligkeit zurück. Deaktiviert: Der Schieberegler oben wirkt als konstante manuelle Abdunklung.",
     "BRIGHTEN PANEL (GAMMA)": "PANEL AUFHELLEN (GAMMA)",
-    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Erhöht die wahrgenommene Bildschirmhelligkeit (Mitte der Gammakurve + VCOM). Fasst die Hintergrundbeleuchtung nicht an – hilfreich bei dunklen Designs."
+    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Erhöht die wahrgenommene Bildschirmhelligkeit (Mitte der Gammakurve + VCOM). Fasst die Hintergrundbeleuchtung nicht an – hilfreich bei dunklen Designs.",
+    "How far will your signal reach?": "Wie weit reicht Ihr Signal?",
+    "Range and propagation calculator for ham radio operators.": "Reichweiten- und Ausbreitungsrechner für Funkamateure.",
+    "Estimated upload time: ": "Geschätzte Upload-Zeit: "
   },
   "es": {
     " (storm) and": " (tormenta) y",
@@ -1184,7 +1187,10 @@
     "AUTO-DIMMING EVENING": "ATENUACION AUTOMATICA NOCTURNA",
     "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Marcado: el brillo disminuye automáticamente por la tarde/noche (hora local + datos OWM) y vuelve al máximo durante el día. Desmarcado: el control deslizante de arriba actúa como atenuación manual constante.",
     "BRIGHTEN PANEL (GAMMA)": "ACLARAR PANEL (GAMMA)",
-    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Aumenta el brillo percibido de la pantalla (medio de la curva gamma + VCOM). No toca la retroiluminación: útil con temas oscuros."
+    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Aumenta el brillo percibido de la pantalla (medio de la curva gamma + VCOM). No toca la retroiluminación: útil con temas oscuros.",
+    "How far will your signal reach?": "¿Hasta dónde llegará tu señal?",
+    "Range and propagation calculator for ham radio operators.": "Calculadora de alcance y propagación para radioaficionados.",
+    "Estimated upload time: ": "Tiempo de carga estimado: "
   },
   "fr": {
     " (storm) and": " (orage) et",
@@ -1779,7 +1785,10 @@
     "AUTO-DIMMING EVENING": "DIMMING AUTO LE SOIR",
     "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Coché : la luminosité diminue automatiquement le soir/nuit (heure locale + données OWM) et revient au maximum la journée. Décoché : le curseur ci-dessus agit comme un assombrissement manuel constant.",
     "BRIGHTEN PANEL (GAMMA)": "ÉCLAIRCIR LE PANNEAU (GAMMA)",
-    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Augmente la luminosité perçue de l’écran (milieu de la courbe gamma + VCOM). N’affecte pas le rétroéclairage – utile avec les thèmes sombres."
+    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Augmente la luminosité perçue de l’écran (milieu de la courbe gamma + VCOM). N’affecte pas le rétroéclairage – utile avec les thèmes sombres.",
+    "How far will your signal reach?": "Jusqu'où votre signal ira-t-il ?",
+    "Range and propagation calculator for ham radio operators.": "Calculateur de portée et de propagation pour radioamateurs.",
+    "Estimated upload time: ": "Temps d'envoi estimé : "
   },
   "ru": {
     " (storm) and": " (гроза) и",
@@ -2372,6 +2381,9 @@
     "AUTO-DIMMING EVENING": "АВТО-ЗАТЕМНЕНИЕ ВЕЧЕРОМ",
     "Checked: brightness decreases automatically in the evening/night (local time + OWM data) and returns to full during day. Unchecked: the slider above works as a constant manual dimming.": "Отмечено: яркость снижается автоматически вечером/ночью (локальное время + данные OWM) и возвращается к полной днём. Снято: ползунок выше работает как постоянное ручное затемнение.",
     "BRIGHTEN PANEL (GAMMA)": "УВЕЛИЧИТЬ ЯРКОСТЬ ПАНЕЛИ (ГАММА)",
-    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Повышает воспринимаемую яркость экрана (середина гамма-кривой + VCOM). Не влияет на подсветку — помогает в тёмных темах."
+    "Raises the perceived screen brightness (middle of gamma curve + VCOM). Does not touch backlight — helps with dark themes.": "Повышает воспринимаемую яркость экрана (середина гамма-кривой + VCOM). Не влияет на подсветку — помогает в тёмных темах.",
+    "How far will your signal reach?": "Как далеко уйдёт ваш сигнал?",
+    "Range and propagation calculator for ham radio operators.": "Калькулятор дальности и распространения для радиолюбителей.",
+    "Estimated upload time: ": "Примерное время загрузки: "
   }
 }
