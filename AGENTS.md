@@ -2,6 +2,23 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Backlight: boot ZAWSZE 100% + mijanie (03.11.2026)
+Zgłoszenia „ściemnienie czcionki przy wgrywaniu w okolicy LittleFS" oraz
+„czcionka jak na samym początku na wszystkich ekranach".
+- **Nie wołaj `setBacklightPercent(backlightPercent)` / `applyEffectiveBacklight()`
+  w środku bootu (przed końcem `bootSequenceActive`).** W v1.2d-hotfix ta para
+  po `loadPreferences()` ustawiała NVS-ową jasność (np. 70%), a `setBacklightPercentRaw(100)`
+  zaraz potem wracała do 100% → widoczne „mignięcie" w okolicy ładowania
+  konfiguracji. Boot przechodzi w 100% od `initTFT()` do `bootSequenceActive=false`.
+- **Migracja NVS**: `tft_backlight` starszych zapisów może być <100 (suwak
+  jasności). `loadPreferences()` jednorazowo (klucz `tft_bl_mig`) wraca do
+  `TFT_BACKLIGHT` (100), żeby ekrany po starcie były tak jasne jak boot log.
+- Podczas LittleFS mount/listing (`setup()`) wymuszaj `setBacklightPercentRaw(effectiveBacklightPercent())`
+  PO operacjach flasha (skoki poboru prądu mogą przejściowo przygasić PWM przy
+  zasilaniu bateryjnym); wartość przed `loadPreferences()` = 100 (default).
+- `effectiveBacklightPercent()` obniża tylko gdy `tftNightDimmingPercent>0 &&
+  tftNightDimmingAuto && tftIsNightTime()` — suwak bez auto nie sciemnia stale.
+
 ## WWW: szacowany czas wgrywania grafiki (02.11.2026)
 W zakładkach „Ekran TFT" i „ALERT" (oraz przy ekranie powitalnym) pod wyborem
 pliku pojawia się `<small id="...-est">` z szacowanym czasem uploadu.

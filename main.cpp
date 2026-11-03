@@ -23248,6 +23248,19 @@ void loadPreferences() {
   backlightPercent = preferences->getInt("tft_backlight", TFT_BACKLIGHT);
   if (backlightPercent < MIN_BACKLIGHT_PERCENT) backlightPercent = MIN_BACKLIGHT_PERCENT;
   if (backlightPercent > 100) backlightPercent = 100;
+  // Migracja jasnosci (03.11.2026): czcionka ma byc tak jasna jak na samym
+  // poczatku bootu (100%) na WSZYSTKICH ekranach. Wczesniejsze wersje mogly
+  // zapisac nizsze tft_backlight (suwak), przez co po starcie boot log byl
+  // jasny (PWM 100%), a kazdy ekran zegara juz sciemniony (PWM np. 70-80%).
+  // Jednorazowo wracamy do 100% - uzytkownik moze jawnie obnizyc jasnosc
+  // suwakiem w menu TFT / WWW.
+  if (backlightPercent < TFT_BACKLIGHT && !preferences->getBool("tft_bl_mig", false)) {
+    backlightPercent = TFT_BACKLIGHT;
+    preferences->putInt("tft_backlight", backlightPercent);
+    preferences->putBool("tft_bl_mig", true);
+    Serial.printf("[BL] Migracja: tft_backlight przywrocone do %d%% (jasna czcionka na wszystkich ekranach)\n",
+                  TFT_BACKLIGHT);
+  }
   // Ściemnianie jasności (02.11.2026): suwak = poziom (0-100%); tftNightDimmingAuto
   // decyduje, czy ma się włączać automatycznie wieczorem (true), czy działać stale
   // ręcznie (false). Wartości wczytywane z NVS, zapisywane na starcie ustawień.
@@ -31150,8 +31163,14 @@ void setup() {
 #ifdef ENABLE_TFT_DISPLAY
   applyTftRotation();
   applyTouchRotation();
-  setBacklightPercent(backlightPercent);
-  applyEffectiveBacklight();  // Zastosuj też ręczne ściemnianie z NVS (02.11.2026)
+  // Podswietlenie na czas bootu: ZAWSZE 100% (biale litery na czarnym tle jak
+  // na samym poczatku). Nie aplikujemy tu jasnosci z NVS - obnizenie (suwak /
+  // nocne auto) wejdzie dopiero na koniec bootu, zeby wokol ladowania LittleFS
+  // / konfiguracji (odczyty flasha i skoki poboru pradu) nie bylo zadnego
+  // przygaszenia czcionki. W v1.2c ten blok ustawial tylko setUpLightPercent
+  // i boot konczyl tak samo; sztuczne "setBacklightPercent+applyEffective
+  // backlight" w srodku bootu powodowalo chwilowy spadek PWM, a potem skok do
+  // 100% (widoczne migniecie sciemnienia przy LittleFS).
   // Rozjasnienie gamma/VCOM - TUTAJ, PO loadPreferences(), bo tftPanelBrighten
   // jest czytany z NVS dopiero w loadPreferences() (initTFT() jest wczesniej).
   // ZAWSZE przywroc najpierw fabryczna krzywa gamy/VCOM, zeby zadna sekwencja
@@ -31163,8 +31182,6 @@ void setup() {
   if (tftPanelBrighten) {
     applyPanelBrightnessBoost();
   }
-  // Podswietlenie na czas bootu: zawsze pelne, zeby boot log mial biale litery
-  // na czarnym tle. Wlaczone sciemnianie nocne wchodzi dopiero po starcie.
   setBacklightPercentRaw(100);
   Serial.printf("[BL] Boot: PWM 100%% (baza=%d%%, nocne=%d%%, auto=%d, efekt po starcie=%d%%)\n",
                 backlightPercent, tftNightDimmingPercent, tftNightDimmingAuto ? 1 : 0,

@@ -65,6 +65,43 @@ Użytkownik zgłosił: „po wgraniu programu brak sieci wifi esp32-ham-clock na
 
 ---
 
+# ESP32-HAM-CLOCK v1.2d (hotfix 03.11.2026) — stałe jasna czcionka na wszystkich ekranach
+
+Kolejna poprawka po zgłoszeniach: „dalej ściemnienie czcionki przy wgrywaniu
+w miejscu około ładowania LittleFS" oraz „ustaw czcionkę jak na samym początku
+na wszystkich ekranach".
+
+## Przyczyna
+Podczas bootu istniał **chwilowy spadek PWM podświetlenia po `loadPreferences()`**:
+- sekwencja `setBacklightPercent(backlightPercent)` + `applyEffectiveBacklight()`
+  ustawiała jasność z NVS **w środku bootu**, po czym za chwilę
+  `setBacklightPercentRaw(100)` wracała do 100% — widoczne „mignięcie"
+  przygaszenia dokładnie w okolicy ładowania LittleFS/konfiguracji;
+- po zakończeniu bootu `applyEffectiveBacklight()` ponownie obniżała PWM do
+  wartości z NVS (jeśli `tft_backlight` był zapisany np. 70-80%) — boot log był
+  jasny (100%), a **każdy ekran po starcie ciemniejszy**.
+
+W v1.2c ten blok ustawiał tylko `setBacklightPercent(backlightPercent)` raz
+i boot kończył na tej samej jasności — brakowało efektu „jasny start, ciemny
+ekran".
+
+## Rozwiązanie
+- **Boot ZAWSZE na 100%:** usunięto `setBacklightPercent(backlightPercent)` +
+  `applyEffectiveBacklight()` ze środka bootu; podświetlenie jest wymuszane na
+  100% od `initTFT()` aż do samego końca bootu.
+- **Jednorazowa migracja NVS `tft_backlight → 100%`** (klucz `tft_bl_mig`):
+  jeśli starsza wersja zapisała niższą wartość (suwak jasności), firmware przy
+  najbliższym starcie wraca do 100% — czcionka tak jasna jak na początku bootu
+  na **wszystkich** ekranach. Suwakiem (menu TFT / WWW) użytkownik może jawnie
+  obniżyć jasność.
+- Docelowa jasność (nocne auto-przyciemnianie) działa jak wcześniej — tylko przy
+  jawnie włączonym `tft_dim_auto` i w nocy.
+
+Przebudowane artefakty: `dist/merged-flash{,-notouch}.bin`, `download/`,
+`/workspace/share/` (zip + firmware + strona flash).
+
+---
+
 # ESP32-HAM-CLOCK v1.2d — czcionki zegara, alert pogodowy i migotanie
 
 Wydanie **v1.2d** (23.10.2026) dla platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB
