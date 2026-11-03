@@ -1489,7 +1489,7 @@ ScreenType brightnessMenuPrevScreen = SCREEN_HAM_CLOCK;
 bool brightnessMenuPrevInMenu = false;
 uint8_t brightnessMenuPrevThemeHue = DEFAULT_MENU_THEME_HUE;
 int brightnessMenuPrevBacklight = TFT_BACKLIGHT;
-uint16_t brightnessMenuPrevClockColor = 0xFFE0;
+uint16_t brightnessMenuPrevClockColor = 0xFFFF;
 unsigned long brightnessMenuOpenedMs = 0;
 unsigned long brightnessMenuTouchStartMs = 0;
 bool brightnessMenuLongPressHandled = false;
@@ -2250,9 +2250,10 @@ String n2yoApiKey = "";
 String openWebRxUrl = DEFAULT_OPENWEBRX_URL;
 uint16_t callsignColor = 65535; // Default white (0xFFFF)
 // Kolor cyfr zegara (duzy zegar cyfrowy na ekranie HAM CLOCK, styl nowoczesny).
-// Domyslnie zolty (HC_YELLOW) - jak wczesniej. Zmiana: menu jasnosci (suwak
-// "KOLOR ZEGARA"), WWW (Twoja Stacja) albo dlugie przytrzymanie zegara.
-uint16_t clockDigitsColor = 0xFFE0; // Default yellow (0xFFE0)
+// Domyslnie bialy (0xFFFF) - jak czcionka na poczatku bootu. Zmiana: menu
+// jasnosci (suwak "KOLOR ZEGARA"), WWW (Twoja Stacja) albo dlugie przytrzymanie
+// zegara.
+uint16_t clockDigitsColor = 0xFFFF; // Default white (0xFFFF) - jak czcionka na poczatku bootu
 
 // Wybor czcionki znaku i duzego zegara (menu czasu, ekran HAM CLOCK).
 // 0 = wbudowana czcionka TFT_eSPI (bez pliku), 1..CLOCK_FONT_COUNT = pliki
@@ -2288,7 +2289,7 @@ bool clockColorMenuActive = false;
 int clockColorMenuHue = 0;    // 0..255
 int clockColorMenuSat = 100;  // 0..100 (%)
 int clockColorMenuVal = 100;  // 0..100 (%)
-uint16_t clockColorMenuPrev = 0xFFE0;
+uint16_t clockColorMenuPrev = 0xFFFF;
 ScreenType clockColorMenuPrevScreen = SCREEN_HAM_CLOCK;
 bool clockColorMenuPrevInMenu = false;
 unsigned long clockColorMenuOpenedMs = 0;
@@ -8592,7 +8593,7 @@ void drawHamClockTimeMenu() {
   tft.print(sanitizePolishToAscii(String(tr(TR_CLOCK_FONT))));
   clockFontPreviewBand(150, 146, 326, 62, "SP5ABC", "12:00",
                        callsignColor ? callsignColor : 0xFFFF,
-                       clockDigitsColor ? clockDigitsColor : 0xFFE0);
+                       clockDigitsColor ? clockDigitsColor : 0xFFFF);
   const int ftW = 90, ftH = 20, fgx = 4, fgy = 3;
   const int fStartX = (480 - (5 * ftW + 4 * fgx)) / 2;
   const int fStartY = 214;
@@ -9553,7 +9554,7 @@ void handleClockColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     return;
   }
   if (isPointInRect(x, y, defX, btnY, btnW, btnH)) {
-    clockDigitsColor = 0xFFE0;  // domyslny zolty
+    clockDigitsColor = 0xFFFF;  // domyslny bialy (jak czcionka na poczatku bootu)
     clockColorMenuHue = 42;
     clockColorMenuSat = 100;
     clockColorMenuVal = 100;
@@ -23308,8 +23309,24 @@ void loadPreferences() {
   callsignColor = preferences->getUInt("callsign_color", 65535); // Default white (0xFFFF)
   // NVS nieustawione/0 daje czarny znak (niewidoczny na czarnym tle). Wymus biel.
   if (callsignColor == 0) callsignColor = 65535;
-  clockDigitsColor = preferences->getUInt("clock_color", 0xFFE0); // Default yellow
-  if (clockDigitsColor == 0) clockDigitsColor = 0xFFE0;  // czarny = niewidoczny
+  clockDigitsColor = preferences->getUInt("clock_color", 0xFFFF); // Default white
+  if (clockDigitsColor == 0) clockDigitsColor = 0xFFFF;  // czarny = niewidoczny -> bialy
+  // Migracja koloru czcionki (03.11.2026): czcionka na WSZYSTKICH ekranach ma
+  // byc tak jasna jak na samym poczatku bootu (bialy tekst na czarnym tle).
+  // Wideo od uzytkownika pokazalo, ze cyfry zegara i znak mogly byc zapisane
+  // w NVS jako cyjan/ciemny kolor (clock_color/callsign_color = 0x07FF itd.),
+  // co wyglada jak "sciemniona czcionka" mimo PWM 100%. Jednorazowo wracamy do
+  // bieli - uzytkownik moze jawnie zmienic kolory w menu TFT / WWW.
+  if (!preferences->getBool("tft_clr_mig", false)) {
+    if (callsignColor != 65535 || clockDigitsColor != 0xFFFF) {
+      callsignColor = 65535;
+      clockDigitsColor = 0xFFFF;
+      preferences->putUInt("callsign_color", callsignColor);
+      preferences->putUInt("clock_color", clockDigitsColor);
+      Serial.printf("[BL] Migracja: czcionka zegara i znak przywrocone do bieli (0xFFFF) - jak na poczatku bootu\n");
+    }
+    preferences->putBool("tft_clr_mig", true);
+  }
   clockFontIndex = (uint8_t)preferences->getInt("clock_font", 0);
   if (clockFontIndex > CLOCK_FONT_COUNT) clockFontIndex = 0;
   touchXMin = preferences->getInt("touch_xmin", TOUCH_X_MIN);
@@ -25437,7 +25454,7 @@ void setupWebServer() {
       }
       if (doc["clock_color"].is<int>()) {
         clockDigitsColor = doc["clock_color"].as<int>();
-        if (clockDigitsColor == 0) clockDigitsColor = 0xFFE0;  // 0 = czarny -> zolty
+        if (clockDigitsColor == 0) clockDigitsColor = 0xFFFF;  // 0 = czarny -> bialy
       }
       if (doc["clock_font"].is<int>()) {
         clockFontIndex = (uint8_t)doc["clock_font"].as<int>();

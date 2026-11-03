@@ -100,6 +100,27 @@ ekran".
 Przebudowane artefakty: `dist/merged-flash{,-notouch}.bin`, `download/`,
 `/workspace/share/` (zip + firmware + strona flash).
 
+### Analiza filmu użytkownika (beta_video.mp4) i migracja koloru czcionki
+- Po zgłoszeniu „dalej ściemnienie czcionki przy wgrywaniu w miejscu około
+  ładowania LittleFS" przeanalizowano klatka po klatce film `beta_video.mp4`
+  (330 klatek / 10 fps + okno LittleFS w 30 fps + OCR całej sekwencji bootu).
+- **W filmie brak przygaszenia podświetlenia w okolicy LittleFS**: PWM = 100%,
+  biały tekst ~250/255, stabilny przez cały boot (LittleFS mount → `LittleFS ready`
+  → WiFi → splash ≤ 0,5 s). ~13 s „czekania" na boot logu to **skan/łączenie WiFi**,
+  nie LittleFS.
+- Jedyny widocznie „ciemniejszy od białej czcionki" font w filmie to **cyjanowe
+  cyfry dużego zegara i znak** na ekranie HAM CLOCK (`clock_color`/`callsign_color`
+  = `0x07FF` w NVS). Cyjan ma luminancję ~73% względem bieli — wygląda jak
+  „przygaszona czcionka" mimo pełnego podświetlenia.
+- **Migracja NVS (jednorazowa, `tft_clr_mig`)**: cyfry zegara i znak wracają do
+  **bieli (0xFFFF)** — identycznie jak na ekranie bootu. Domyślny kolor cyfr
+  zegara zmieniony z żółtego na biały (`0xFFE0` → `0xFFFF`), przycisk „Domyślny"
+  i odczyt/picker w WWW też. Użytkownik może nadal jawnie wybrać dowolny kolor
+  (menu TFT / WWW), a migracja zadziała tylko raz.
+
+Przebudowane artefakty: `dist/merged-flash{,-notouch}.bin`, `download/`,
+`/workspace/share/` (zip + firmware + strona flash).
+
 ---
 
 # ESP32-HAM-CLOCK v1.2d — czcionki zegara, alert pogodowy i migotanie

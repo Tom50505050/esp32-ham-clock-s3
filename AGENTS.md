@@ -19,6 +19,22 @@ Zgłoszenia „ściemnienie czcionki przy wgrywaniu w okolicy LittleFS" oraz
 - `effectiveBacklightPercent()` obniża tylko gdy `tftNightDimmingPercent>0 &&
   tftNightDimmingAuto && tftIsNightTime()` — suwak bez auto nie sciemnia stale.
 
+## Kolor czcionki: cyfry/znak zegara biały jak boot (03.11.2026)
+Analiza `beta_video.mp4` (330 klatek + OCR bootu) wykazała: podświetlenie w
+okolicy LittleFS **nie** przygasa (PWM 100%, biały tekst ~250/255). Jedyny
+widocznie ciemniejszy font to **cyjanowe cyfry zegara/znak** (`clock_color`/
+`callsign_color` = 0x07FF w NVS z wcześniejszej konfiguracji).
+- **NVS `clock_color`/`callsign_color` mogą przechowywać ciemne/cyjanowe kolory
+  — wyglądają jak „przygaszona czcionka" mimo pełnego PWM.** Domyślny kolor cyfr
+  zegara to teraz **biały (`0xFFFF`)**, nie żółty `0xFFE0`.
+- **Migracja NVS (jednorazowa, `tft_clr_mig`)** w `loadPreferences()`: przywraca
+  `clockDigitsColor` i `callsignColor` do `0xFFFF` (jak tekst bootu), dopóki
+  użytkownik jawnie nie zmieni koloru w menu TFT/WWW. Przy zmianie w WWW
+  (`doc["clock_color"]`) wartość 0 → `0xFFFF`, nie `0xFFE0`.
+- Pilnuj spójności domyślnych: `clockDigitsColor`, `brightnessMenuPrevClockColor`,
+  `clockColorMenuPrev`, preview `clockFontPreviewBand` i WWW picker `#ffff00`→
+  `#ffffff` — wszystko ma wskazywać na biel jak na ekranie bootu.
+
 ## WWW: szacowany czas wgrywania grafiki (02.11.2026)
 W zakładkach „Ekran TFT" i „ALERT" (oraz przy ekranie powitalnym) pod wyborem
 pliku pojawia się `<small id="...-est">` z szacowanym czasem uploadu.
