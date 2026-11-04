@@ -330,7 +330,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -353,7 +352,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -376,7 +374,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -399,7 +396,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -422,7 +418,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -445,7 +440,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -468,7 +462,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -491,7 +484,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -514,7 +506,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -537,7 +528,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -560,7 +550,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -583,7 +572,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -606,7 +594,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -629,7 +616,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -652,7 +638,6 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
@@ -675,56 +660,10 @@
                             <option value="station">STACJA</option>
                             <option value="logger">LOGGER</option>
                             <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
                             <option value="off">OFF</option>
                     </select>
                 </div>
 
-            </div>
-
-            <div class="config-section">
-                <h3>🎈 RADIOSONDY (SondeHub)</h3>
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="radiosonde_enabled" name="radiosonde_enabled" style="width: auto;">
-                        <span>Włącz ekran RADIOSONDY</span>
-                    </label>
-                    <small>Pobiera dane sond z <a href="https://sondehub.org" target="_blank" rel="noopener">sondehub.org</a> (API v2, bez klucza) i rysuje je na mapie Polski 1:750 000.</small>
-                </div>
-                <div class="form-group">
-                    <label>Zasięg wyszukiwania (km):</label>
-                    <input type="number" id="radiosonde_range_km" name="radiosonde_range_km" min="50" max="1000" step="10" value="600">
-                    <small>Promień wokół Twojego QTH, w którym szukamy sond (50–1000 km).</small>
-                </div>
-                <div class="form-group">
-                    <label>Typ stacji na mapie:</label>
-                    <select id="radiosonde_mode" name="radiosonde_mode">
-                        <option value="live">NA ZYWO – wszystkie sondy RADIOSONDE_AUTO_RX</option>
-                        <option value="amateur">AMATORSKIE – balony / sondy amatorskie</option>
-                        <option value="hunters">ŁOWCY – pozycje łowców (samochody)</option>
-                    </select>
-                    <small>Zależnie od wyboru na mapie pokazywane są: balony (sondy) lub auta (łowcy).</small>
-                </div>
-                <div class="form-group">
-                    <label>Uznaj za „NA ZYWO” (min od ostatniej ramki):</label>
-                    <input type="number" id="radiosonde_live_min" name="radiosonde_live_min" min="1" max="60" step="1" value="10">
-                    <small>Jeżeli sonda nie wysłała ramki dłużej niż tyle minut, oznaczamy ją jako martwą (czerwona kropka).</small>
-                </div>
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="radiosonde_show_path" name="radiosonde_show_path" style="width: auto;">
-                        <span>Pokaż linię QTH → sonda</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 10px; margin-top:6px;">
-                        <input type="checkbox" id="radiosonde_show_uploader" name="radiosonde_show_uploader" style="width: auto;">
-                        <span>Pokaż odbiorcę (callsign łowcy)</span>
-                    </label>
-                    <small>Opcje rysowania na mapie. Domyślnie tylko najbliższa sonda ma linię i etykietę.</small>
-                </div>
-                <div class="form-group">
-                    <label>Link do detali sondy:</label>
-                    <a class="btn" style="display:inline-block;padding:6px 12px;margin-top:4px;" href="https://sondehub.org" target="_blank" rel="noopener">otwórz sondehub.org ↗</a>
-                </div>
             </div>
 
             <div class="config-section">
@@ -1492,6 +1431,53 @@
                         <small>Pokazuje odebrane pakiety w dwóch liniach: nagłówek AX.25 (FROM&gt;TO,path) + treść info.</small>
                     </div>
                 </div>
+
+                
+
+            <div class="config-section">
+                <h3>🎈 RADIOSONDY (SondeHub)</h3>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="radiosonde_enabled" name="radiosonde_enabled" style="width: auto;">
+                        <span>Włącz ekran RADIOSONDY</span>
+                    </label>
+                    <small>Pobiera dane sond z <a href="https://sondehub.org" target="_blank" rel="noopener">sondehub.org</a> (API v2, bez klucza) i rysuje je na mapie Polski 1:750 000.</small>
+                </div>
+                <div class="form-group">
+                    <label>Zasięg wyszukiwania (km):</label>
+                    <input type="number" id="radiosonde_range_km" name="radiosonde_range_km" min="50" max="1000" step="10" value="600">
+                    <small>Promień wokół Twojego QTH, w którym szukamy sond (50–1000 km).</small>
+                </div>
+                <div class="form-group">
+                    <label>Typ stacji na mapie:</label>
+                    <select id="radiosonde_mode" name="radiosonde_mode">
+                        <option value="live">NA ZYWO – wszystkie sondy RADIOSONDE_AUTO_RX</option>
+                        <option value="amateur">AMATORSKIE – balony / sondy amatorskie</option>
+                        <option value="hunters">ŁOWCY – pozycje łowców (samochody)</option>
+                    </select>
+                    <small>Zależnie od wyboru na mapie pokazywane są: balony (sondy) lub auta (łowcy).</small>
+                </div>
+                <div class="form-group">
+                    <label>Uznaj za „NA ZYWO” (min od ostatniej ramki):</label>
+                    <input type="number" id="radiosonde_live_min" name="radiosonde_live_min" min="1" max="60" step="1" value="10">
+                    <small>Jeżeli sonda nie wysłała ramki dłużej niż tyle minut, oznaczamy ją jako martwą (czerwona kropka).</small>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="radiosonde_show_path" name="radiosonde_show_path" style="width: auto;">
+                        <span>Pokaż linię QTH → sonda</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 10px; margin-top:6px;">
+                        <input type="checkbox" id="radiosonde_show_uploader" name="radiosonde_show_uploader" style="width: auto;">
+                        <span>Pokaż odbiorcę (callsign łowcy)</span>
+                    </label>
+                    <small>Opcje rysowania na mapie. Domyślnie tylko najbliższa sonda ma linię i etykietę.</small>
+                </div>
+                <div class="form-group">
+                    <label>Link do detali sondy:</label>
+                    <a class="btn" style="display:inline-block;padding:6px 12px;margin-top:4px;" href="https://sondehub.org" target="_blank" rel="noopener">otwórz sondehub.org ↗</a>
+                </div>
+            </div>
 
                 <!-- Sekcja: TCPIP TNC-KISS -->
                 <div class="config-section">

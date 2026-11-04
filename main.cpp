@@ -291,6 +291,7 @@ bool radiosondeShowUploader = true; // podpis odbiorcy (lowcy)
 // przez fetchRadiosondeData() z UI_Task (jedyny kontekst rysujacy po TFT).
 #define SONDE_MAX_ENTRIES 24
 #define SONDE_FETCH_MIN_INTERVAL_MS 30000UL  // min przerwa miedzy zapytaniami
+#define SONDE_SCREEN_REFRESH_MS 30000UL      // odswiezanie ekranu RADIOSONDY co 30 s
 #define SONDE_FETCH_MAX_BODY 32768UL         // max odpowiedz JSON (String)
 
 typedef struct {
@@ -28023,13 +28024,11 @@ void uiTaskLoop(void *parameter) {
       // pozostale ekrany. Wczesniej MQTT wolano z UI_Task i z loop() naraz
       // (wyscig -> crash) oraz drawPskMap() z wnetrza processPskMqttBuffer()
       // (reentrancja -> lawina odswiezen).
-      // Auto-odswiezanie ekranu RADIOSONDY: gdy dane starsze niz radiosondeLiveMin
-      // i uplynela min. przerwa, przerysuj (drawRadiosondyScreen pobierze JSON).
+      // Auto-odswiezanie ekranu RADIOSONDY co 30 s (drawRadiosondyScreen pobierze JSON).
       if (tftInitialized && currentScreen == SCREEN_RADIOSONDE && !inMenu &&
           !sondeMenuActive && !sondeDetailActive && !aprsAlertScreenActive &&
-          radiosondeLiveMin > 0 && lastSondeAttemptMs != 0) {
-        unsigned long staleMs = (unsigned long)radiosondeLiveMin * 60UL * 1000UL;
-        if ((millis() - lastSondeFetchMs) >= staleMs) {
+          lastSondeAttemptMs != 0) {
+        if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
           drawRadiosondyScreen();
         }
       }
@@ -30928,10 +30927,10 @@ void drawRadiosondyScreen() {
   if (!tftInitialized) return;
   const bool classic = uiStyleClassic();
 
-  // Odswiez dane: pierwsze wejscie na ekran albo dane starsze niz live_min.
+  // Odswiez dane: pierwsze wejscie na ekran albo dane starsze niz 30 s.
   if (!sondeFetchedOnce || lastSondeFetchMs == 0) {
     if (radiosondeEnabled) fetchRadiosondeData();
-  } else if ((millis() - lastSondeFetchMs) >= (unsigned long)radiosondeLiveMin * 60000UL) {
+  } else if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
     if (radiosondeEnabled) fetchRadiosondeData();
   }
 

@@ -2,6 +2,20 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## WWW: panel RADIOSONDY (SondeHub) przeniesiony do ustawien; ekran odswiezany co 30 s (04.11.2026)
+Uzytkownik: „przenies RADIOSONDY (SondeHub) do www ustawienia, a z ekrany ftf usuń
+RADIOSONDY (SondeHub) i odswieżanie ekranu RADIOSONDY co 30 s".
+- **index.html** = „Ekrany TFT (kolejność)”: usunięto `<option value="radiosondy">RADIOSONDY</option>`
+  ze wszystkich `screen_slot_1..16` (sekcja konczy sie przy `Kalibracja TFT`).
+- Panel `🎈 RADIOSONDY (SondeHub)` przeniesiony z kolumny TFT do strony konfiguracji WWW
+  (`#config-page`, po sekcji APRS-IS, przed TCPIP TNC-KISS). Pola `radiosonde_*` pozostaja
+  w tym samym `<form>` - saveConfig/getElementById dzialaja bez zmian. `screenOptionsDefault`
+  w JS pozostaje bez `radiosondy`, stare zapisane sloty `radiosondy` mapuja sie na `off`.
+- Firmware: nowy `SONDE_SCREEN_REFRESH_MS 30000UL` (obok `SONDE_FETCH_MIN_INTERVAL_MS`).
+  UI loop (auto-odswiezanie) i `drawRadiosondyScreen()` pobieraja ponownie co 30 s zamiast
+  wedlug `radiosondeLiveMin`. Odswiezanie dziala tylko gdy ekran RADIOSONDY jest aktywny,
+  poza menu/detalami; detale nie sa odswiezane automatycznie.
+
 ## Ekran RADIOSONDY: detale sondy jako obrysy + biale napisy; mapa PL z repo (04.11.2026)
 Uzytkownik: na ekranie po wejsciu w `sondehub.org >` nie maja byc kratki, tylko obwodki,
 a litery/cyfry biale. Dodatkowo mapa Polski ma byc wczytana i przekonwertowana z
