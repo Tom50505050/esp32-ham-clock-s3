@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Makieta ekranu RADIOSONDY dla ESP32-HAM-CLOCK (480x320).
 
-Tlo = prawdziwa mapa Polski ("data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg",
+Tlo = prawdziwa mapa Polski ("tools/map_src/PL_drogowa_750tys_95x90cm_01_10_2019.jpg",
 pobierana do /tmp jesli nie ma lokalnie). Georeferencja prostokata tresci:
   bbox (x21..1527, y27..1449) w oryginalnym 1536x1455
   LAT_TOP 55.2N  LAT_BOT 48.4N  LON_LEFT 13.5E  LON_RIGHT 25.2E
@@ -44,7 +44,7 @@ MAP_W, MAP_H = 1536, 1455
 MAP_SRC = "/tmp/PL_map_raw.jpg"
 DATA_SRC = os.path.join("data", "icon50", "PL_drogowa_750tys_95x90cm_01_10_2019.jpg")
 MAP_URL = ("https://raw.githubusercontent.com/Tom50505050/esp32-ham-clock-s3/"
-           "main/data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg")
+           "main/tools/map_src/PL_drogowa_750tys_95x90cm_01_10_2019.jpg")
 
 
 def load_map():

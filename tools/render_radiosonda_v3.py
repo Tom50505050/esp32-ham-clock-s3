@@ -34,7 +34,7 @@ MOCK = os.path.join(ROOT, '..', '.mock')
 DATA_SRC = os.path.join(ROOT, '..', 'data', 'icon50', 'PL_drogowa_750tys_95x90cm_01_10_2019.jpg')
 MAP_SRC = "/tmp/PL_map_raw.jpg"
 MAP_URL = ("https://raw.githubusercontent.com/Tom50505050/esp32-ham-clock-s3/"
-           "main/data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg")
+           "main/tools/map_src/PL_drogowa_750tys_95x90cm_01_10_2019.jpg")
 
 # georeferencja (granice Polski, bez obcina)
 LAT_TOP, LAT_BOT = 54.84, 49.0

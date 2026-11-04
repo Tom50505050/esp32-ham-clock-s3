@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pre-render a Poland map strip for the RADIOSONDY TFT screen.
 
-Source: data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg (1536x1455).
+Source: tools/map_src/PL_drogowa_750tys_95x90cm_01_10_2019.jpg (1536x1455).
 The geographic bbox of Poland is contained in the interior box B (same
 georeferencing as tools/render_radiosonda_v3.py). We crop that box and
 resize to the on-screen image rect (258x244) - the aspect is nearly

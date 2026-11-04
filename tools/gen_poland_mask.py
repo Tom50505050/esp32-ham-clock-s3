@@ -16,9 +16,9 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-# Zrodlo mapy: data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg
+# Zrodlo mapy: tools/map_src/PL_drogowa_750tys_95x90cm_01_10_2019.jpg
 # (oryginal z repo: https://github.com/Tom50505050/esp32-ham-clock-s3/blob/main/
-#  data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg).
+#  tools/map_src/PL_drogowa_750tys_95x90cm_01_10_2019.jpg).
 JPG = os.path.join(ROOT, "data", "icon50", "PL_drogowa_750tys_95x90cm_01_10_2019.jpg")
 if not os.path.exists(JPG):
     JPG = os.path.join(ROOT, "share", "PL_map_raw.jpg")
