@@ -15,6 +15,16 @@ RADIOSONDY (SondeHub) i odswieżanie ekranu RADIOSONDY co 30 s".
   UI loop (auto-odswiezanie) i `drawRadiosondyScreen()` pobieraja ponownie co 30 s zamiast
   wedlug `radiosondeLiveMin`. Odswiezanie dziala tylko gdy ekran RADIOSONDY jest aktywny,
   poza menu/detalami; detale nie sa odswiezane automatycznie.
+## RADIOSONDY: mapa z data/icon50 (JPG) + strzalka trendu kolorem (04.11.2026)
+Uzytkownik: „dalej brak mapy polski z data/icon50/PL_drogowa...jpg w ekranie radiosondy";
+„szczalka znoszenia sondy ma byc na zielono a opadania na czerwono".
+- Firmware: `drawRadiosondeMap()` rysuje `data/map_tft.jpg` (258x244) przez TJpgDec
+  (callback `tjpgMapOutput` -> `tft.pushImage`); fallback - 1-bitowa maska
+  `poland_mask.h`. Plik generuje `tools/gen_sonde_map_tft.py` (crop do boxu
+  [21,27,1527,1449] z JPG mapy z `data/icon50`, resize 258x244, ~27 kB).
+  `sondeProject()` przelicza wspolrzedne do obrazu (`PL_IMG_*`).
+- Strzalka trendu (v/pionowa) w detalach sondy: WZNOSZENIE = zielone (0x07E0),
+  OPADANIE = czerwone (0xF800). Mockup `render_detail` analogicznie (C_GREEN/C_RED).
 
 ## Ekran RADIOSONDY: detale sondy jako obrysy + biale napisy; mapa PL z repo (04.11.2026)
 Uzytkownik: na ekranie po wejsciu w `sondehub.org >` nie maja byc kratki, tylko obwodki,
