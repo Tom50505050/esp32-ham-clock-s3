@@ -20714,8 +20714,12 @@ bool connectToWiFi() {
     // praktyce; pelna drabinka mocy ponizej tylko gdy szybka proba padnie.
     if (channel > 0) {
       Serial.printf("[WIFI] Szybkie laczenie: kanal=%d\n", channel);
+      // SOFT-START: pierwsza proba na nizszej mocy TX (11 dBm) - mniejszy pik
+      // pradu przy wlaczaniu WiFi, dzieki czemu podswietlenie mniej "siada"
+      // (spadek napiecia) i litery podczas startu nie szarzeja. Pelna moc
+      // pozostaje w drabince ponizej jako fallback.
       if (wifiAttemptAtPower(cred.ssid, cred.pass, channel, bssid,
-                             WIFI_POWER_19_5dBm, 6000)) {
+                             WIFI_POWER_11dBm, 6000)) {
         return true;
       }
       Serial.printf("[WIFI] Szybka proba nieudana, reason=%d\n", (int)g_lastWifiReason);
