@@ -176,6 +176,12 @@ void drawHamalertFilterMenu();
 void drawAprsSortMenu();
 void drawWeatherMenu();
 void drawHamClockTimeMenu();
+static void drawRadiosondeHeader();
+static void drawRadiosondeMenu();
+static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y);
+static void drawRadiosondeDetail();
+static void handleRadiosondeDetailTouch(uint16_t x, uint16_t y);
+static bool fetchRadiosondeData();
 static bool isScreen6RadarRangeTileHit(uint16_t x, uint16_t y, int &index);
 static void uiHeader(const char *title, bool showMenu);
 static void uiHeaderClock();
@@ -309,6 +315,9 @@ static bool sondeFetchError = false;
 static const char *sondeFetchErrMsg = "";
 static unsigned long lastSondeFetchMs = 0;   // udane pobranie
 static unsigned long lastSondeAttemptMs = 0; // kazda proba (interwal min. 30 s)
+static bool sondeMenuActive = false;         // aktywne menu sondy (hamburger)
+static bool sondeDetailActive = false;       // ekran detali sondy (przycisk sondehub.org)
+static int  sondeDetailIndex = 0;            // ktora sonda w detalach (domyslnie najblizsza)
 
 // MQTT PSK Reporter - DOMYSLNY tryb od v1.2b (feed na zywo, mapa odswieza sie
 // sama, bez limitu zapytan HTTP). Broker mqtt.pskreporter.info publikuje PSK
@@ -3705,6 +3714,8 @@ void drawScreen(ScreenType screenNum) {
       drawIssPassTracking();
       break;
     case SCREEN_RADIOSONDE:
+      sondeMenuActive = false;
+      sondeDetailActive = false;
       drawRadiosondyScreen();
       break;
     case SCREEN_OFF:
@@ -7220,6 +7231,9 @@ void handleTouchNavigation() {
       if (currentScreen == SCREEN_WEATHER_DSP || currentScreen == SCREEN_WEATHER_FORECAST) {
         handleScreen5MenuTouch(x, y);
       }
+      if (currentScreen == SCREEN_RADIOSONDE) {
+        handleRadiosondeMenuTouch(x, y);
+      }
       return;
     }
 
@@ -7366,14 +7380,33 @@ void handleTouchNavigation() {
         return;
       }
     }
-    // RADIOSONDY: hamburger = wymuszenie odswiezenia danych z SondeHub.
+    // RADIOSONDY: hamburger otwiera menu sondy (tryb/zasieg), przycisk
+    // "sondehub.org >" (obok hamburgera) otwiera ekran detali sondy.
     if (currentScreen == SCREEN_RADIOSONDE) {
-      if (isNewTap && x < menuHitW && y < menuHitH) {
-        lastSondeAttemptMs = 0;   // zlamanie mininterwalu - uzytkownik chce odswiezenia
-        lastSondeFetchMs = 0;     // drawRadiosondyScreen pobierze ponownie
-        drawRadiosondyScreen();
+      if (isNewTap && x < 30 && y < menuHitH) {
+        sondeMenuActive = true;
+        sondeDetailActive = false;
+        inMenu = true;
+        drawRadiosondeMenu();
         return;
       }
+      if (isNewTap && y < 32 && x >= 30 && x < 180) {
+        sondeDetailActive = true;
+        sondeMenuActive = false;
+        inMenu = false;
+        // ekran detali bierze dane z ostatniego pobrania; odswiez najpierw,
+        // gdy jeszcze nic nie pobrano.
+        if (!sondeFetchedOnce && radiosondeEnabled) fetchRadiosondeData();
+        drawRadiosondeDetail();
+        return;
+      }
+    }
+
+    // Ekran detali sondy: caly ekran obsluguje wlasny dotyk (nie ma tu
+    // wspolnej nawigacji zmian ekranu).
+    if (sondeDetailActive) {
+      handleRadiosondeDetailTouch(x, y);
+      return;
     }
 
     // Nawigacja: dolne obszary dotyku (ok. 80x180)
@@ -8837,6 +8870,10 @@ void redrawCurrentMenu() {
   }
   if (currentScreen == SCREEN_WEATHER_DSP || currentScreen == SCREEN_WEATHER_FORECAST) {
     drawWeatherMenu();
+    return;
+  }
+  if (currentScreen == SCREEN_RADIOSONDE) {
+    drawRadiosondeMenu();
     return;
   }
 }
@@ -27989,7 +28026,8 @@ void uiTaskLoop(void *parameter) {
       // Auto-odswiezanie ekranu RADIOSONDY: gdy dane starsze niz radiosondeLiveMin
       // i uplynela min. przerwa, przerysuj (drawRadiosondyScreen pobierze JSON).
       if (tftInitialized && currentScreen == SCREEN_RADIOSONDE && !inMenu &&
-          !aprsAlertScreenActive && radiosondeLiveMin > 0 && lastSondeAttemptMs != 0) {
+          !sondeMenuActive && !sondeDetailActive && !aprsAlertScreenActive &&
+          radiosondeLiveMin > 0 && lastSondeAttemptMs != 0) {
         unsigned long staleMs = (unsigned long)radiosondeLiveMin * 60UL * 1000UL;
         if ((millis() - lastSondeFetchMs) >= staleMs) {
           drawRadiosondyScreen();
@@ -30890,7 +30928,7 @@ void drawRadiosondyScreen() {
     if (radiosondeEnabled) fetchRadiosondeData();
   }
 
-  uiHeader("RADIOSONDY", true);
+  drawRadiosondeHeader();
 
   const uint16_t outCol   = classic ? 0xFFFF /* bialy margines */ : ISS_MAP_WATER;
   const uint16_t landCol  = classic ? 0xDEFA /* jasny bez */ : ISS_COL_LAND;
@@ -30994,6 +31032,261 @@ void drawRadiosondyScreen() {
                    326, yy, 1);
     tft.drawString(String((int)s.alt) + " m", 474, yy, 1);
     tft.setTextDatum(TL_DATUM);
+  }
+}
+// Naglowek ekranu RADIOSONDY: hamburger + przycisk "sondehub.org >" OBOK niego
+// po lewej (zgodnie z wytyczna uzytkownika zamiast prawego rogu), tytul
+// ESP32-HAM-CLOCK w centrum i napis "RADIOSONDY" po prawej (przed WiFi/bateria).
+// Przycisk sondehub.org po dotknieciu otwiera ekran detali sondy.
+static void drawRadiosondeHeader() {
+  const bool classic = uiStyleClassic();
+  const uint16_t bg = classic ? TFT_RADIO_ORANGE : UI_COL_CARD;
+  const uint16_t fg = classic ? TFT_BLACK : UI_COL_TEXT;
+  const uint16_t line = classic ? 0x8410 : UI_COL_ACCENT;
+  tft.fillRect(0, 0, 480, UI_HEADER_H, bg);
+  tft.drawFastHLine(0, UI_HEADER_H - 1, 480, line);
+  uiHamburger(5, 4);
+
+  const char *btn = "sondehub.org >";
+  tft.setTextSize(1);
+  tft.setTextDatum(TL_DATUM);
+  const int bw = tft.textWidth(btn) + 16;
+  const int bx = 30, by = 5, bh = 22;
+  tft.fillRoundRect(bx, by, bw, bh, 4, classic ? TFT_BLACK : TFT_RADIO_ORANGE);
+  tft.drawRoundRect(bx, by, bw, bh, 4, classic ? TFT_WHITE : UI_COL_BORDER);
+  tft.setTextColor(classic ? TFT_RADIO_ORANGE : TFT_BLACK,
+                   classic ? TFT_BLACK : TFT_RADIO_ORANGE);
+  tft.drawString(btn, bx + 8, by + 6, 1);
+
+  // Tytul w centrum wolnej przestrzeni (miedzy przyciskiem a prawa strona).
+  const char *tt = "ESP32-HAM-CLOCK";
+  const int leftEdge = bx + bw + 6;
+  const int rightEdge = 403;
+  tft.setTextColor(fg, bg);
+  tft.setTextDatum(TC_DATUM);
+  if (tft.textWidthFont(tt, 2) <= (rightEdge - leftEdge)) {
+    tft.drawString(tt, (leftEdge + rightEdge) / 2, 5, 2);
+  } else {
+    tft.drawString(tt, (leftEdge + rightEdge) / 2, 9, 1);
+  }
+
+  // Napis "RADIOSONDY" po prawej, przed ikonami WiFi/baterii.
+  tft.setTextDatum(TR_DATUM);
+  tft.drawString("RADIOSONDY", 403, 7, 1);
+  tft.setTextDatum(TL_DATUM);
+  drawWifiSignalBars(445, 1, -1, bg);
+  drawBatteryIcon(408, 1, -1, bg);
+}
+
+// Menu sondy (po hamburgerze, wzorowane na makiety v3): tryb NA ZYWO /
+// AMATORSKIE / LOWCY, zasieg -/+ 100 km, REFRESH i CLOSE.
+static void drawRadiosondeMenu() {
+  tft.fillScreen(TFT_BLACK);
+  uiMenuHeader("RADIOSONDY MENU");
+
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_FAINT);
+  tft.setCursor(10, 42);
+  tft.print("TRYB SOND / STACJI");
+  const int tileW = 140, tileH = 36, gap = 10;
+  const int startX = (480 - (3 * tileW + 2 * gap)) / 2;
+  const int modeY = 56;
+  drawFilterTile(startX + 0 * (tileW + gap), modeY, tileW, tileH, "NA ZYWO", radiosondeMode == "live");
+  drawFilterTile(startX + 1 * (tileW + gap), modeY, tileW, tileH, "AMATORSKIE", radiosondeMode == "amateur");
+  drawFilterTile(startX + 2 * (tileW + gap), modeY, tileW, tileH, "LOWCY", radiosondeMode == "hunters");
+
+  tft.setTextColor(UI_COL_FAINT);
+  tft.setCursor(10, 100);
+  tft.print("ZASIEG WYSZUKIWANIA");
+  tft.setCursor(10, 116);
+  tft.setTextColor(TFT_RADIO_ORANGE);
+  tft.setTextSize(2);
+  tft.print(String(radiosondeRangeKm) + " km");
+  tft.setTextSize(1);
+
+  const int rY = 116;
+  drawFilterTile(startX + 1 * (tileW + gap), rY, (tileW - gap) / 2, tileH, "-100", radiosondeRangeKm > 50);
+  drawFilterTile(startX + 1 * (tileW + gap) + (tileW - gap) / 2 + gap, rY, (tileW - gap) / 2, tileH, "+100", radiosondeRangeKm < 1000);
+
+  tft.setCursor(10, 176);
+  tft.setTextColor(UI_COL_FAINT);
+  tft.print("POKAZUJ NA MAPIE");
+  tft.setCursor(10, 193);
+  tft.setTextColor(UI_COL_TEXT);
+  tft.print("BALON = sonda      AUTO = lowca");
+
+  // Stopka: REFRESH + CLOSE
+  const int footW = 120, footH = 32;
+  drawFilterTile(60, 262, footW, footH, "REFRESH", false);
+  drawFilterTile(300, 262, footW, footH, "CLOSE", false);
+}
+
+static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y) {
+  const int tileW = 140, tileH = 36, gap = 10;
+  const int startX = (480 - (3 * tileW + 2 * gap)) / 2;
+  const int modeY = 56;
+
+  for (int i = 0; i < 3; i++) {
+    if (isPointInRect(x, y, startX + i * (tileW + gap), modeY, tileW, tileH)) {
+      const char *m = (i == 0) ? "live" : (i == 1) ? "amateur" : "hunters";
+      if (radiosondeMode != m) {
+        radiosondeMode = m;
+        lastSondeFetchMs = 0;    // po zmianie trybu pobierz dane ponownie
+        lastSondeAttemptMs = 0;
+        savePreferences();
+      }
+      drawRadiosondeMenu();
+      return;
+    }
+  }
+
+  const int rY = 128;
+  if (isPointInRect(x, y, startX + 1 * (tileW + gap), rY, (tileW - gap) / 2, tileH)) {
+    if (radiosondeRangeKm > 50) radiosondeRangeKm -= 100;
+    if (radiosondeRangeKm < 50) radiosondeRangeKm = 50;
+    savePreferences();
+    drawRadiosondeMenu();
+    return;
+  }
+  if (isPointInRect(x, y, startX + 1 * (tileW + gap) + (tileW - gap) / 2 + gap, rY, (tileW - gap) / 2, tileH)) {
+    if (radiosondeRangeKm < 1000) radiosondeRangeKm += 100;
+    if (radiosondeRangeKm > 1000) radiosondeRangeKm = 1000;
+    savePreferences();
+    drawRadiosondeMenu();
+    return;
+  }
+
+  const int footW = 120, footH = 32;
+  if (isPointInRect(x, y, 60, 262, footW, footH)) {
+    sondeMenuActive = false;
+    inMenu = false;
+    lastSondeAttemptMs = 0;
+    lastSondeFetchMs = 0;
+    drawRadiosondyScreen();
+    return;
+  }
+  if (isPointInRect(x, y, 300, 262, footW, footH)) {
+    sondeMenuActive = false;
+    inMenu = false;
+    drawRadiosondyScreen();
+    return;
+  }
+}
+
+// Ekran detali sondy (po przycisku sondehub.org): seria, typ, dystans, azymut,
+// MHz, SNR, status NA ZYWO z kropka i wysokosc ze strzalka gor/dol.
+static void drawRadiosondeDetail() {
+  if (sondeCount == 0) {
+    sondeDetailActive = false;
+    drawRadiosondyScreen();
+    return;
+  }
+  if (sondeDetailIndex < 0 || sondeDetailIndex >= sondeCount) sondeDetailIndex = 0;
+  const SondeSpot &s = sondeSpots[sondeDetailIndex];
+  const bool classic = uiStyleClassic();
+
+  tft.fillScreen(classic ? 0xFDF9 /* bialy */ : UI_COL_BG);
+  drawRadiosondeHeader();
+
+  double qlat, qlon;
+  sondeGetQth(qlat, qlon);
+  float dist = calculateDistance(qlat, qlon, s.lat, s.lon);
+  float az = calculateBearing(qlat, qlon, s.lat, s.lon);
+  if (az < 0) az += 360.0f;
+
+  const uint16_t card = classic ? 0xFFFF : 0x0E1E /* ciemna karta */;
+  const uint16_t col = classic ? TFT_BLACK : UI_COL_TEXT;
+  const uint16_t lab = classic ? 0x5A6B : UI_COL_FAINT;
+  const uint16_t acc = classic ? TFT_RADIO_ORANGE : UI_COL_ACCENT;
+  const uint16_t border = classic ? TFT_RADIO_ORANGE : UI_COL_BORDER;
+
+  // Karta sondy
+  int y = UI_HEADER_H + 12;
+  tft.fillRoundRect(8, y, 464, 102, 8, card);
+  tft.drawRoundRect(8, y, 464, 102, 8, border);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextSize(1);
+  tft.setTextColor(acc, card);
+  tft.drawString("SONDA: " + String(s.serial), 22, y + 6, 4);
+  tft.setTextColor(col, card);
+  String typ = String(s.type);
+  if (s.manufacturer[0]) typ += " " + String(s.manufacturer);
+  tft.drawString(typ + "  alt " + String((int)s.alt) + " m", 22, y + 36, 2);
+  tft.setTextColor((s.velV < 0) ? 0xF800 : 0x07E0, card);
+  tft.drawString(String(s.velV >= 0 ? "^ " : "v ") + String(fabsf(s.velV), 1) + " m/s", 22, y + 58, 2);
+  tft.setTextColor(col, card);
+  tft.drawString("Odbiorca: " + String(s.uploader[0] ? s.uploader : "-"), 22, y + 80, 2);
+
+  // Grid informacji (kompaktowy, 4 wiersze na ekranie 320 px)
+  const int cw = 224, ch = 26;
+  const char *ks[8] = {"DYSTANS OD QTH", "AZYMUT OD QTH", "CZESTOTLIWOSC", "SNR",
+                       "ODL. OD ODBIORCY", "TEMP", "PREDKOSC PION.", "NADAWCA"};
+  String vstr[8];
+  vstr[0] = String((int)dist) + " km";
+  vstr[1] = String((int)az) + " d";
+  vstr[2] = String(s.frequency) + " MHz";
+  vstr[3] = String((int)s.snr) + " dB";
+  if (s.upLat != 0 || s.upLon != 0) {
+    vstr[4] = String((int)calculateDistance(s.lat, s.lon, s.upLat, s.upLon)) + " km";
+  } else {
+    vstr[4] = "--";
+  }
+  vstr[5] = String(s.temp, 1) + " C";
+  vstr[6] = String(fabsf(s.velV), 1) + " m/s";
+  vstr[7] = String(s.type[0] ? s.type : "-");
+
+  int gy = y + 106;
+  for (int i = 0; i < 8; i++) {
+    int cx = 16 + (i % 2) * (cw + 2);
+    int cy = gy + (i / 2) * (ch + 4);
+    tft.fillRoundRect(cx, cy, cw - 2, ch - 2, 5, card);
+    tft.drawRoundRect(cx, cy, cw - 2, ch - 2, 5, border);
+    tft.setTextColor(lab, card);
+    tft.drawString(ks[i], cx + 8, cy + 1, 1);
+    tft.setTextColor(col, card);
+    tft.drawString(vstr[i], cx + 8, cy + 13, 1);
+  }
+
+  // Status NA ZYWO + nawigacja prev/next + powrot
+  int y2 = gy + 4 * (ch + 4) + 8;
+  bool live = true; // SondeHub zwraca tylko aktywne ramki z ostatnich 60 min
+  tft.fillCircle(20, y2 + 6, 6, live ? 0x07E0 : 0xF800);
+  tft.setTextColor(col, classic ? 0xFDF9 : UI_COL_BG);
+  tft.drawString(live ? "NA ZYWO" : "SZUKAM RAMKI", 36, y2, 2);
+
+  tft.setTextDatum(TR_DATUM);
+  tft.setTextColor(col, classic ? 0xFDF9 : UI_COL_BG);
+  tft.drawString(" < " + String(sondeDetailIndex + 1) + "/" + String(sondeCount) + " >", 458, y2, 2);
+  tft.setTextDatum(TL_DATUM);
+  tft.fillRoundRect(10, 284, 110, 30, 5, card);
+  tft.drawRoundRect(10, 284, 110, 30, 5, border);
+  tft.setTextColor(col, card);
+  tft.drawString("POWROT", 24, 291, 2);
+}
+
+// Dotyk na ekranie detali
+static void handleRadiosondeDetailTouch(uint16_t x, uint16_t y) {
+  // gorna belka (hamburger lub przycisk sondehub.org) zamyka detale
+  if (y < 32) {
+    sondeDetailActive = false;
+    drawRadiosondyScreen();
+    return;
+  }
+  // "POWROT" w lewym dolnym rogu
+  if (isPointInRect(x, y, 8, 286, 120, 32)) {
+    sondeDetailActive = false;
+    drawRadiosondyScreen();
+    return;
+  }
+  // "< n/m >" po prawej stronie statusu: przejscie do poprzedniej/nastepnej sondy
+  if (y >= 268 && y <= 300 && x > 320) {
+    if (x < 395) {
+      sondeDetailIndex = (sondeDetailIndex - 1 + sondeCount) % sondeCount;
+    } else {
+      sondeDetailIndex = (sondeDetailIndex + 1) % sondeCount;
+    }
+    drawRadiosondeDetail();
+    return;
   }
 }
 

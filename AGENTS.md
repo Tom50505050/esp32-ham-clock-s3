@@ -2,6 +2,27 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Ekran RADIOSONDY: przycisk sondehub.org obok hamburgera + dzialajace przyciski (04.11.2026)
+Zgłoszenie: „nie pokazuje na mapie sond", „przycisk z prawej przesuń na lewą obok menu",
+„przyciski nie działają".
+- **Nagłówek `drawRadiosondeHeader()`**: przycisk `sondehub.org >` przeniesiony z prawej
+  strony obok hamburgera (x≈30-129, makieta v3 `draw_header` analogicznie). Tytuł
+  `ESP32-HAM-CLOCK` w centrum wolnej przestrzeni, »RADIOSONDY« po prawej (przed WiFi/baterią).
+- **Menu sondy po hamburgerze** (`drawRadiosondeMenu`/`handleRadiosondeMenuTouch`): tryb
+  NA ŻYWO / AMATORSKIE / LOWCY + zasięg -100/+100 + REFRESH + CLOSE. Zmiana trybu zeruje
+  `lastSondeFetchMs`/`lastSondeAttemptMs` (świeże dane); REFRESH wymusza pobranie.
+- **Ekran detali sondy po przycisku sondehub.org** (`drawRadiosondeDetail`/
+  `handleRadiosondeDetailTouch`): numer seryjny, typ, wysokość, v^v, odbiorca, grid 4×2
+  (dystans/azymut/freq/SNR/odległość od odbiorcy/temp/v^v/typ sondy), status NA ŻYWO,
+  nawigacja < n/N > między sondami, POWROT. Dotyk: górny pasek lub POWROT wraca na mapę.
+- **Podpięcie dotyku**: hamburger (<30px) otwiera menu, przycisk sondehub chwyta y<32
+  i x∈[30,180). `handleTouch` rozsyła menu/detail; `sondeMenuActive`/`sondeDetailActive`
+  wyłączają wspólną nawigację ekranów i auto-refresh mapy w tle.
+- Sondy na mapie: logika fetch+projekcja+markery zweryfikowana (18 żywych sond w makiecie);
+  dane domyślnie włączone (range 600 km, live, auto-refresh 10 min).
+- Buildy `esp32-s3-n16r8` i `-notouch` SUCCESS; `buildfs` OK; `merge_bin` → `dist/`;
+  ZIP 731 wpisów (M 7655430 B) → `/workspace/share/` i `/workspace/share/flash/`.
+
 ## Backlight: boot ZAWSZE 100% + mijanie (03.11.2026)
 Zgłoszenia „ściemnienie czcionki przy wgrywaniu w okolicy LittleFS" oraz
 „czcionka jak na samym początku na wszystkich ekranach".

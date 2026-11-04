@@ -245,7 +245,7 @@ def draw_header(img, style, title="ESP32-HAM-CLOCK", right="RADIOSONDY"):
     # pasek
     d.rectangle([0, 0, W - 1, hh - 1], fill=bg)
     d.rectangle([0, hh - 2, W - 1, hh - 1], fill=C_BORDER if not classic else C_BLACK)
-    # menu (hamburger)
+    # menu (hamburger) - lewy gorny rog
     mx, my, mw = 8, 8, 14
     if classic:
         d.rounded_rectangle([4, 5, 24, 26], radius=4, fill=C_WHITE, outline=C_BLACK)
@@ -256,25 +256,29 @@ def draw_header(img, style, title="ESP32-HAM-CLOCK", right="RADIOSONDY"):
     for i in range(3):
         y = my + i * 5
         d.rectangle([mx, y, mx + mw, y + 2], fill=ink)
-    # tytul (centrum)
-    tf = F(9, True)
-    tw = d.textlength(title, font=tf)
-    d.text((240 - tw // 2, 9), title, font=tf, fill=fg)
-    # prawa: przycisk sondehub.org (po nim ekran detali)
+    # przycisk "sondehub.org >" OBOK hamburgera (po nim ekran detali sondy)
     btn = "sondehub.org >"
     bf = F(9, True)
     bw = d.textlength(btn, font=bf) + 14
-    bx = W - bw - 10
-    # prawa: "RADIOSONDY" wyrównany do prawej, tuż przed przyciskiem (bez kolizji z tytułem)
-    rf = F(9, True)
-    rw = d.textlength(right, font=rf)
-    d.text((bx - rw - 8, 4), right, font=rf, fill=fg if not classic else C_BLACK)
+    bx = 32  # zaraz za hamburgerem (x=4..24)
     if classic:
-        d.rounded_rectangle([bx, 7, W - 5, 25], radius=4, fill=C_BLACK, outline=C_WHITE)
+        d.rounded_rectangle([bx, 7, bx + bw, 25], radius=4, fill=C_BLACK, outline=C_WHITE)
         d.text((bx + 7, 9), btn, font=bf, fill=C_ORANGE)
     else:
-        d.rounded_rectangle([bx, 7, W - 5, 25], radius=4, fill=C_TEAL, outline=(28, 40, 60))
+        d.rounded_rectangle([bx, 7, bx + bw, 25], radius=4, fill=C_TEAL, outline=(28, 40, 60))
         d.text((bx + 7, 9), btn, font=bf, fill=C_BLACK)
+    # tytul (centrum) - przesuniety nieco w prawo, bo lewa zajeta przez
+    # hamburger + przycisk sondehub.org
+    tf = F(9, True)
+    tw = d.textlength(title, font=tf)
+    tx = 240 - tw // 2
+    if tx < bx + bw + 6:
+        tx = bx + bw + 6
+    d.text((tx, 9), title, font=tf, fill=fg)
+    # prawa: "RADIOSONDY" wyrównany do prawej (przed ikonami WiFi/baterii)
+    rf = F(9, True)
+    rw = d.textlength(right, font=rf)
+    d.text((W - 18 - rw, 5), right, font=rf, fill=fg if not classic else C_BLACK)
     return hh
 
 def draw_mode_icons(d, mode, x0, y0, dx):
