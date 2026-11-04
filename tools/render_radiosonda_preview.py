@@ -1,41 +1,142 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""Makieta ekranu RADIOSONDY dla ESP32-HAM-CLOCK (480x320).
+
+Tlo = prawdziwa mapa Polski ("data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg",
+pobierana do /tmp jesli nie ma lokalnie). Georeferencja prostokata tresci:
+  bbox (x21..1527, y27..1449) w oryginalnym 1536x1455
+  LAT_TOP 55.2N  LAT_BOT 48.4N  LON_LEFT 13.5E  LON_RIGHT 25.2E
+Markery sond = DANE NA ZYWO z https://api.v2.sondehub.org/sondes
+(W razie braku sieci uzywa przykladow).
+
+Wyjscie:
+  /tmp/radiosonda_preview.png      - ekran mapy z UI (480x320)
+  /tmp/radiosonda_map_only.png     - sama mapa z markerami
 """
-Makieta proponowanego ekranu RADIOSONDY (480x320) dla ESP32-HAM-CLOCK.
-Styl bedzie spójny z istniejacym ekranem ISS TRACKER:
-  - czarne tlo, ciemne karty (0x0884 ~ #0b1220), teal akcent,
-  - mapa swiata (uproszczona), znacznik QTH + linia do sondy,
-  - naglowek z kropka "NA ZYWO".
-Uzywa PIL z czcionka DejaVu (bez zapisu do firmware; tylko wizualizacja).
-Wynik: /tmp/radiosonda_preview.png
-"""
-import os
+import json
 import math
+import os
+import urllib.request
+
 from PIL import Image, ImageDraw, ImageFont
 
 W, H = 480, 320
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# Paleta zgodna z ISS TRACKER (main.cpp ISS_COL_*)
-C_BG      = (0, 0, 0)
-C_CARD    = (11, 18, 32)     # 0x0884
-C_BORDER  = (42, 51, 87)     # 0x298A
-C_ACCENT  = (53, 208, 186)   # 0x3697 teal
-C_ACCENT2 = (78, 168, 255)   # 0x4D5F blue
-C_TEXT    = (232, 238, 247)  # 0xEF7E
-C_FAINT   = (108, 125, 148)  # 0x6BF2
-C_LAND    = (42, 74, 60)     # 0x2A47
-C_WATER   = (16, 22, 38)     # pod karta mapy
-C_RED     = (235, 68, 68)
-C_RED_DIM = (90, 30, 30)
-C_GREEN   = (74, 222, 128)
-C_ORANGE  = (255, 168, 30)
-C_YELLOW  = (255, 224, 0)
+C_BG     = (0, 0, 0)
+C_CARD   = (10, 18, 32)
+C_CARD2  = (16, 24, 40)
+C_BORDER = (42, 51, 87)
+C_ACCENT = (54, 150, 247)
+C_TEXT   = (239, 254, 255)
+C_FAINT  = (108, 125, 148)
+C_YELLOW = (255, 224, 0)
+C_GREEN  = (74, 222, 128)
+C_RED    = (235, 68, 68)
+C_ORANGE = (255, 168, 30)
+C_WHITE  = (255, 255, 255)
+
+LAT_TOP, LAT_BOT = 54.84, 49.0
+LON_LEFT, LON_RIGHT = 14.12, 24.15
+B_X0, B_Y0, B_X1, B_Y1 = 21, 27, 1527, 1449
+CBW, CBH = B_X1 - B_X0, B_Y1 - B_Y0
+MAP_W, MAP_H = 1536, 1455
+
+MAP_SRC = "/tmp/PL_map_raw.jpg"
+DATA_SRC = os.path.join("data", "icon50", "PL_drogowa_750tys_95x90cm_01_10_2019.jpg")
+MAP_URL = ("https://raw.githubusercontent.com/Tom50505050/esp32-ham-clock-s3/"
+           "main/data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg")
+
+
+def load_map():
+    for p in (os.path.join(ROOT, DATA_SRC), MAP_SRC):
+        if os.path.exists(p):
+            return Image.open(p).convert("RGB")
+    print("Pobieram mape:", MAP_URL)
+    with urllib.request.urlopen(MAP_URL, timeout=30) as r:
+        with open(MAP_SRC, "wb") as f:
+            f.write(r.read())
+    return Image.open(MAP_SRC).convert("RGB")
+
+
+def proj(lat, lon):
+    """projekcja geograficzna na piksele ORYGINALNEGO obrazka (1536x1455)."""
+    x = B_X0 + (lon - LON_LEFT) / (LON_RIGHT - LON_LEFT) * CBW
+    y = B_Y0 + (LAT_TOP - lat) / (LAT_TOP - LAT_BOT) * CBH
+    return x, y
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    R = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
+
+
+def bearing(lat1, lon1, lat2, lon2):
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lon2 - lon1)
+    x = math.sin(dl) * math.cos(p2)
+    y = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    return (math.degrees(math.atan2(x, y)) + 360) % 360
+
+
+def sondes_get_live(qth_lat=52.0, qth_lon=19.5, dist_km=600, last_h=2):
+    try:
+        url = ("https://api.v2.sondehub.org/sondes?lat=%.3f&lon=%.3f"
+               "&distance=%d&duration=%dh" % (qth_lat, qth_lon, dist_km * 1000, last_h))
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.loads(r.read().decode())
+        out = []
+        for serial, v in data.items():
+            s = {
+                "serial": serial, "type": v.get("type", "?"),
+                "subtype": v.get("subtype", ""), "manufacturer": v.get("manufacturer", ""),
+                "lat": float(v.get("lat", 0)), "lon": float(v.get("lon", 0)),
+                "alt": float(v.get("alt", 0)), "temp": v.get("temp"),
+                "humidity": v.get("humidity"), "pressure": v.get("pressure"),
+                "freq": v.get("frequency"), "snr": v.get("snr"),
+                "uploader": v.get("uploader_callsign", ""),
+                "heading": v.get("heading"), "vel_h": v.get("vel_h"),
+                "batt": v.get("batt"),
+            }
+            s["dist"] = haversine_km(qth_lat, qth_lon, s["lat"], s["lon"])
+            s["az"] = bearing(qth_lat, qth_lon, s["lat"], s["lon"])
+            out.append(s)
+        out.sort(key=lambda s: s["dist"])
+        print("[SondeHub] %d sond (%.0f km od QTH %.2f/%.2f)" % (len(out), dist_km, qth_lat, qth_lon))
+        return out
+    except Exception as e:
+        print("[SondeHub] blad pobierania:", e)
+        return fallback_sondes(qth_lat, qth_lon)
+
+
+def fallback_sondes(qth_lat, qth_lon):
+    base = [
+        {"serial": "Y0353721", "type": "RS41", "subtype": "RS41-SGP", "manufacturer": "Vaisala",
+         "lat": 52.205, "lon": 14.043, "alt": 2974, "temp": -13.5, "freq": 405.8, "snr": 6.1,
+         "uploader": "SR3DWR", "batt": 2.9},
+        {"serial": "709-2-11767", "type": "M10", "subtype": "RADIOSONDE", "manufacturer": "Meteomodem",
+         "lat": 51.113, "lon": 19.804, "alt": 472, "temp": 6.2, "freq": 404.1985, "snr": 7.2,
+         "uploader": "MARCIN", "batt": 2.7},
+        {"serial": "X0334855", "type": "RS41", "subtype": "RS41-SGP", "manufacturer": "Vaisala",
+         "lat": 48.855, "lon": 20.689, "alt": 958, "temp": 1.9, "freq": 401.600625, "snr": 8.2,
+         "uploader": "SKYMAX4", "batt": 2.7},
+    ]
+    for s in base:
+        s["dist"] = haversine_km(qth_lat, qth_lon, s["lat"], s["lon"])
+        s["az"] = bearing(qth_lat, qth_lon, s["lat"], s["lon"])
+    return sorted(base, key=lambda s: s["dist"])
+
 
 def F(size, bold=False):
-    return ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVu%s.ttf" % ("Sans-Bold" if bold else "Sans"),
-        size)
+    path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    if bold:
+        path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    return ImageFont.truetype(path, size)
+
 
 def card(d, x, y, w, h, accent=True):
     d.rectangle([x, y, x + w - 1, y + h - 1], fill=C_CARD)
@@ -43,256 +144,127 @@ def card(d, x, y, w, h, accent=True):
     if accent:
         d.rectangle([x, y, x + 3, y + h - 1], fill=C_ACCENT)
 
-def label(d, x, y, text, f=F(11)):
-    d.text((x, y), text, font=f, fill=C_FAINT)
 
-def value(d, x, y, text, col=C_TEXT, f=F(15, True)):
-    d.text((x, y), text, font=f, fill=col)
+def paste_into(dst, src, x0, y0, x1, y1):
+    mw, mh = x1 - x0, y1 - y0
+    sw, sh = src.size
+    scale = max(mw / sw, mh / sh)
+    nw, nh = int(sw * scale), int(sh * scale)
+    m = src.resize((nw, nh), Image.LANCZOS)
+    ox, oy = x0 + (mw - nw) // 2, y0 + (mh - nh) // 2
+    dst.paste(m, (ox, oy))
 
-# ---- mapa świata: 1-bit maska ladów z iss_worldmask.h (228x114) ----
-def load_worldmask():
-    # wyrzucamy linie z naglowkiem / #pragma; zostaja tylko bajty 0x..
-    import re
-    p = os.path.join(ROOT, "..", "iss_worldmask.h")
-    if not os.path.exists(p):
-        p = os.path.join(ROOT, "iss_worldmask.h")
-    txt = open(p, "r", encoding="utf-8", errors="ignore").read()
-    hexes = re.findall(r"0x([0-9A-Fa-f]{2})", txt)
-    return bytes(int(h, 16) for h in hexes)
 
-MWM_BYTES = load_worldmask()
-MWM_W, MWM_H = 228, 114   # ISS_WORLDMASK_W/H
+def main():
+    qth = (52.0, 19.5)
+    sondes = sondes_get_live(qth[0], qth[1], dist_km=600, last_h=2)
+    mp = load_map()
+    print("Mapa:", mp.size, mp.mode)
 
-def world_map(d, mx, my, mw, mh):
-    d.rectangle([mx, my, mx + mw - 1, my + mh - 1], fill=C_WATER)
-    for i in range(MWM_W * MWM_H):
-        by = MWM_BYTES[i >> 3]
-        bit = (by >> (7 - (i & 7))) & 1
-        if not bit:
-            continue
-        sx, sy = i % MWM_W, i // MWM_W
-        x = mx + sx * mw // MWM_W
-        y = my + sy * mh // MWM_H
-        d.rectangle([x, y, x + max(1, mw // MWM_W) - 1, y + max(1, mh // MWM_H) - 1], fill=C_LAND)
-    d.rectangle([mx, my, mx + mw - 1, my + mh - 1], outline=C_BORDER)
+    # wspolne parametry "cover" dla mapy na 480x320
+    sw, sh = mp.size
+    sc = max(W / sw, H / sh)
+    nw, nh = int(sw * sc), int(sh * sc)
+    ox, oy = (W - nw) // 2, (H - nh) // 2
+    kx, ky = sc, sc          # przelicznik pikseli mapy -> ekran
 
-def proj(lng, lat, mx, my, mw, mh):
-    x = mx + (lng + 180) / 360 * mw
-    y = my + (90 - lat) / 180 * mh
-    return int(x), int(y)
+    def px_latlon(lat, lon):
+        px, py = proj(lat, lon)
+        return ox + int(px * kx), oy + int(py * ky)
 
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
-    return 2 * R * math.asin(math.sqrt(a))
+    # sondy mieszczace sie w granicach mapy (z lekka tolerancja)
+    on_map = [s for s in sondes
+              if LON_LEFT - 0.3 <= s["lon"] <= LON_RIGHT + 0.3
+              and LAT_BOT - 0.3 <= s["lat"] <= LAT_TOP + 0.3]
 
-# ---- BUDOWA EKRANU ----
-img = Image.new("RGB", (W, H), C_BG)
-d = ImageDraw.Draw(img)
+    # ======= EKRAN 1: mapa + UI =======
+    img = Image.new("RGB", (W, H), C_BG)
+    paste_into(img, mp, 0, 0, W, H)
+    d = ImageDraw.Draw(img)
 
-# Naglowek
-d.rectangle([0, 0, 479, 29], fill=C_CARD)
-d.rectangle([0, 29, 479, 29], fill=C_ACCENT)
-d.text((240 - d.textlength("ESP32-HAM-CLOCK", font=F(11))/2, 4), "ESP32-HAM-CLOCK", font=F(11), fill=C_FAINT)
-f_title = F(16, True)
-d.text((240 - d.textlength("RADIOSONDY", font=f_title)/2, 12), "RADIOSONDY", font=f_title, fill=C_TEXT)
+    # naglowek
+    d.rectangle([0, 0, W - 1, 29], fill=(0, 0, 0))
+    d.rectangle([0, 29, W - 1, 29], fill=C_ACCENT)
+    d.rectangle([4, 4, 63, 11], fill=None)
+    d.text((4, 4), "ESP32-HAM-CLOCK", font=F(9), fill=C_FAINT)
+    d.text((8, 12), "RADIOSONDY", font=F(14, True), fill=C_TEXT)
+    d.text((W - 132, 9), "sondehub.org", font=F(9), fill=C_ACCENT)
+    d.rectangle([W - 27, 8, W - 17, 18], fill=(90, 30, 30))
+    d.rectangle([W - 25, 10, W - 19, 16], fill=C_RED)
+    d.text((W - 14, 9), "LIVE", font=F(9, True), fill=C_RED)
 
-# kropka NA ZYWO
-d.ellipse([400, 9, 410, 19], fill=C_RED_DIM)
-d.ellipse([403, 12, 407, 16], fill=C_RED)
-d.ellipse([404, 13, 406, 15], outline=C_TEXT, width=1)
-d.text((413, 9), "NA ZYWO", font=F(11), fill=C_ACCENT)
+    # QTH
+    qx, qy = px_latlon(qth[0], qth[1])
+    d.ellipse([qx - 4, qy - 4, qx + 4, qy + 4], fill=C_YELLOW)
+    d.ellipse([qx - 8, qy - 8, qx + 8, qy + 8], outline=C_YELLOW, width=1)
+    d.text((qx + 11, qy - 8), "QTH", font=F(10, True), fill=C_YELLOW)
 
-# ---- LEWA KOLUMNA METRYK ----
-LX, LW = 4, 118
-y0 = 34
-rows = [
-    ("SYSIAL", "RS41:2", C_ACCENT),
-    ("KODOWANIE", "SGP", C_TEXT),
-    ("NAD. MHz", "401.600", C_YELLOW),
-    ("WYSOKOŚĆ", "32.4 km", C_TEXT),
-    ("DIST QTH", "236 km", C_ACCENT),
-    ("AZ/EL", "214/71", C_TEXT),
-]
-for i, (k, v, col) in enumerate(rows):
-    y = y0 + i * 33
-    card(d, LX, y, LW, 29)
-    label(d, LX + 8, y + 3, k, F(10))
-    value(d, LX + 8, y + 13, v, col, F(13, True))
+    colors = [C_RED, C_ORANGE, C_GREEN, C_ACCENT]
+    # wszystkie sondy na mapie: mala kropka
+    for s in on_map[4:]:
+        sx, sy = px_latlon(s["lat"], s["lon"])
+        d.ellipse([sx - 2, sy - 2, sx + 2, sy + 2], fill=C_WHITE)
+        d.ellipse([sx - 4, sy - 4, sx + 4, sy + 4], outline=(80, 100, 130), width=1)
+    # cztery najblizsze: duze markery + etykiety
+    for i, s in enumerate(on_map[:4]):
+        sx, sy = px_latlon(s["lat"], s["lon"])
+        col = colors[i % len(colors)]
+        d.ellipse([sx - 4, sy - 4, sx + 4, sy + 4], fill=col)
+        d.ellipse([sx - 9, sy - 9, sx + 9, sy + 9], outline=col, width=2)
+        if i == 0:
+            lbl = "%s %s %skm" % (s["serial"], s["type"], int(s["dist"]))
+            d.text((sx + 12, sy - 10), lbl, font=F(11, True), fill=C_WHITE)
+        else:
+            d.text((sx + 10, sy - 5), s["serial"], font=F(8, True), fill=C_WHITE)
 
-# ---- PRAWA STRONA: MATA MAPA ----
-MX, MY, MW, MH = 128, 34, 348, 170
-world_map(d, MX, MY, MW, MH)
+    # dolna lista
+    TBX, TBY, TBW, TBH = 4, 232, 472, 84
+    d.rectangle([TBX, TBY, TBX + TBW - 1, TBY + TBH - 1], fill=C_CARD)
+    d.rectangle([TBX, TBY, TBX + TBW - 1, TBY + TBH - 1], outline=C_BORDER)
+    d.rectangle([TBX, TBY, TBX + TBW - 1, TBY + 17], fill=C_CARD2)
+    for x, hd in zip([10, 92, 152, 212, 285, 330, 380, 430],
+                     ["SERIAL", "TYP", "WYS [m]", "DIST", "AZ", "MHz", "SNR", "LIVE"]):
+        d.text((TBX + x, TBY + 4), hd, font=F(8), fill=C_FAINT)
+    row_y = TBY + 21
+    for r in on_map[:4]:
+        d.text((TBX + 10, row_y), r["serial"], font=F(11, True), fill=C_WHITE)
+        d.text((TBX + 92, row_y), r["type"], font=F(11), fill=C_ACCENT)
+        d.text((TBX + 152, row_y), "%.0f" % r["alt"], font=F(11), fill=C_TEXT)
+        d.text((TBX + 212, row_y), "%.0fkm" % r["dist"], font=F(11), fill=C_TEXT)
+        d.text((TBX + 285, row_y), "%03.0f." % r["az"], font=F(11), fill=C_TEXT)
+        freq = r.get("freq")
+        d.text((TBX + 330, row_y), ("%.3f" % freq) if freq else "--", font=F(11), fill=C_YELLOW)
+        snr = r.get("snr")
+        d.text((TBX + 380, row_y), ("%.0fdB" % snr) if snr else "--", font=F(11), fill=C_TEXT)
+        d.ellipse([TBX + 430, row_y + 4, TBX + 436, row_y + 10], fill=C_GREEN)
+        d.text((TBX + 442, row_y), "ON", font=F(8), fill=C_FAINT)
+        row_y += 15
+    d.text((4, H - 12), "QTH: %.2fN %.2fE  •  dane: sondehub.org" % qth, font=F(8), fill=C_FAINT)
 
-# QTH (Warszawa) i sonda
-qth = (52.2, 21.0)      # SP9TNV QTH
-sonde = (52.85, 17.0)   # przykładowa sonda
-qx, qy = proj(qth[1], qth[0], MX, MY, MW, MH)
-sx, sy = proj(sonde[1], sonde[0], MX, MY, MW, MH)
-# linia QTH->sonda
-d.line([qx, qy, sx, sy], fill=C_ACCENT, width=1)
-# QTH - bialy punkt + pierscien
-d.ellipse([qx-3, qy-3, qx+3, qy+3], fill=C_TEXT)
-d.ellipse([qx-6, qy-6, qx+6, qy+6], outline=C_TEXT, width=1)
-d.text((qx+8, qy-4), "QTH", font=F(10), fill=C_TEXT)
-# Sonda - pomaranczowy znacznik + etykieta
-d.ellipse([sx-4, sy-4, sx+4, sy+4], fill=C_ORANGE)
-d.ellipse([sx-7, sy-7, sx+7, sy+7], outline=C_ORANGE, width=1)
-d.text((sx+9, sy-6), "RS41 32.4km", font=F(10), fill=C_ORANGE)
+    out = "/tmp/radiosonda_preview.png"
+    img.save(out)
+    print("Zapisano:", out, img.size)
 
-# Pasek pod mapa: info o lat/odswiezeniu
-d.text((MX+2, MY+MH+3), "Mapa: sondy w promieniu 500 km   •   odśwież 2 min", font=F(10), fill=C_FAINT)
+    # ======= EKRAN 2: mapa + markery, bez UI =======
+    imgm = Image.new("RGB", (W, H), C_BG)
+    paste_into(imgm, mp, 0, 0, W, H)
+    dm = ImageDraw.Draw(imgm)
+    qx, qy = px_latlon(qth[0], qth[1])
+    dm.ellipse([qx - 4, qy - 4, qx + 4, qy + 4], fill=C_YELLOW)
+    dm.ellipse([qx - 8, qy - 8, qx + 8, qy + 8], outline=C_YELLOW, width=1)
+    for s in on_map[4:]:
+        sx, sy = px_latlon(s["lat"], s["lon"])
+        dm.ellipse([sx - 2, sy - 2, sx + 2, sy + 2], fill=C_WHITE)
+        dm.ellipse([sx - 4, sy - 4, sx + 4, sy + 4], outline=(80, 100, 130), width=1)
+    for i, s in enumerate(on_map[:4]):
+        sx, sy = px_latlon(s["lat"], s["lon"])
+        col = colors[i % len(colors)]
+        dm.ellipse([sx - 4, sy - 4, sx + 4, sy + 4], fill=col)
+        dm.ellipse([sx - 9, sy - 9, sx + 9, sy + 9], outline=col, width=2)
+    out2 = "/tmp/radiosonda_map_only.png"
+    imgm.save(out2)
+    print("Zapisano:", out2, imgm.size)
 
-# ---- DOLNA LISTA SOND (tabela) ----
-TBX, TBY, TBW, TBH = 4, 232, 472, 84
-d.rectangle([TBX, TBY, TBX+TBW-1, TBY+TBH-1], fill=C_CARD)
-d.rectangle([TBX, TBY, TBX+TBW-1, TBY+TBH-1], outline=C_BORDER)
-# nagłówek tabeli
-d.rectangle([TBX, TBY, TBX+TBW-1, TBY+17], fill=(16, 24, 40))
-heads = ["SYSIAL", "TYP", "WYS.", "TEMPERATURA", "DIST", "AZ", "NAD. MHz", "AKT"]
-hx = [10, 90, 150, 210, 280, 320, 370, 430]
-f_small = F(10, True)
-f_row = F(11)
-for x, h in zip(hx, heads):
-    d.text((TBX+x, TBY+4), h, font=f_small, fill=C_FAINT)
-row_cols = [
-    ("X0334855", "RS41", "23.8 km", "-58.3°C", "212 km", "215°", "401.600", C_GREEN),
-    ("709-2-11767", "M10", "31.4 km", "-48.1°C", "149 km", "247°", "404.200", C_GREEN),
-    ("S5100325", "RS41", "11.2 km", "-37.0°C", "88 km", "182°", "403.501", C_GREEN),
-    ("DFM21234", "DFM-17", "2.1 km", "+6.2°C", "41 km", "96°", "400.900", C_ACCENT),
-]
-row_y = TBY + 21
-for r in row_cols:
-    vals = list(r)
-    txt_col = vals[7]
-    # status: kropka zielona dla AKT, teal jesli w woreczku w gore (wznoszenie)
-    d.text((TBX+10, row_y), vals[0], font=f_row, fill=C_TEXT)
-    d.text((TBX+90, row_y), vals[1], font=f_row, fill=C_ACCENT if vals[1]=="M10" else C_TEXT)
-    d.text((TBX+150, row_y), vals[2], font=f_row, fill=C_TEXT)
-    d.text((TBX+210, row_y), vals[3], font=f_row, fill=C_TEXT)
-    d.text((TBX+280, row_y), vals[4], font=f_row, fill=C_TEXT)
-    d.text((TBX+320, row_y), vals[5], font=f_row, fill=C_TEXT)
-    d.text((TBX+370, row_y), vals[6], font=f_row, fill=C_YELLOW)
-    d.ellipse([TBX+430, row_y+4, TBX+436, row_y+10], fill=vals[7])
-    d.text((TBX+442, row_y), "NAD", font=F(9), fill=C_FAINT)
-    row_y += 15
 
-# stopka
-d.text((4, 318), "QTH: SP9TNV JO02 • aktualizacja: 08:20 UTC", font=F(9), fill=C_FAINT)
-
-out = "/tmp/radiosonda_preview.png"
-img.save(out)
-print("Zapisano:", out, img.size)
-
-# =========================================================================================
-# EKRAN 2: RADAR SOND - lokalny zoom wokol QTH (promienie 50/100/200/400 km)
-# Kolejny "tryb odwrócenia" (tap na mapie) - jak ISS ma tryb pelnej mapy.
-# =========================================================================================
-img2 = Image.new("RGB", (W, H), C_BG)
-d = ImageDraw.Draw(img2)
-
-# naglowek
-d.rectangle([0, 0, 479, 29], fill=C_CARD)
-d.rectangle([0, 29, 479, 29], fill=C_ACCENT)
-d.text((240 - d.textlength("ESP32-HAM-CLOCK", font=F(11))/2, 4), "ESP32-HAM-CLOCK", font=F(11), fill=C_FAINT)
-d.text((240 - d.textlength("RADAR SOND", font=f_title)/2, 12), "RADAR SOND", font=f_title, fill=C_TEXT)
-d.ellipse([400, 9, 410, 19], fill=C_RED_DIM)
-d.ellipse([403, 12, 407, 16], fill=C_RED)
-d.ellipse([404, 13, 406, 15], outline=C_TEXT, width=1)
-d.text((413, 9), "NA ZYWO", font=F(11), fill=C_ACCENT)
-
-# Lewa kolumna: cel wybrany (X0334855)
-LX2, LW2 = 4, 118
-y2 = 34
-rows2 = [
-    ("CEL", "X0334855", C_ACCENT),
-    ("TYP / ODKOD.", "RS41 / SGP", C_TEXT),
-    ("WYSOKOSC", "23.8 km", C_TEXT),
-    ("TEMPERATURA", "-58.3°C", C_ACCENT2),
-    ("DIST / AZ", "212 km / 215°", C_TEXT),
-    ("WEKTOR", "NE 47 km/h", C_ACCENT),
-    ("NAD. MHz", "401.600", C_YELLOW),
-    ("SNR / BATT", "9 dB / 2.7V", C_FAINT),
-]
-for i, (k, v, col) in enumerate(rows2):
-    y = y2 + i * 26
-    card(d, LX2, y, LW2, 22)
-    label(d, LX2 + 7, y + 2, k, F(9))
-    value(d, LX2 + 7, y + 10, v, col, F(11, True))
-
-# Prawa: radar lokalny z promieniami - SZEROKOSC/DLUGOSC/QTH wzgledne
-RX, RY, R = 320, 150, 105   # srodek radaru
-d.ellipse([RX-R-10, RY-R-10, RX+R+10, RY+R+10], fill=C_WATER)
-d.ellipse([RX-R, RY-R, RX+R, RY+R], outline=C_BORDER)
-r_rings = [R, int(R*0.707), int(R*0.5), int(R*0.25)]
-for rr in r_rings:
-    d.ellipse([RX-rr, RY-rr, RX+rr, RY+rr], outline=C_BORDER)
-# osie N/E/S/W
-d.line([RX, RY-R, RX, RY+R], fill=C_BORDER)
-d.line([RX-R, RY, RX+R, RY], fill=C_BORDER)
-d.text((RX-4, RY-R-14), "N", font=F(10), fill=C_FAINT)
-d.text((RX-4, RY+R+2), "S", font=F(10), fill=C_FAINT)
-d.text((RX+R+4, RY-6), "E", font=F(10), fill=C_FAINT)
-d.text((RX-R-12, RY-6), "W", font=F(10), fill=C_FAINT)
-# etykiety zasiegu
-d.text((RX+6, RY-R+2), "400", font=F(8), fill=C_FAINT)
-d.text((RX+6, RY-int(R*0.5)+2), "200", font=F(8), fill=C_FAINT)
-
-# QTH srodek
-d.ellipse([RX-4, RY-4, RX+4, RY+4], fill=C_TEXT)
-d.ellipse([RX-7, RY-7, RX+7, RY+7], outline=C_TEXT, width=1)
-d.text((RX+10, RY-6), "QTH", font=F(9), fill=C_TEXT)
-# sondy na radarze (pol. azymut/odleglosc -> wspolrzedne ekranu)
-# sonda1: 212km @215, sonda2: 149km @247, sonda3: 88km @182, sonda4: 41km @96
-def radar_point(dist_km, az, Rmax=400):
-    r = dist_km / Rmax * R
-    a = math.radians(az - 90)
-    return RX + int(r * math.cos(a)), RY + int(r * math.sin(a))
-
-for dist, az, name, col, isSel in [
-        (212, 215, "X0334855", C_ORANGE, True),
-        (149, 247, "709-2-11767", C_GREEN, False),
-        (88, 182, "S5100325", C_GREEN, False),
-        (41, 96, "DFM21234", C_ACCENT, False),
-]:
-    px, py = radar_point(dist, az)
-    d.ellipse([px-3, py-3, px+3, py+3], fill=col)
-    d.ellipse([px-6, py-6, px+6, py+6], outline=col, width=1 if isSel else 1)
-    if isSel:
-        d.line([RX, RY, px, py], fill=col, width=1)
-        d.text((px+10, py-12), name + " 212km", font=F(9), fill=col)
-    else:
-        name_short = name[:5]
-        d.text((px+7, py-6), name_short, font=F(8), fill=col)
-# legenda
-d.text((RX-R, RY+R+16), "mape: tap = globalna / radar", font=F(9), fill=C_FAINT)
-
-# Dolna lista (podobna do ekranu 1, ale bez kolumny AKT - do wykorzystania w trybie radarowym)
-TBX, TBY, TBW, TBH = 4, 232, 472, 84
-d.rectangle([TBX, TBY, TBX+TBW-1, TBY+TBH-1], fill=C_CARD)
-d.rectangle([TBX, TBY, TBX+TBW-1, TBY+TBH-1], outline=C_BORDER)
-d.rectangle([TBX, TBY, TBX+TBW-1, TBY+17], fill=(16, 24, 40))
-# naglowek
-for x, h in zip([10, 90, 150, 210, 280, 320, 370, 430], ["SYSIAL","TYP","WYS.","TEMPERATURA","DIST","AZ","NAD. MHz","AKT"]):
-    d.text((TBX+x, TBY+4), h, font=f_small, fill=C_FAINT)
-row_y = TBY + 21
-for r in row_cols:
-    vals = list(r)
-    d.text((TBX+10, row_y), vals[0], font=f_row, fill=C_TEXT)
-    d.text((TBX+90, row_y), vals[1], font=f_row, fill=C_ACCENT if vals[1]=="M10" else C_TEXT)
-    d.text((TBX+150, row_y), vals[2], font=f_row, fill=C_TEXT)
-    d.text((TBX+210, row_y), vals[3], font=f_row, fill=C_TEXT)
-    d.text((TBX+280, row_y), vals[4], font=f_row, fill=C_TEXT)
-    d.text((TBX+320, row_y), vals[5], font=f_row, fill=C_TEXT)
-    d.text((TBX+370, row_y), vals[6], font=f_row, fill=C_YELLOW)
-    d.ellipse([TBX+430, row_y+4, TBX+436, row_y+10], fill=vals[7])
-    d.text((TBX+442, row_y), "NAD", font=F(9), fill=C_FAINT)
-    row_y += 15
-d.text((4, 318), "QTH: SP9TNV JO02 • tryb radaru lokalnego", font=F(9), fill=C_FAINT)
-
-out2 = "/tmp/radiosonda_radar_preview.png"
-img2.save(out2)
-print("Zapisano:", out2, img2.size)
+if __name__ == "__main__":
+    main()
