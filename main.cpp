@@ -30735,9 +30735,9 @@ static void issDrawFrameFromState() {
 #define PL_MAP_W  480
 #define PL_MAP_H  244
 // Obraz mapy (data/map_tft.jpg, 258x244) wycentrowany w panelu - contain jpg.
-#define PL_IMG_W  258
-#define PL_IMG_H  244
-#define PL_IMG_X  ((PL_MAP_W - PL_IMG_W) / 2)
+#define PL_IMG_W  PL_MAP_W
+#define PL_IMG_H  PL_MAP_H
+#define PL_IMG_X  PL_MAP_X0
 #define PL_IMG_Y  PL_MAP_Y0
 #define PL_MAP_JPG "/map_tft.jpg"
 
@@ -30953,15 +30953,22 @@ static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
 // Rysuje mala kolorowa ikone RGB565 wycentrowana na (x,y); piksel 0xF81F
 // (sentinel) jest przezroczysty - nie nadpisuje mapy pod spodem.
 static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int stride) {
-  const int x0 = x - w / 2;
-  const int y0 = y - h / 2;
+  const int z = 2;  // 2x powiekszenie ikony 16x16 -> 32x32 px (lepsza widocznosc na mapie)
+  const int x0 = x - (w * z) / 2;
+  const int y0 = y - (h * z) / 2;
   for (int j = 0; j < h; j++) {
     for (int i = 0; i < w; i++) {
       uint16_t c = icon[j * stride + i];
       if (c == 0xF81F) continue;
-      tft.drawPixel(x0 + i, y0 + j, c);
+      for (int dj = 0; dj < z; dj++) {
+        for (int di = 0; di < z; di++) {
+          tft.drawPixel(x0 + i * z + di, y0 + j * z + dj, c);
+        }
+      }
     }
   }
+  // Bialy obrys dla kontrastu na mapie.
+  tft.drawRect(x0, y0, w * z, h * z, TFT_WHITE);
 }
 
 void drawRadiosondyScreen() {
