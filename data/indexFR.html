@@ -2786,6 +2786,19 @@
             const intervalFromApi = parseInt(data.aprs_interval_min, 10);
             const intervalSafe = Number.isFinite(intervalFromApi) ? Math.min(180, Math.max(1, intervalFromApi)) : 29;
             document.getElementById('aprs_interval_min').value = intervalSafe;
+            // RADIOSONDY (SondeHub)
+            const rsEnabledEl = document.getElementById('radiosonde_enabled');
+            if (rsEnabledEl) rsEnabledEl.checked = data.radiosonde_enabled === true;
+            const rsRangeEl = document.getElementById('radiosonde_range_km');
+            if (rsRangeEl) rsRangeEl.value = (data.radiosonde_range_km !== undefined && data.radiosonde_range_km !== null) ? data.radiosonde_range_km : 600;
+            const rsModeEl = document.getElementById('radiosonde_mode');
+            if (rsModeEl) rsModeEl.value = data.radiosonde_mode || 'live';
+            const rsLiveMinEl = document.getElementById('radiosonde_live_min');
+            if (rsLiveMinEl) rsLiveMinEl.value = (data.radiosonde_live_min !== undefined && data.radiosonde_live_min !== null) ? data.radiosonde_live_min : 10;
+            const rsPathEl = document.getElementById('radiosonde_show_path');
+            if (rsPathEl) rsPathEl.checked = data.radiosonde_show_path === true;
+            const rsUpEl = document.getElementById('radiosonde_show_uploader');
+            if (rsUpEl) rsUpEl.checked = data.radiosonde_show_uploader === true;
             applyScreenOrderToUI(data.screen_order);
             updateModulesInfoEN(data || {});
         };
