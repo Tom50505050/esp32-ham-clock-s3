@@ -292,7 +292,7 @@ bool radiosondeShowUploader = true; // podpis odbiorcy (lowcy)
 #define SONDE_MAX_ENTRIES 24
 #define SONDE_FETCH_MIN_INTERVAL_MS 30000UL  // min przerwa miedzy zapytaniami
 #define SONDE_SCREEN_REFRESH_MS 60000UL      // odswiezanie ekranu RADIOSONDY co 60 s
-#define SONDE_FETCH_MAX_BODY 32768UL         // max odpowiedz JSON (String)
+#define SONDE_FETCH_MAX_BODY 131072UL        // max odpowiedz JSON (String); 1000 km ~ 100 KB
 
 typedef struct {
   char serial[16];
@@ -401,6 +401,7 @@ void applyPanelBrightnessBoost();
 void initTFTGamma();
 
 void savePreferences();
+float readBatteryVoltage();
 void locatorToLatLon(String locator, double &lat, double &lon);
 String latLonToLocator(double lat, double lon, int precision = 6);
 void gpsApplyConfig();
@@ -26245,6 +26246,36 @@ void setupWebServer() {
     }
   });
   
+  // API - jednopunktowa kalibracja baterii: podajesz rzeczywiste napiecie z
+  // multimetru, a urzadzenie przelicza mnoznik dzielnika (i zapisuje do NVS).
+  server->on("/api/cal_batt", HTTP_POST, []() {
+    String rawBody = server->arg("plain");
+    int bOk = 0;
+    String jsonResp = "{\"status\":\"error\"}";
+    DynamicJsonDocument jdoc(512);
+    if (rawBody.length() > 0 && !deserializeJson(jdoc, rawBody)) {
+      float vref = jdoc["v"] | 0.0f;
+      if (vref >= 3.0f && vref <= 4.5f) {
+        float vnow = readBatteryVoltage();
+        if (vnow > 1.0f) {
+          float corr = vref / vnow;
+          if (corr > 0.5f && corr < 2.0f) {
+            batteryDividerCal *= corr;
+            if (batteryDividerCal < 0.5f) batteryDividerCal = 0.5f;
+            if (batteryDividerCal > 2.0f) batteryDividerCal = 2.0f;
+            savePreferences();
+            bOk = 1;
+            jsonResp = "{\"status\":\"ok\",\"div\":\"" +
+                       String(batteryDividerCal, 4) + "\"}";
+            Serial.printf("[BATTERY] Kalibracja WWW: vref=%.3fV vnow=%.3fV kor=%.4f -> div=%.4f\n",
+                          vref, vnow, corr, batteryDividerCal);
+          }
+        }
+      }
+    }
+    server->send(bOk ? 200 : 400, "application/json", jsonResp);
+  });
+
   // API - resetuj kalibracjÄ™ dotyku do wartoĹ›ci domyĹ›lnych
   server->on("/api/reset_touch", HTTP_POST, []() {
     touchXMin = TOUCH_X_MIN;
@@ -27387,7 +27418,7 @@ String getMainHTML() {
         <div class="field"><label>Offset (V)</label><input id="bat_off" type="number" step="0.01" min="-1" max="1"></div>
       </div>
       <div class="toolbar" style="margin-top:8px">
-        <button class="sm sec" onclick="saveConfig()">Zapisz kalibracje</button>
+        <button class="sm sec" onclick="calibrateBattery()">Zapisz kalibracje</button>
       </div>
       <div class="hint" id="batStatus"></div>
     </div>
@@ -27462,10 +27493,7 @@ function fillForm(cfg){
   val('user_callsign',cfg.user_callsign); val('user_locator',cfg.user_locator);
   val('user_lat',cfg.user_lat); val('user_lon',cfg.user_lon);
   val('bat_div_cal',cfg.bat_div_cal); val('bat_off',cfg.bat_off);
-  // Pole "Rzeczywiste napiecie" jest jednorazowe - po zapisie czyscimy je i
-  // pokazujemy zapisany mnoznik, zeby bylo widac efekt kalibracji.
-  val('bat_cal_v','');
-  {const bs=$('batStatus');if(bs)bs.textContent='Zapisany mnoznik: '+Number(cfg.bat_div_cal!=null?cfg.bat_div_cal:1).toFixed(4)+', offset: '+Number(cfg.bat_off!=null?cfg.bat_off:0).toFixed(3)+' V';}
+  {const bs=$('batStatus');if(bs&&!bs.dataset.done)bs.textContent='Zapisany mnoznik: '+Number(cfg.bat_div_cal!=null?cfg.bat_div_cal:1).toFixed(4)+', offset: '+Number(cfg.bat_off!=null?cfg.bat_off:0).toFixed(3)+' V';}
   val('battery_mah',cfg.battery_mah); val('charger_module',cfg.charger_module);
   val('battery_type',cfg.battery_type);
   val('bat_now',(cfg.sys_vcc&&cfg.sys_vcc>1)?cfg.sys_vcc.toFixed(2)+' V':'-');
@@ -27789,6 +27817,28 @@ function saveFromActiveTab(){
 // Wczesniej onclick="saveConfig()" wskazywal na nieistniejaca funkcje,
 // przez co przycisk nie robil nic (m.in. nie dalo sie zapisac kalibracji).
 function saveConfig(){ saveFromActiveTab(); }
+
+// Jednopunktowa kalibracja baterii. Wysylamy TYLKO rzeczywiste napiecie -
+// bez mnoznika/offsetu z formularza (kolejnosc przeliczen w /api/save
+// nadpisywalaby korekte). Na koniec odswiezamy mnoznik na formularzu.
+async function calibrateBattery(){
+  const bs=$('batStatus');
+  if(bs)bs.textContent='Zapisywanie...';
+  const v=parseFloat($('bat_cal_v').value);
+  if(!(v>=3&&v<=4.5)){if(bs)bs.textContent='Blad: podaj napiecie 3.0-4.5 V (np. z multimetru).';return;}
+  try{
+    const r=await fetch('/api/cal_batt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({v:v})});
+    const t=await r.json();
+    if(r.ok&&t.status==='ok'){
+      $('bat_div_cal').value=Number(t.div).toFixed(4);
+      $('bat_cal_v').value='';
+      if(bs)bs.textContent='Zapisano! Nowy mnoznik: '+Number(t.div).toFixed(4)+'. Odswiezono z urzadzenia.';
+      loadConfig();
+    }else{
+      if(bs)bs.textContent='Blad: '+JSON.stringify(t);
+    }
+  }catch(e){if(bs)bs.textContent='Blad zapisu: '+e;}
+}
 
 async function resetTouch(){
   if(!confirm('Reset kalibracji dotyku do wartosci domyslnych?'))return;
@@ -30856,11 +30906,12 @@ static bool fetchRadiosondeData() {
 
   double qlat, qlon;
   sondeGetQth(qlat, qlon);
-  // Endpoint /sondes (bez parametrow) zwraca wszystkie aktywne sondy z danymi
-  // uploadera (uploader_position). Parametry lat/lon/distance/last NIE sa
-  // obslugiwane - z lat/lon/distance/last API zwracalo pusta odpowiedz {}.
-  // Filtrowanie po promieniu robimy u siebie (ponizej w parserze).
-  String url = "https://api.v2.sondehub.org/sondes";
+  // /sondes z lat/lon/distance zwraca tylko sondy w promieniu (z danymi
+  // uploadera). Parametru "last" NIE dodajemy - z nim API zwraca puste {}.
+  // Bez distance /sondes zwraca caly swiat (~490 KB, przekracza limit).
+  String url = "https://api.v2.sondehub.org/sondes?lat=" + String(qlat, 4) +
+               "&lon=" + String(qlon, 4) +
+               "&distance=" + String((long)radiosondeRangeKm * 1000);
 
   static WiFiClientSecure client;  // reuse, nie buduj kontekstu TLS za kazdym razem
   client.setInsecure();
@@ -30893,8 +30944,24 @@ static bool fetchRadiosondeData() {
     return false;
   }
 
-  DynamicJsonDocument doc(16384);
-  DeserializationError err = deserializeJson(doc, payload);
+  // Filtr: z odpowiedzi (do ~100 KB przy 1000 km) bierzemy tylko potrzebne
+  // pola - dokument JSON zajmuje wtedy kilka kB zamiast dziesiatek.
+  StaticJsonDocument<768> filter;
+  filter["*"]["lat"] = true;
+  filter["*"]["lon"] = true;
+  filter["*"]["alt"] = true;
+  filter["*"]["vel_v"] = true;
+  filter["*"]["temp"] = true;
+  filter["*"]["snr"] = true;
+  filter["*"]["frequency"] = true;
+  filter["*"]["tx_frequency"] = true;
+  filter["*"]["type"] = true;
+  filter["*"]["manufacturer"] = true;
+  filter["*"]["uploader_callsign"] = true;
+  filter["*"]["uploader_position"] = true;
+  DynamicJsonDocument doc(24576);
+  DeserializationError err = deserializeJson(doc, payload,
+                                             DeserializationOption::Filter(filter));
   if (err) {
     sondeFetchError = true;
     sondeFetchErrMsg = "JSON parse";
