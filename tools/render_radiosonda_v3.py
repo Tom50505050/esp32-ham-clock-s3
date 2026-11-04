@@ -554,7 +554,8 @@ def render_detail(style, s):
     vv = s.get('vel_v') or 0
     arr = u'\u2191' if vv >= 0 else u'\u2193'
     if vv is None: arr = '-'
-    d.text((22, y + 46), "Trend wys. %s  %.1f m/s" % (arr, abs(vv)), font=F(11, True), fill=WHITE)
+    d.text((22, y + 46), "Trend wys. %s  %.1f m/s" % (arr, abs(vv)), font=F(11, True),
+           fill=C_GREEN if vv >= 0 else C_RED)
     d.text((22, y + 64), "Odbiorca: %s" % (s.get('uploader') or '-'), font=F(10), fill=WHITE)
     y += 96
 

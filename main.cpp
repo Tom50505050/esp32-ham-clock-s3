@@ -30722,6 +30722,12 @@ static void issDrawFrameFromState() {
 #define PL_MAP_Y0 33
 #define PL_MAP_W  480
 #define PL_MAP_H  244
+// Obraz mapy (data/map_tft.jpg, 258x244) wycentrowany w panelu - contain jpg.
+#define PL_IMG_W  258
+#define PL_IMG_H  244
+#define PL_IMG_X  ((PL_MAP_W - PL_IMG_W) / 2)
+#define PL_IMG_Y  PL_MAP_Y0
+#define PL_MAP_JPG "/map_tft.jpg"
 
 // Wspolrzedna QTH do rysowania (GPS > reczna > domyslna Warszawa).
 static void sondeGetQth(double &lat, double &lon) {
@@ -30746,8 +30752,8 @@ static bool sondeProject(float lat, float lon, int &x, int &y) {
   if (lat > PL_LAT_TOP) lat = PL_LAT_TOP;
   if (lon < PL_LON_LEFT) lon = PL_LON_LEFT;
   if (lon > PL_LON_RIGHT) lon = PL_LON_RIGHT;
-  x = PL_MAP_X0 + (int)((lon - PL_LON_LEFT) / (PL_LON_RIGHT - PL_LON_LEFT) * PL_MAP_W);
-  y = PL_MAP_Y0 + (int)((PL_LAT_TOP - lat) / (PL_LAT_TOP - PL_LAT_BOT) * PL_MAP_H);
+  x = PL_IMG_X + (int)((lon - PL_LON_LEFT) / (PL_LON_RIGHT - PL_LON_LEFT) * PL_IMG_W);
+  y = PL_IMG_Y + (int)((PL_LAT_TOP - lat) / (PL_LAT_TOP - PL_LAT_BOT) * PL_IMG_H);
   return true;
 }
 
@@ -30881,10 +30887,33 @@ static bool fetchRadiosondeData() {
   return sondeCount > 0;
 }
 
-// Rysuje 1-bitowa maske Polski w pelnoekranowym panelu. Surowe drawPixel
-// (480*285=137k pixeli) trwaloby na SPI ~2 s - skladamy biegace serie tego
-// samego bitu w drawFastHLine, przez co cala mapa to kilkaset transakcji.
+// Callback TJpgDec: bloki MCU przychodza w juz bezwzglednych wspolrzednych
+// ekranu - wstawiamy prosto do TFT.
+static bool tjpgMapOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
+  tft.pushImage(x, y, w, h, bitmap);
+  return true;
+}
+
+// Rysuje obraz mapy data/map_tft.jpg (258x244) wycentrowany w panelu mapy.
+// Zwraca false, gdy pliku nie ma (stary LittleFS) - wtedy falls back do maski.
+static bool drawRadiosondeMapJpg() {
+  if (!littleFsReady || !LittleFS.exists(PL_MAP_JPG)) return false;
+  TJpgDec.setSwapBytes(true);
+  TJpgDec.setJpgScale(1);
+  TJpgDec.setCallback(tjpgMapOutput);
+  return TJpgDec.drawFsJpg(PL_IMG_X, PL_IMG_Y, PL_MAP_JPG, LittleFS) == JDR_OK;
+}
+
+// Rysuje mape Polski w pelnoekranowym panelu. Najpierw obrazek
+// data/map_tft.jpg (TJpgDec); gdy go brak (stary FS), 1-bitowa maska
+// poland_mask.h. Surowe drawPixel (480*285=137k px) trwaloby na SPI ~2 s -
+// maska sklada biegnace serie w drawFastHLine (kilkaset transakcji).
 static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
+  tft.fillRect(PL_MAP_X0, PL_MAP_Y0, PL_MAP_W, PL_MAP_H, out);
+  if (drawRadiosondeMapJpg()) {
+    tft.drawRect(PL_MAP_X0, PL_MAP_Y0, PL_MAP_W, PL_MAP_H, border);
+    return;
+  }
   for (int j = 0; j < PL_MAP_H; j++) {
     uint16_t sy = (uint16_t)((uint32_t)j * POLAND_MASK_H / PL_MAP_H);
     int runStart = 0;
@@ -31212,7 +31241,9 @@ static void drawRadiosondeDetail() {
   String typ = String(s.type);
   if (s.manufacturer[0]) typ += " " + String(s.manufacturer);
   tft.drawString(typ + "  alt " + String((int)s.alt) + " m", 22, y + 36, 2);
+  tft.setTextColor(s.velV >= 0 ? 0x07E0 : 0xF800, 0x0000);  // zielono = wznoszenie, czerwono = opadanie
   tft.drawString(String(s.velV >= 0 ? "^ " : "v ") + String(fabsf(s.velV), 1) + " m/s", 22, y + 58, 2);
+  tft.setTextColor(TFT_WHITE, 0x0000);
   tft.drawString("Odbiorca: " + String(s.uploader[0] ? s.uploader : "-"), 22, y + 80, 2);
 
   // Grid informacji (kompaktowy, 4 wiersze na ekranie 320 px)
