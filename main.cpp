@@ -461,6 +461,7 @@ enum ScreenType : uint8_t {
 // Mapa Polski 200x120 (1-bit, 1=Polska) dla ekranu RADIOSONDY - wygenerowana
 // z data PL_map_raw.jpg przez tools/gen_poland_mask.py. Wbudowana w firmware.
 #include "poland_mask.h"
+#include "radiosonde_icons.h"
 
 // Ikony ekranu APRS w stylu nowoczesnym (24 symbole, 64x64 RGB565). Wbudowane
 // w firmware (nie w LittleFS), zeby nie zabierac miejsca na uploady z WWW.
@@ -30864,6 +30865,20 @@ static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
   tft.drawRect(PL_MAP_X0, PL_MAP_Y0, PL_MAP_W, PL_MAP_H, border);
 }
 
+// Rysuje mala kolorowa ikone RGB565 wycentrowana na (x,y); piksel 0xF81F
+// (sentinel) jest przezroczysty - nie nadpisuje mapy pod spodem.
+static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int stride) {
+  const int x0 = x - w / 2;
+  const int y0 = y - h / 2;
+  for (int j = 0; j < h; j++) {
+    for (int i = 0; i < w; i++) {
+      uint16_t c = icon[j * stride + i];
+      if (c == 0xF81F) continue;
+      tft.drawPixel(x0 + i, y0 + j, c);
+    }
+  }
+}
+
 void drawRadiosondyScreen() {
   if (!tftInitialized) return;
   const bool classic = uiStyleClassic();
@@ -30890,10 +30905,6 @@ void drawRadiosondyScreen() {
 
   // --- znaczniki ---
   const bool hunters = (radiosondeMode == "hunters");
-  const bool amateur = (radiosondeMode == "amateur");
-  // "na zywo": czerwone balony w stylu klasycznym, teal w nowoczesnym.
-  const uint16_t balloonCol = amateur ? TFT_GREEN : (classic ? TFT_RED : UI_COL_ACCENT);
-  const uint16_t ringCol    = classic ? TFT_BLACK : bdrCol;
 
   double qlat, qlon;
   sondeGetQth(qlat, qlon);
@@ -30930,29 +30941,25 @@ void drawRadiosondyScreen() {
     if (!sondeProject(s.lat, s.lon, x, y)) continue;
 
     if (hunters) {
-      // "maly balon" na pozycji sondy (cel)
-      tft.fillCircle(x, y, 3, accent);
-      tft.drawCircle(x, y, 3, ringCol);
+      // "maly balon" na pozycji sondy (cel) - kolorowe ikony, mniejsze niz sonda
+      drawRsIcon(x, y, RS_ICON_BALLOON_W, RS_ICON_BALLOON_H, RS_ICON_BALLOON, RS_ICON_BALLOON_W);
       // auto lowcy na pozycji uploadera
       if (radiosondeShowUploader && (s.upLat != 0.0f || s.upLon != 0.0f)) {
         int ux, uy;
         if (sondeProject(s.upLat, s.upLon, ux, uy)) {
-          tft.fillRect(ux - 3, uy - 2, 6, 4, warnCol);
-          tft.drawFastVLine(ux, uy - 4, 2, warnCol);
+          drawRsIcon(ux, uy, RS_ICON_AUTO_W, RS_ICON_AUTO_H, RS_ICON_AUTO, RS_ICON_AUTO_W);
         }
       }
     } else {
-      // balon sondy: kolko + pierscien + "ogon"
-      tft.fillCircle(x, y, 3, balloonCol);
-      tft.drawCircle(x, y, 3, ringCol);
-      tft.drawFastVLine(x, y + 4, 3, balloonCol);
+      // balon sondy - mala kolorowa ikona z internetu (Fluent 3D)
+      drawRsIcon(x, y, RS_ICON_BALLOON_W, RS_ICON_BALLOON_H, RS_ICON_BALLOON, RS_ICON_BALLOON_W);
     }
     // etykieta najblizszej sondy (serial)
     if (i == 0) {
       tft.setTextSize(1);
       tft.setTextDatum(TL_DATUM);
       tft.setTextColor(textCol, outCol);
-      tft.drawString(s.serial, x + 8, y + 4, 1);
+      tft.drawString(s.serial, x + 9, y + 4, 1);
     }
   }
 
