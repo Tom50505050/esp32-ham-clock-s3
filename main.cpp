@@ -31191,8 +31191,11 @@ static void drawRadiosondeDetail() {
   const SondeSpot &s = sondeSpots[sondeDetailIndex];
   const bool classic = uiStyleClassic();
 
-  tft.fillScreen(classic ? 0xFDF9 /* bialy */ : UI_COL_BG);
+  // Ciemne tlo - bez "kratek": tylko obrysy (obwodki) i biale litery/cyfry.
+  tft.fillScreen(0x0000);
   drawRadiosondeHeader();
+  (void)classic;
+  const uint16_t outline = TFT_WHITE;
 
   double qlat, qlon;
   sondeGetQth(qlat, qlon);
@@ -31200,27 +31203,17 @@ static void drawRadiosondeDetail() {
   float az = calculateBearing(qlat, qlon, s.lat, s.lon);
   if (az < 0) az += 360.0f;
 
-  const uint16_t card = classic ? 0xFFFF : 0x0E1E /* ciemna karta */;
-  const uint16_t col = classic ? TFT_BLACK : UI_COL_TEXT;
-  const uint16_t lab = classic ? 0x5A6B : UI_COL_FAINT;
-  const uint16_t acc = classic ? TFT_RADIO_ORANGE : UI_COL_ACCENT;
-  const uint16_t border = classic ? TFT_RADIO_ORANGE : UI_COL_BORDER;
-
-  // Karta sondy
+  // Karta sondy - obrys bez wypelnienia
   int y = UI_HEADER_H + 12;
-  tft.fillRoundRect(8, y, 464, 102, 8, card);
-  tft.drawRoundRect(8, y, 464, 102, 8, border);
+  tft.drawRoundRect(8, y, 464, 102, 8, outline);
   tft.setTextDatum(TL_DATUM);
   tft.setTextSize(1);
-  tft.setTextColor(acc, card);
+  tft.setTextColor(TFT_WHITE, 0x0000);
   tft.drawString("SONDA: " + String(s.serial), 22, y + 6, 4);
-  tft.setTextColor(col, card);
   String typ = String(s.type);
   if (s.manufacturer[0]) typ += " " + String(s.manufacturer);
   tft.drawString(typ + "  alt " + String((int)s.alt) + " m", 22, y + 36, 2);
-  tft.setTextColor((s.velV < 0) ? 0xF800 : 0x07E0, card);
   tft.drawString(String(s.velV >= 0 ? "^ " : "v ") + String(fabsf(s.velV), 1) + " m/s", 22, y + 58, 2);
-  tft.setTextColor(col, card);
   tft.drawString("Odbiorca: " + String(s.uploader[0] ? s.uploader : "-"), 22, y + 80, 2);
 
   // Grid informacji (kompaktowy, 4 wiersze na ekranie 320 px)
@@ -31245,11 +31238,10 @@ static void drawRadiosondeDetail() {
   for (int i = 0; i < 8; i++) {
     int cx = 16 + (i % 2) * (cw + 2);
     int cy = gy + (i / 2) * (ch + 4);
-    tft.fillRoundRect(cx, cy, cw - 2, ch - 2, 5, card);
-    tft.drawRoundRect(cx, cy, cw - 2, ch - 2, 5, border);
-    tft.setTextColor(lab, card);
+    // tylko obrys (obwodka), bez wypelnienia - litery i cyfry biale
+    tft.drawRoundRect(cx, cy, cw - 2, ch - 2, 5, outline);
+    tft.setTextColor(TFT_WHITE, 0x0000);
     tft.drawString(ks[i], cx + 8, cy + 1, 1);
-    tft.setTextColor(col, card);
     tft.drawString(vstr[i], cx + 8, cy + 13, 1);
   }
 
@@ -31257,16 +31249,15 @@ static void drawRadiosondeDetail() {
   int y2 = gy + 4 * (ch + 4) + 8;
   bool live = true; // SondeHub zwraca tylko aktywne ramki z ostatnich 60 min
   tft.fillCircle(20, y2 + 6, 6, live ? 0x07E0 : 0xF800);
-  tft.setTextColor(col, classic ? 0xFDF9 : UI_COL_BG);
+  tft.setTextColor(TFT_WHITE, 0x0000);
   tft.drawString(live ? "NA ZYWO" : "SZUKAM RAMKI", 36, y2, 2);
 
   tft.setTextDatum(TR_DATUM);
-  tft.setTextColor(col, classic ? 0xFDF9 : UI_COL_BG);
+  tft.setTextColor(TFT_WHITE, 0x0000);
   tft.drawString(" < " + String(sondeDetailIndex + 1) + "/" + String(sondeCount) + " >", 458, y2, 2);
   tft.setTextDatum(TL_DATUM);
-  tft.fillRoundRect(10, 284, 110, 30, 5, card);
-  tft.drawRoundRect(10, 284, 110, 30, 5, border);
-  tft.setTextColor(col, card);
+  tft.drawRoundRect(10, 284, 110, 30, 5, outline);
+  tft.setTextColor(TFT_WHITE, 0x0000);
   tft.drawString("POWROT", 24, 291, 2);
 }
 

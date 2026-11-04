@@ -538,32 +538,27 @@ def render_menu(style):
 
 
 def render_detail(style, s):
-    """Ekran detali po wcisnieciu [sondehub.org>]."""
-    classic = (style == 'classic')
-    img = Image.new('RGB', (W, H), (250, 248, 244) if classic else C_DARK)
+    """Ekran detali po wcisnieciu [sondehub.org>] - obrysy (obwodki), biale napisy."""
+    img = Image.new('RGB', (W, H), (0, 0, 0))
     d = ImageDraw.Draw(img)
     hh = draw_header(img, style)
-    col = C_BLACK if classic else C_WHITE
-    lab = (90, 90, 90) if classic else C_FAINT
+    OUTLINE = (255, 255, 255)
+    WHITE = (255, 255, 255)
 
     y = hh + 12
-    # karta sondy
-    d.rounded_rectangle([8, y, W - 8, y + 86], radius=8,
-                        fill=(255, 255, 255) if classic else (14, 24, 46),
-                        outline=C_ORANGE if classic else C_BORDER)
-    d.text((22, y + 8), "SONDA: " + s['serial'], font=F(15, True),
-           fill=C_ORANGE if classic else C_TEAL)
+    # karta sondy - tylko obrys
+    d.rounded_rectangle([8, y, W - 8, y + 86], radius=8, fill=(0, 0, 0), outline=OUTLINE, width=2)
+    d.text((22, y + 8), "SONDA: " + s['serial'], font=F(15, True), fill=WHITE)
     d.text((22, y + 28), "%s  %s  alt %.0f m" % (s['type'], s.get('subtype', ''), s['alt']),
-           font=F(11), fill=col)
+           font=F(11), fill=WHITE)
     vv = s.get('vel_v') or 0
     arr = u'\u2191' if vv >= 0 else u'\u2193'
     if vv is None: arr = '-'
-    d.text((22, y + 46), "Trend wys. %s  %.1f m/s" % (arr, abs(vv)), font=F(11, True),
-           fill=(C_RED if vv < 0 else C_GREEN) if vv is not None else col)
-    d.text((22, y + 64), "Odbiorca: %s" % (s.get('uploader') or '-'), font=F(10), fill=col)
+    d.text((22, y + 46), "Trend wys. %s  %.1f m/s" % (arr, abs(vv)), font=F(11, True), fill=WHITE)
+    d.text((22, y + 64), "Odbiorca: %s" % (s.get('uploader') or '-'), font=F(10), fill=WHITE)
     y += 96
 
-    # grid informacji
+    # grid informacji - obrysy bez wypelnienia, biale litery i cyfry
     items = [
         ("DYSTANS od QTH", "%d km" % int(s['dist'])),
         ("AZYMUT od QTH", "%03d" % int(s['az'])),
@@ -579,10 +574,9 @@ def render_detail(style, s):
         cx = 16 + (i % 2) * (cw + 1)
         cy = y + (i // 2) * (ch + 6)
         d.rounded_rectangle([cx, cy, cx + cw - 2, cy + ch - 2], radius=5,
-                            fill=(255, 255, 255) if classic else (14, 24, 46),
-                            outline=C_ORANGE if classic else C_BORDER)
-        d.text((cx + 8, cy + 4), k, font=F(8, True), fill=lab)
-        d.text((cx + 8, cy + 14), v, font=F(11, True), fill=col)
+                            fill=(0, 0, 0), outline=OUTLINE, width=1)
+        d.text((cx + 8, cy + 4), k, font=F(8, True), fill=WHITE)
+        d.text((cx + 8, cy + 14), v, font=F(11, True), fill=WHITE)
 
     # status LIVE
     y2 = y + 4 * (ch + 6) + 6
@@ -590,7 +584,10 @@ def render_detail(style, s):
     dot = C_GREEN if live else C_RED
     d.ellipse([18, y2 + 4, 30, y2 + 16], fill=dot)
     d.text((36, y2 + 2), "NA ZYWO" if live else ("SZUKAM RAMKI… %d min" % s.get('last_min', 0)),
-           font=F(12, True), fill=C_BLACK if classic else C_WHITE)
+           font=F(12, True), fill=WHITE)
+    d.rounded_rectangle([10, y2 + 26, 120, y2 + 58], radius=5, fill=(0, 0, 0),
+                        outline=OUTLINE, width=2)
+    d.text((22, y2 + 34), "POWROT", font=F(11, True), fill=WHITE)
     return img
 
 
