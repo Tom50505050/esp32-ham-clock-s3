@@ -2707,6 +2707,7 @@ bool rgbBlueAprsStateOn = false;
 // używamy analogReadMilliVolts(), które korzysta z kalibracji eFuse (Two Point /
 // Vref) wbudowanej w każdy ESP32-S3 - to usuwa największe źródło błędu.
 float batteryDividerCal = 1.0f;   // mnożnik kalibracji (np. 0.98 gdy dzielnik zaniża)
+float battCalVref = 0.0f;          // ost. wpisane "Rzeczywiste napiecie" (zapamietane w NVS)
 float batteryVoltOffset = 0.0f;   // offset w woltach (korekta stałego przesunięcia)
 
 // Zakresy napięcia akumulatora Li-ion (SONY GB/T-18287, 3.8 V nominalne).
@@ -23547,6 +23548,7 @@ void loadPreferences() {
   pskShowLinks = preferences->getBool("psk_show_links", false);
   // Kalibracja pomiaru baterii (NVS). Wartosci domyslne = brak korekty.
   batteryDividerCal = preferences->getFloat("bat_div_cal", 1.0f);
+  battCalVref = preferences->getFloat("bat_cal_v", 0.0f);
   batteryVoltOffset = preferences->getFloat("bat_off", 0.0f);
   if (batteryDividerCal < 0.5f || batteryDividerCal > 2.0f) batteryDividerCal = 1.0f;
   if (batteryVoltOffset < -1.0f || batteryVoltOffset > 1.0f) batteryVoltOffset = 0.0f;
@@ -23805,6 +23807,7 @@ void savePreferences() {
   preferences->putBool("rs_uploader", radiosondeShowUploader);
   // Kalibracja pomiaru baterii.
   preferences->putFloat("bat_div_cal", batteryDividerCal);
+  preferences->putFloat("bat_cal_v", battCalVref);
   preferences->putFloat("bat_off", batteryVoltOffset);
   preferences->putInt(NVS_KEY_CHARGER_TYPE, chargerModuleType);
   preferences->putInt(NVS_KEY_BAT_MAH, batteryCapacityMah);
@@ -25540,6 +25543,7 @@ void setupWebServer() {
       }
       if (doc["bat_cal_v"].is<float>() || doc["bat_cal_v"].is<double>() || doc["bat_cal_v"].is<int>()) {
         float vref = doc["bat_cal_v"].as<float>();
+        battCalVref = vref;  // zapamietaj na wypadek, gdy korekta nie jest mozliwa
         float raw = readBatteryVoltage();
         // Tylko gdy odczyt realnie odbiega od zmierzonego napiecia (prog 50 mV).
         // Bez tego warunku kazdy kolejny "Zapisz" z tym samym polem kumulowalby
@@ -26261,6 +26265,7 @@ void setupWebServer() {
         if (vnow > 1.0f) {
           float corr = vref / vnow;
           if (corr > 0.5f && corr < 2.0f) {
+            battCalVref = vref;  // zapamietaj wpisana wartosc (pokazuje ja WWW po odswiezeniu)
             batteryDividerCal *= corr;
             if (batteryDividerCal < 0.5f) batteryDividerCal = 0.5f;
             if (batteryDividerCal > 2.0f) batteryDividerCal = 2.0f;
@@ -26439,6 +26444,7 @@ void setupWebServer() {
     doc["n2yo_key"] = n2yoApiKey;
     doc["openwebrx_url"] = openWebRxUrl;
     doc["bat_div_cal"] = batteryDividerCal;
+    doc["bat_cal_v"] = battCalVref;
     doc["bat_off"] = batteryVoltOffset;
     doc["charger_module"] = chargerModuleType;
     doc["battery_mah"] = batteryCapacityMah;
@@ -27494,7 +27500,8 @@ function fillForm(cfg){
   val('user_callsign',cfg.user_callsign); val('user_locator',cfg.user_locator);
   val('user_lat',cfg.user_lat); val('user_lon',cfg.user_lon);
   val('bat_div_cal',cfg.bat_div_cal); val('bat_off',cfg.bat_off);
-  {const bs=$('batStatus');if(bs&&!bs.dataset.done)bs.textContent='Zapisany mnoznik: '+Number(cfg.bat_div_cal!=null?cfg.bat_div_cal:1).toFixed(4)+', offset: '+Number(cfg.bat_off!=null?cfg.bat_off:0).toFixed(3)+' V';}
+  // Zapamietane "Rzeczywiste napiecie" (zapisane w NVS) - wracamy po odswiezeniu.
+  if(cfg.bat_cal_v>=3&&cfg.bat_cal_v<=4.5){val('bat_cal_v',Number(cfg.bat_cal_v).toFixed(2));}
   val('battery_mah',cfg.battery_mah); val('charger_module',cfg.charger_module);
   val('battery_type',cfg.battery_type);
   val('bat_now',(cfg.sys_vcc&&cfg.sys_vcc>1)?cfg.sys_vcc.toFixed(2)+' V':'-');
