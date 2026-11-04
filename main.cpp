@@ -45,6 +45,7 @@ void normalizePolish(String &text);
 #include <time.h>
 #include <sys/time.h>
 #include <ArduinoJson.h>
+#include <ArduinoJson/Document/BasicJsonDocument.hpp>
 #include <new>
 #include <PubSubClient.h>
 #include <esp_rom_sys.h>
@@ -30959,7 +30960,15 @@ static bool fetchRadiosondeData() {
   filter["*"]["manufacturer"] = true;
   filter["*"]["uploader_callsign"] = true;
   filter["*"]["uploader_position"] = true;
-  DynamicJsonDocument doc(24576);
+  // Dokument trzymamy w PSRAM (8 MB) - przy 1000 km jest ~129 sond, a po
+  // filtrze 12 pol na sonde potrzebujemy ~100 KB; 24 KB (heap) nie wystarczalo
+  // ("JSON parse" / NoMemory). Alokator kieruje pulo pamieci do PSRAM.
+  struct SondeHubPsramAllocator {
+    void* allocate(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
+    void deallocate(void* p) { if (p) heap_caps_free(p); }
+    void* reallocate(void* p, size_t n) { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM); }
+  };
+  BasicJsonDocument<SondeHubPsramAllocator> doc(131072);
   DeserializationError err = deserializeJson(doc, payload,
                                              DeserializationOption::Filter(filter));
   if (err) {
