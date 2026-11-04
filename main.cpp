@@ -11402,6 +11402,18 @@ void drawBandInfoBody() {
   }
   if (littleFsReady && LittleFS.exists(propIcon)) {
     drawBmpFromFS(propIcon, iconX, iconY);
+  } else {
+    // Fallback pogodowy, gdy ikony /icon50/*.bmp brakuje w LittleFS.
+    const int cx = iconX + 25, cy = iconY + 25;
+    const uint16_t kCol = (kIndexVal < 3) ? 0x07E0 : ((kIndexVal < 5) ? 0xFFE0 : 0xF800);
+    tft.fillCircle(cx, cy, 20, TFT_NAVY);
+    tft.drawCircle(cx, cy, 20, kCol);
+    tft.fillCircle(cx, cy, 10, kCol);
+    tft.setTextSize(1);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(kCol, TFT_NAVY);
+    tft.drawString("K=" + String(kIndexVal), cx, cy, 1);
+    tft.setTextDatum(TL_DATUM);
   }
 
   // === DOLNA SEKCJA - INFO O ZAMKNIÄTYCH PASMACH ===
