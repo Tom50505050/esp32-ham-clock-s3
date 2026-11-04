@@ -27386,6 +27386,9 @@ String getMainHTML() {
         <div class="field"><label>Mnoznik dzielnika</label><input id="bat_div_cal" type="number" step="0.001" min="0.5" max="2"></div>
         <div class="field"><label>Offset (V)</label><input id="bat_off" type="number" step="0.01" min="-1" max="1"></div>
       </div>
+      <div class="toolbar" style="margin-top:8px">
+        <button class="sm sec" onclick="saveConfig()">Zapisz kalibracje</button>
+      </div>
       <div class="hint" id="batStatus"></div>
     </div>
     <div class="panel">
@@ -27459,6 +27462,10 @@ function fillForm(cfg){
   val('user_callsign',cfg.user_callsign); val('user_locator',cfg.user_locator);
   val('user_lat',cfg.user_lat); val('user_lon',cfg.user_lon);
   val('bat_div_cal',cfg.bat_div_cal); val('bat_off',cfg.bat_off);
+  // Pole "Rzeczywiste napiecie" jest jednorazowe - po zapisie czyscimy je i
+  // pokazujemy zapisany mnoznik, zeby bylo widac efekt kalibracji.
+  val('bat_cal_v','');
+  {const bs=$('batStatus');if(bs)bs.textContent='Zapisany mnoznik: '+Number(cfg.bat_div_cal!=null?cfg.bat_div_cal:1).toFixed(4)+', offset: '+Number(cfg.bat_off!=null?cfg.bat_off:0).toFixed(3)+' V';}
   val('battery_mah',cfg.battery_mah); val('charger_module',cfg.charger_module);
   val('battery_type',cfg.battery_type);
   val('bat_now',(cfg.sys_vcc&&cfg.sys_vcc>1)?cfg.sys_vcc.toFixed(2)+' V':'-');
@@ -27777,6 +27784,11 @@ function saveFromActiveTab(){
   $('configEditor').value=JSON.stringify(buildFromForm(),null,2);
   saveJsonEditor();
 }
+
+// Alias dla przyciskow "Zapisz ustawienia ..." w zakladkach (Moduly itd.).
+// Wczesniej onclick="saveConfig()" wskazywal na nieistniejaca funkcje,
+// przez co przycisk nie robil nic (m.in. nie dalo sie zapisac kalibracji).
+function saveConfig(){ saveFromActiveTab(); }
 
 async function resetTouch(){
   if(!confirm('Reset kalibracji dotyku do wartosci domyslnych?'))return;
@@ -30844,13 +30856,11 @@ static bool fetchRadiosondeData() {
 
   double qlat, qlon;
   sondeGetQth(qlat, qlon);
-  // Endpoint /sondes NIE obsluguje parametru distance (zwracal wszystkie sondy
-  // swiata albo pusta odpowiedz - stad brak ikon). /sondes/positions to
-  // wlasciwy endpoint z zasięgiem i danymi uploadera (balon + auto lowcy).
-  String url = "https://api.v2.sondehub.org/sondes/positions?lat=" + String(qlat, 4) +
-               "&lon=" + String(qlon, 4) +
-               "&distance=" + String(radiosondeRangeKm * 1000) +
-               "&last=3600";
+  // Endpoint /sondes (bez parametrow) zwraca wszystkie aktywne sondy z danymi
+  // uploadera (uploader_position). Parametry lat/lon/distance/last NIE sa
+  // obslugiwane - z lat/lon/distance/last API zwracalo pusta odpowiedz {}.
+  // Filtrowanie po promieniu robimy u siebie (ponizej w parserze).
+  String url = "https://api.v2.sondehub.org/sondes";
 
   static WiFiClientSecure client;  // reuse, nie buduj kontekstu TLS za kazdym razem
   client.setInsecure();
@@ -30911,6 +30921,9 @@ static bool fetchRadiosondeData() {
     strlcpy(s.manufacturer, o["manufacturer"] | "", sizeof(s.manufacturer));
     s.lat = o["lat"] | 0.0f;
     s.lon = o["lon"] | 0.0f;
+    // /sondes bez parametrow zwraca sondy z calej Europy - odrzuc te spoza
+    // promienia radiosondeRangeKm wokol QTH (ikony tylko dla pobliskich sond).
+    if (calculateDistance(qlat, qlon, s.lat, s.lon) > (double)radiosondeRangeKm) continue;
     s.alt = o["alt"] | 0.0f;
     s.velV = o["vel_v"] | 0.0f;
     s.temp = o["temp"] | 0.0f;
@@ -31008,7 +31021,7 @@ static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
 // Rysuje mala kolorowa ikone RGB565 wycentrowana na (x,y); piksel 0xF81F
 // (sentinel) jest przezroczysty - nie nadpisuje mapy pod spodem.
 static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int stride) {
-  const int z = 3;  // 3x powiekszenie ikony 16x16 -> 48x48 px (dobra widocznosc na mapie)
+  const int z = 4;  // 4x powiekszenie ikony 16x16 -> 64x64 px (wyraźna widoczność na mapie)
   const int zw = w * z, zh = h * z;
   const int x0 = x - zw / 2;
   const int y0 = y - zh / 2;
