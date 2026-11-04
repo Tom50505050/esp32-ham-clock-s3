@@ -30844,7 +30844,10 @@ static bool fetchRadiosondeData() {
 
   double qlat, qlon;
   sondeGetQth(qlat, qlon);
-  String url = "https://api.v2.sondehub.org/sondes?lat=" + String(qlat, 4) +
+  // Endpoint /sondes NIE obsluguje parametru distance (zwracal wszystkie sondy
+  // swiata albo pusta odpowiedz - stad brak ikon). /sondes/positions to
+  // wlasciwy endpoint z zasięgiem i danymi uploadera (balon + auto lowcy).
+  String url = "https://api.v2.sondehub.org/sondes/positions?lat=" + String(qlat, 4) +
                "&lon=" + String(qlon, 4) +
                "&distance=" + String(radiosondeRangeKm * 1000) +
                "&last=3600";
