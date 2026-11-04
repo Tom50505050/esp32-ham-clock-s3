@@ -750,6 +750,7 @@ static const int UI_FOOTER_Y = 300;
 #define TFT_BACKLIGHT 100
 int backlightPercent = TFT_BACKLIGHT;
 int backlightPwmPercent = 100;  // aktualnie wyjściowy PWM podświetlenia (boot = 100%)
+bool forceFullBacklightAfterBoot = true; // ekran po starcie nie przygasa (100% PWM) dopoki uzytkownik nie zmieni jasnosci
 int tftNightDimmingPercent = 0;   // nocne obnizenie jasnosci (0-100%), z WWW
 bool tftNightDimmingAuto = false; // automatyczne przyciemnianie wieczorem (z WWW/menu TFT)
 bool tftPanelBrighten = false;    // rozjasnienie panelu przez gamma/VCOM (z WWW)
@@ -3004,6 +3005,8 @@ static void writeBacklightDuty(uint32_t duty) {
 void setBacklightPercent(int percent) {
   if (percent < MIN_BACKLIGHT_PERCENT) percent = MIN_BACKLIGHT_PERCENT;
   if (percent > 100) percent = 100;
+  // Uzytkownik jawnie zmienil jasnosc - koniec wymuszania 100% po starcie.
+  if (percent != TFT_BACKLIGHT) forceFullBacklightAfterBoot = false;
   if (percent != backlightPercent) {
     Serial.printf("[BL] setBacklightPercent: %d%% (nocne przyciemnianie=%d%%, night=%d, icon=%s)\n",
                   percent, tftNightDimmingPercent, tftIsNightTime() ? 1 : 0,
@@ -3045,6 +3048,11 @@ bool tftIsNightTime() {
 }
 
 int effectiveBacklightPercent() {
+  // Ekran po starcie ma NIE przygasac: dopoki flaga jest aktywna i uzytkownik
+  // jawnie nie zmienil jasnosci (setBacklightPercent baza=100%), PWM = 100%.
+  if (forceFullBacklightAfterBoot && backlightPercent >= TFT_BACKLIGHT) {
+    return 100;
+  }
   int p = backlightPercent;
   // Obnizenie jasnosci dziala WYLACZNIE jako tryb nocny: musi byc wlaczone
   // "Auto noc" ORAZ musi byc noc. Wczesniej przy wylaczonym auto suwak
@@ -9345,6 +9353,7 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
 
   if (isPointInRect(x, y, saveX, btnY, btnW, btnH)) {
     backlightPercent = brightnessMenuValue;
+    forceFullBacklightAfterBoot = false;  // uzytkownik zatwierdzil wlasna jasnosc
     savePreferences();
     applyEffectiveBacklight();
     brightnessMenuActive = false;
