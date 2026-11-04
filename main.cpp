@@ -749,6 +749,7 @@ static const int UI_FOOTER_Y = 300;
 #define MIN_BACKLIGHT_PERCENT 10
 #define TFT_BACKLIGHT 100
 int backlightPercent = TFT_BACKLIGHT;
+int backlightPwmPercent = 100;  // aktualnie wyjściowy PWM podświetlenia (boot = 100%)
 int tftNightDimmingPercent = 0;   // nocne obnizenie jasnosci (0-100%), z WWW
 bool tftNightDimmingAuto = false; // automatyczne przyciemnianie wieczorem (z WWW/menu TFT)
 bool tftPanelBrighten = false;    // rozjasnienie panelu przez gamma/VCOM (z WWW)
@@ -3019,6 +3020,7 @@ void setBacklightPercent(int percent) {
 void setBacklightPercentRaw(int percent) {
   if (percent < MIN_BACKLIGHT_PERCENT) percent = MIN_BACKLIGHT_PERCENT;
   if (percent > 100) percent = 100;
+  backlightPwmPercent = percent;  // sledz aktualny PWM (dla plynnego fade po bootcie)
   // Log tylko przy realnej zmianie wypelnienia - watchdog wola te funkcje co
   // sekunde, a porownanie z backlightPercent (wartoscia bazowa) logowalo przy
   // kazdym wywolaniu, gdy aktywne bylo nocne obnizenie jasnosci.
@@ -3065,6 +3067,22 @@ void applyEffectiveBacklight() {
                 eff, backlightPercent, tftNightDimmingPercent, tftIsNightTime() ? 1 : 0);
 #endif
   setBacklightPercentRaw(eff);
+}
+
+// Plyne przejscie jasnosci PWM (np. po zakonczeniu bootu: ze 100% do docelowej
+// jasnosci), zeby litery/cyfry nie "gasy nagle" - tylko lagodnie przechodzily.
+void fadeBacklightTo(int targetPercent, int durationMs) {
+  int from = backlightPwmPercent;
+  int target = targetPercent < MIN_BACKLIGHT_PERCENT ? MIN_BACKLIGHT_PERCENT
+              : (targetPercent > 100 ? 100 : targetPercent);
+  int steps = durationMs / 30;
+  if (steps < 1) steps = 1;
+  for (int i = 1; i <= steps; i++) {
+    int pct = from + ((target - from) * i) / steps;
+    setBacklightPercentRaw(pct);
+    delay(30);
+  }
+  setBacklightPercentRaw(target);
 }
 
 // Watchdog podswietlenia (03.11.2026): co 1 s wymusza poprawny PWM jasnosci.
@@ -32139,7 +32157,9 @@ void setup() {
   bootSequenceActive = false;
   // Boot zakonczony: teraz dopiero wchodzi jasnosc docelowa (z nocnym
   // obnizeniem, jesli aktywne). Podczas bootu PWM byl wymuszony na 100%.
-  applyEffectiveBacklight();
+  // NAGLE przygaszanie liter (skok ze 100%) zastepione plynnym fade,
+  // zeby nie wygladalo to jak "gasniecie" ekranu.
+  fadeBacklightTo(effectiveBacklightPercent(), 800);
   drawScreen(currentScreen);
   drawApInfoBanner();
   resetTftAutoSwitchTimer();
