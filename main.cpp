@@ -31104,7 +31104,7 @@ static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
 // Rysuje mala kolorowa ikone RGB565 wycentrowana na (x,y); piksel 0xF81F
 // (sentinel) jest przezroczysty - nie nadpisuje mapy pod spodem.
 static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int stride) {
-  const int z = 4;  // 4x powiekszenie ikony 16x16 -> 64x64 px (wyraźna widoczność na mapie)
+  const int z = 3;  // 3x powiekszenie ikony 16x16 -> 48x48 px (dobra widocznosc, nie dominuje mapy)
   const int zw = w * z, zh = h * z;
   const int x0 = x - zw / 2;
   const int y0 = y - zh / 2;
