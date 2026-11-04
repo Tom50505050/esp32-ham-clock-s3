@@ -273,6 +273,43 @@ String pskMonitorCallsign = "";
 int pskReportDays = 0;
 int pskAutoRefreshMinutes = 5;
 
+// RADIOSONDY (SondeHub) - dane sond meteop na mapie Polski (ekran 17).
+bool radiosondeEnabled = true;      // widac ekran w kolejnosci ekranow
+int  radiosondeRangeKm = 600;       // promien wyszukiwania wokol QTH (50-1000)
+String radiosondeMode = "live";     // live | amateur | hunters
+int  radiosondeLiveMin = 10;        // "na zywo" = ramka nie starsza niz tyle minut
+bool radiosondeShowPath = true;     // linia QTH -> sonda
+bool radiosondeShowUploader = true; // podpis odbiorcy (lowcy)
+
+// Bufor sond pobranych z SondeHub (ekran RADIOSONDY). Zbiorcze globalne wczytane
+// przez fetchRadiosondeData() z UI_Task (jedyny kontekst rysujacy po TFT).
+#define SONDE_MAX_ENTRIES 24
+#define SONDE_FETCH_MIN_INTERVAL_MS 30000UL  // min przerwa miedzy zapytaniami
+#define SONDE_FETCH_MAX_BODY 32768UL         // max odpowiedz JSON (String)
+
+typedef struct {
+  char serial[16];
+  char type[14];
+  char manufacturer[12];
+  float lat, lon;      // pozycja sondy
+  float alt;           // wysokosc [m]
+  float velV;          // predkosc pionowa [m/s], + = wznosi sie
+  float temp;          // temperatura [C]
+  float snr;
+  char frequency[10];  // MHz
+  char uploader[18];   // callsign odbiorcy (lowcy)
+  float upLat, upLon;  // pozycja odbiorcy (lowcy)
+  bool valid;
+} SondeSpot;
+
+static SondeSpot sondeSpots[SONDE_MAX_ENTRIES];
+static int sondeCount = 0;
+static bool sondeFetchedOnce = false;
+static bool sondeFetchError = false;
+static const char *sondeFetchErrMsg = "";
+static unsigned long lastSondeFetchMs = 0;   // udane pobranie
+static unsigned long lastSondeAttemptMs = 0; // kazda proba (interwal min. 30 s)
+
 // MQTT PSK Reporter - DOMYSLNY tryb od v1.2b (feed na zywo, mapa odswieza sie
 // sama, bez limitu zapytan HTTP). Broker mqtt.pskreporter.info publikuje PSK
 // na pskr/filter/v2raw_1pc. Tryb HTTP (pskreporter.info/query) zostaje jako
@@ -401,7 +438,8 @@ enum ScreenType : uint8_t {
   SCREEN_PSK_MAP = 13,
   SCREEN_ISS_PASS_TRACKING = 14,
   SCREEN_STATION = 15,
-  SCREEN_HAM_LOGGER = 16
+  SCREEN_HAM_LOGGER = 16,
+  SCREEN_RADIOSONDE = 17
 };
 
 #define LOG_VERBOSE false
@@ -419,6 +457,10 @@ enum ScreenType : uint8_t {
 // offline z data/Mapa swiata.bmp przez tools/gen_worldmask.py - patrz komentarz
 // przy issDrawWorldMap(). Wbudowany w firmware, wiec nie zalezy od LittleFS.
 #include "iss_worldmask.h"
+
+// Mapa Polski 200x120 (1-bit, 1=Polska) dla ekranu RADIOSONDY - wygenerowana
+// z data PL_map_raw.jpg przez tools/gen_poland_mask.py. Wbudowana w firmware.
+#include "poland_mask.h"
 
 // Ikony ekranu APRS w stylu nowoczesnym (24 symbole, 64x64 RGB565). Wbudowane
 // w firmware (nie w LittleFS), zeby nie zabierac miejsca na uploady z WWW.
@@ -930,6 +972,7 @@ static bool isHeaderScreen(ScreenType screenNum) {
          screenNum != SCREEN_APRS_RADAR &&
          screenNum != SCREEN_SYSTEM_INFO &&
          screenNum != SCREEN_ISS_PASS_TRACKING &&
+         screenNum != SCREEN_RADIOSONDE &&
          screenNum != SCREEN_OFF;
 }
 
@@ -2905,6 +2948,7 @@ static uint16_t getPskBandColor(int band);
 static uint16_t getDxColor(float distance);
 bool pskFetchAllowed(unsigned long now);
 void drawIssPassTracking();
+void drawRadiosondyScreen();
 
 // ========== INICJALIZACJA TFT (ESP32-S3 N16R8 + ILI9488) ==========
 #ifdef ENABLE_TFT_DISPLAY
@@ -3586,7 +3630,8 @@ void drawScreen(ScreenType screenNum) {
                              screenNum == SCREEN_PSK_MAP ||
                              screenNum == SCREEN_APRS_RADAR ||
                              screenNum == SCREEN_SYSTEM_INFO ||
-                             screenNum == SCREEN_ISS_PASS_TRACKING);
+                             screenNum == SCREEN_ISS_PASS_TRACKING ||
+                             screenNum == SCREEN_RADIOSONDE);
   if (!issFullBleed) {
     switch (screenNum) {
       case SCREEN_HAM_CLOCK:
@@ -3657,6 +3702,9 @@ void drawScreen(ScreenType screenNum) {
     case SCREEN_ISS_PASS_TRACKING:
       issForceNextPassRefresh = true;  // odswiez plan przelotow przy wejsciu
       drawIssPassTracking();
+      break;
+    case SCREEN_RADIOSONDE:
+      drawRadiosondyScreen();
       break;
     case SCREEN_OFF:
     default:
@@ -6797,6 +6845,7 @@ ScreenType normalizeScreenType(uint8_t raw) {
     case SCREEN_STATION:
     case SCREEN_ISS_PASS_TRACKING:
     case SCREEN_HAM_LOGGER:
+    case SCREEN_RADIOSONDE:
       return (ScreenType)raw;
     default:
       return SCREEN_OFF;
@@ -6823,6 +6872,7 @@ const char* screenTypeToCodeStr(ScreenType t) {
     case SCREEN_STATION: return "station";
     case SCREEN_HAM_LOGGER: return "logger";
     case SCREEN_ISS_PASS_TRACKING: return "iss";
+    case SCREEN_RADIOSONDE: return "radiosondy";
     case SCREEN_OFF:
     default:
       return "off";
@@ -6849,6 +6899,7 @@ ScreenType screenCodeToType(const String &code) {
   if (c == "station" || c == "stacja" || c == "qrz" || c == "callsign") return SCREEN_STATION;
   if (c == "logger" || c == "log" || c == "hamlogger" || c == "logbook" || c == "qso") return SCREEN_HAM_LOGGER;
   if (c == "iss") return SCREEN_ISS_PASS_TRACKING;
+  if (c == "radiosondy" || c == "radiosonda" || c == "sondehub" || c == "sondy") return SCREEN_RADIOSONDE;
   return SCREEN_OFF;
 }
 
@@ -7311,6 +7362,15 @@ void handleTouchNavigation() {
       if (x < menuHitW && y < menuHitH) {
         inMenu = true;
         drawWeatherMenu();
+        return;
+      }
+    }
+    // RADIOSONDY: hamburger = wymuszenie odswiezenia danych z SondeHub.
+    if (currentScreen == SCREEN_RADIOSONDE) {
+      if (isNewTap && x < menuHitW && y < menuHitH) {
+        lastSondeAttemptMs = 0;   // zlamanie mininterwalu - uzytkownik chce odswiezenia
+        lastSondeFetchMs = 0;     // drawRadiosondyScreen pobierze ponownie
+        drawRadiosondyScreen();
         return;
       }
     }
@@ -23369,6 +23429,18 @@ void loadPreferences() {
   if (pskAutoRefreshMinutes < 0) pskAutoRefreshMinutes = 0;
   if (pskAutoRefreshMinutes > 60) pskAutoRefreshMinutes = 60;
 
+  // RADIOSONDY (SondeHub) settings
+  radiosondeEnabled = preferences->getBool("rs_en", true);
+  radiosondeRangeKm = preferences->getInt("rs_range", 600);
+  if (radiosondeRangeKm < 50) radiosondeRangeKm = 50;
+  if (radiosondeRangeKm > 1000) radiosondeRangeKm = 1000;
+  radiosondeMode = preferences->getString("rs_mode", "live");
+  radiosondeLiveMin = preferences->getInt("rs_live_min", 10);
+  if (radiosondeLiveMin < 1) radiosondeLiveMin = 1;
+  if (radiosondeLiveMin > 60) radiosondeLiveMin = 60;
+  radiosondeShowPath = preferences->getBool("rs_path", true);
+  radiosondeShowUploader = preferences->getBool("rs_uploader", true);
+
   // MQTT PSK Reporter settings
   // Domyslnie MQTT (patrz komentarz przy pskMqttEnabled). Zapisane w NVS ma priorytet.
   pskMqttEnabled = preferences->getBool("psk_mqtt_en", true);
@@ -23629,6 +23701,13 @@ void savePreferences() {
   preferences->putInt("psk_mqtt_port", pskMqttPort);
   preferences->putString("psk_mqtt_call", pskMqttCallsign);
   preferences->putBool("psk_show_links", pskShowLinks);
+  // RADIOSONDY (SondeHub)
+  preferences->putBool("rs_en", radiosondeEnabled);
+  preferences->putInt("rs_range", radiosondeRangeKm);
+  preferences->putString("rs_mode", radiosondeMode);
+  preferences->putInt("rs_live_min", radiosondeLiveMin);
+  preferences->putBool("rs_path", radiosondeShowPath);
+  preferences->putBool("rs_uploader", radiosondeShowUploader);
   // Kalibracja pomiaru baterii.
   preferences->putFloat("bat_div_cal", batteryDividerCal);
   preferences->putFloat("bat_off", batteryVoltOffset);
@@ -25856,6 +25935,31 @@ void setupWebServer() {
       if (doc["psk_show_links"].is<bool>()) {
         pskShowLinks = doc["psk_show_links"].as<bool>();
       }
+      // RADIOSONDY (SondeHub)
+      if (doc["radiosonde_enabled"].is<bool>()) {
+        radiosondeEnabled = doc["radiosonde_enabled"].as<bool>();
+      }
+      if (doc["radiosonde_range_km"].is<int>()) {
+        radiosondeRangeKm = doc["radiosonde_range_km"].as<int>();
+        if (radiosondeRangeKm < 50) radiosondeRangeKm = 50;
+        if (radiosondeRangeKm > 1000) radiosondeRangeKm = 1000;
+      }
+      if (doc["radiosonde_mode"].is<String>()) {
+        String m = doc["radiosonde_mode"].as<String>();
+        m.toLowerCase(); m.trim();
+        if (m == "live" || m == "amateur" || m == "hunters") radiosondeMode = m;
+      }
+      if (doc["radiosonde_live_min"].is<int>()) {
+        radiosondeLiveMin = doc["radiosonde_live_min"].as<int>();
+        if (radiosondeLiveMin < 1) radiosondeLiveMin = 1;
+        if (radiosondeLiveMin > 60) radiosondeLiveMin = 60;
+      }
+      if (doc["radiosonde_show_path"].is<bool>()) {
+        radiosondeShowPath = doc["radiosonde_show_path"].as<bool>();
+      }
+      if (doc["radiosonde_show_uploader"].is<bool>()) {
+        radiosondeShowUploader = doc["radiosonde_show_uploader"].as<bool>();
+      }
 
       // Sanitizacja (najczĂ„â„˘stsza przyczyna: spacje na koĂ„â€¦cu SSID/hasĂ„â€¦a)
       wifiSSID.trim();
@@ -26355,6 +26459,13 @@ void setupWebServer() {
     doc["psk_mqtt_port"] = pskMqttPort;
     doc["psk_mqtt_callsign"] = pskMqttCallsign;
     doc["psk_show_links"] = pskShowLinks;
+
+    doc["radiosonde_enabled"] = radiosondeEnabled;
+    doc["radiosonde_range_km"] = radiosondeRangeKm;
+    doc["radiosonde_mode"] = radiosondeMode;
+    doc["radiosonde_live_min"] = radiosondeLiveMin;
+    doc["radiosonde_show_path"] = radiosondeShowPath;
+    doc["radiosonde_show_uploader"] = radiosondeShowUploader;
 
     JsonArray orderArr = doc.createNestedArray("screen_order");
     for (int i = 0; i < SCREEN_ORDER_COUNT; i++) {
@@ -27331,6 +27442,13 @@ function fillForm(cfg){
       const s=$('screen_'+i); if(s) s.value=code||'off';
     });
   }
+  // Radiosondy (SondeHub)
+  chk('radiosonde_enabled',cfg.radiosonde_enabled);
+  val('radiosonde_range_km',cfg.radiosonde_range_km);
+  val('radiosonde_mode',cfg.radiosonde_mode);
+  val('radiosonde_live_min',cfg.radiosonde_live_min);
+  chk('radiosonde_show_path',cfg.radiosonde_show_path);
+  chk('radiosonde_show_uploader',cfg.radiosonde_show_uploader);
   // Touch
   val('touch_swap_mode',cfg.touch_swap_mode); val('touch_rotation',cfg.touch_rotation);
   val('touch_xmin',cfg.touch_xmin); val('touch_xmax',cfg.touch_xmax);
@@ -27867,6 +27985,16 @@ void uiTaskLoop(void *parameter) {
       // pozostale ekrany. Wczesniej MQTT wolano z UI_Task i z loop() naraz
       // (wyscig -> crash) oraz drawPskMap() z wnetrza processPskMqttBuffer()
       // (reentrancja -> lawina odswiezen).
+      // Auto-odswiezanie ekranu RADIOSONDY: gdy dane starsze niz radiosondeLiveMin
+      // i uplynela min. przerwa, przerysuj (drawRadiosondyScreen pobierze JSON).
+      if (tftInitialized && currentScreen == SCREEN_RADIOSONDE && !inMenu &&
+          !aprsAlertScreenActive && radiosondeLiveMin > 0 && lastSondeAttemptMs != 0) {
+        unsigned long staleMs = (unsigned long)radiosondeLiveMin * 60UL * 1000UL;
+        if ((millis() - lastSondeFetchMs) >= staleMs) {
+          drawRadiosondyScreen();
+        }
+      }
+
       if (tftInitialized && pskMqttEnabled && currentScreen == SCREEN_PSK_MAP &&
           !pskMapMenuOpen && !inMenu && !aprsAlertScreenActive && pskMqttDirty) {
         // Ogranicz czestotliwosc przerysowan (jak wczesniej co 1.5 s) - inaczej
@@ -30541,6 +30669,325 @@ static void issDrawFrameFromState() {
                  passVisStart, passVisEnd, passDur, passMag,
                  passValid, wasVisible, curLos,
                  currentTimezoneOffsetHours());
+}
+
+// ========== RADIOSONDY (SONDEHUB) ==========
+// Granice geograficzne Polski (mapa 1:750 000, ta sama georeferencja co
+// makieta tools/render_radiosonda_v3.py i poland_mask.h).
+#define PL_LAT_TOP    54.84f
+#define PL_LAT_BOT    49.00f
+#define PL_LON_LEFT   14.12f
+#define PL_LON_RIGHT  24.15f
+// Panel mapy: pelnoekranowy ponizej naglowka (33..276); dolny pasek (277..319)
+// to panel statusu + lista najblizszych sond.
+#define PL_MAP_X0 0
+#define PL_MAP_Y0 33
+#define PL_MAP_W  480
+#define PL_MAP_H  244
+
+// Wspolrzedna QTH do rysowania (GPS > reczna > domyslna Warszawa).
+static void sondeGetQth(double &lat, double &lon) {
+  if (userLatLonValid && userLat != 0.0 && userLon != 0.0) {
+    lat = userLat; lon = userLon;
+  } else if ((userLatManual != 0.0 || userLonManual != 0.0) && userLatLonValidManual) {
+    lat = userLatManual; lon = userLonManual;
+  } else {
+    lat = 52.0; lon = 19.5;
+  }
+}
+
+// Projekcja bbox Polski (Plate Carree, jak latLonToScreen dla mapy swiata).
+// Zwraca false, gdy punkt poza granicami - wtedy nie rysujemy znacznika.
+static bool sondeProject(float lat, float lon, int &x, int &y) {
+  if (lat < PL_LAT_BOT || lat > PL_LAT_TOP) return false;
+  if (lon < PL_LON_LEFT || lon > PL_LON_RIGHT) return false;
+  x = PL_MAP_X0 + (int)((lon - PL_LON_LEFT) / (PL_LON_RIGHT - PL_LON_LEFT) * PL_MAP_W);
+  y = PL_MAP_Y0 + (int)((PL_LAT_TOP - lat) / (PL_LAT_TOP - PL_LAT_BOT) * PL_MAP_H);
+  return true;
+}
+
+static const char *sondeModeLabel() {
+  if (radiosondeMode == "amateur") return "AMATORSKIE";
+  if (radiosondeMode == "hunters") return "LOWCY";
+  return "NA ZYWO";
+}
+
+// Pobiera sondy z SondeHub (API v2) na podstawie pozycji QTH i promienia.
+// Odpowiedz regionalna jest mala (<8 kB) - parsujemy bez filtra JSON.
+static bool fetchRadiosondeData() {
+  unsigned long nowMs = millis();
+  if (lastSondeAttemptMs != 0 && (nowMs - lastSondeAttemptMs) < SONDE_FETCH_MIN_INTERVAL_MS) {
+    return sondeCount > 0;
+  }
+  lastSondeAttemptMs = nowMs;
+  sondeFetchError = false;
+  sondeFetchErrMsg = "";
+
+  if (!wifiConnected) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "BRAK WIFI";
+    return false;
+  }
+
+  double qlat, qlon;
+  sondeGetQth(qlat, qlon);
+  String url = "https://api.v2.sondehub.org/sondes?lat=" + String(qlat, 4) +
+               "&lon=" + String(qlon, 4) +
+               "&distance=" + String(radiosondeRangeKm * 1000) +
+               "&last=3600";
+
+  static WiFiClientSecure client;  // reuse, nie buduj kontekstu TLS za kazdym razem
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(5000);
+  if (!http.begin(client, url)) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "HTTP begin";
+    return false;
+  }
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    sondeFetchError = true;
+    static char httpErrBuf[24];
+    snprintf(httpErrBuf, sizeof(httpErrBuf), "HTTP %d", code);
+    sondeFetchErrMsg = httpErrBuf;
+    http.end();
+    return false;
+  }
+  String payload = http.getString();
+  http.end();
+  if (payload.length() == 0) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "Pusta odpowiedz";
+    return false;
+  }
+  if (payload.length() > SONDE_FETCH_MAX_BODY) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "Odpowiedz za duza";
+    return false;
+  }
+
+  DynamicJsonDocument doc(16384);
+  DeserializationError err = deserializeJson(doc, payload);
+  if (err) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "JSON parse";
+    return false;
+  }
+
+  sondeCount = 0;
+  JsonObject root = doc.as<JsonObject>();
+  if (root.isNull()) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "Brak sond w zasiegu";
+    return false;
+  }
+
+  for (JsonPair kv : root) {
+    if (sondeCount >= SONDE_MAX_ENTRIES) break;
+    JsonObject o = kv.value().as<JsonObject>();
+    if (o.isNull() || o["lat"].isNull() || o["lon"].isNull()) continue;
+    SondeSpot &s = sondeSpots[sondeCount];
+    memset(&s, 0, sizeof(s));
+    const char *k = kv.key().c_str();
+    strlcpy(s.serial, (k && k[0]) ? k : (o["serial"] | k), sizeof(s.serial));
+    strlcpy(s.type, o["type"] | "", sizeof(s.type));
+    strlcpy(s.manufacturer, o["manufacturer"] | "", sizeof(s.manufacturer));
+    s.lat = o["lat"] | 0.0f;
+    s.lon = o["lon"] | 0.0f;
+    s.alt = o["alt"] | 0.0f;
+    s.velV = o["vel_v"] | 0.0f;
+    s.temp = o["temp"] | 0.0f;
+    s.snr = o["snr"] | 0.0f;
+    float freq = o["frequency"].is<float>() ? o["frequency"].as<float>()
+                                            : (o["tx_frequency"] | 0.0f);
+    snprintf(s.frequency, sizeof(s.frequency), "%.3f", freq);
+    strlcpy(s.uploader, o["uploader_callsign"] | "", sizeof(s.uploader));
+    // uploader_position jest w formacie "lat,lon"
+    const char *up = o["uploader_position"] | "";
+    if (up && up[0]) {
+      String upos(up);
+      int comma = upos.indexOf(',');
+      if (comma > 0) {
+        s.upLat = upos.substring(0, comma).toFloat();
+        s.upLon = upos.substring(comma + 1).toFloat();
+      }
+    }
+    s.valid = true;
+    sondeCount++;
+  }
+
+  // Sortuj wg odleglosci od QTH (najblizsze na poczatku).
+  for (int i = 1; i < sondeCount; i++) {
+    SondeSpot key = sondeSpots[i];
+    int j = i - 1;
+    while (j >= 0) {
+      float dj = calculateDistance(qlat, qlon, sondeSpots[j].lat, sondeSpots[j].lon);
+      float dk = calculateDistance(qlat, qlon, key.lat, key.lon);
+      if (dj <= dk) break;
+      sondeSpots[j + 1] = sondeSpots[j];
+      j--;
+    }
+    sondeSpots[j + 1] = key;
+  }
+
+  sondeFetchedOnce = true;
+  lastSondeFetchMs = millis();
+  return sondeCount > 0;
+}
+
+// Rysuje 1-bitowa maske Polski w pelnoekranowym panelu. Surowe drawPixel
+// (480*285=137k pixeli) trwaloby na SPI ~2 s - skladamy biegace serie tego
+// samego bitu w drawFastHLine, przez co cala mapa to kilkaset transakcji.
+static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
+  for (int j = 0; j < PL_MAP_H; j++) {
+    uint16_t sy = (uint16_t)((uint32_t)j * POLAND_MASK_H / PL_MAP_H);
+    int runStart = 0;
+    bool runLand = false;
+    for (int i = 0; i < PL_MAP_W; i++) {
+      uint16_t sx = (uint16_t)((uint32_t)i * POLAND_MASK_W / PL_MAP_W);
+      uint32_t idx = (uint32_t)sy * POLAND_MASK_W + sx;
+      bool bit = (POLAND_MASK[idx >> 3] >> (7 - (idx & 7))) & 1;
+      if (i == 0) {
+        runStart = 0;
+        runLand = bit;
+      } else if (bit != runLand) {
+        tft.drawFastHLine(PL_MAP_X0 + runStart, PL_MAP_Y0 + j,
+                          (uint32_t)(i - runStart), runLand ? land : out);
+        runStart = i;
+        runLand = bit;
+      }
+    }
+    tft.drawFastHLine(PL_MAP_X0 + runStart, PL_MAP_Y0 + j,
+                      (uint32_t)(PL_MAP_W - runStart), runLand ? land : out);
+  }
+  tft.drawRect(PL_MAP_X0, PL_MAP_Y0, PL_MAP_W, PL_MAP_H, border);
+}
+
+void drawRadiosondyScreen() {
+  if (!tftInitialized) return;
+  const bool classic = uiStyleClassic();
+
+  // Odswiez dane: pierwsze wejscie na ekran albo dane starsze niz live_min.
+  if (!sondeFetchedOnce || lastSondeFetchMs == 0) {
+    if (radiosondeEnabled) fetchRadiosondeData();
+  } else if ((millis() - lastSondeFetchMs) >= (unsigned long)radiosondeLiveMin * 60000UL) {
+    if (radiosondeEnabled) fetchRadiosondeData();
+  }
+
+  uiHeader("RADIOSONDY", true);
+
+  const uint16_t outCol   = classic ? 0xFFFF /* bialy margines */ : ISS_MAP_WATER;
+  const uint16_t landCol  = classic ? 0xDEFA /* jasny bez */ : ISS_COL_LAND;
+  const uint16_t bdrCol   = classic ? 0x8410 : ISS_COL_BORDER;
+  const uint16_t textCol  = classic ? TFT_BLACK : UI_COL_TEXT;
+  const uint16_t cardCol  = classic ? 0xFFFF : UI_COL_CARD;
+  const uint16_t accent   = classic ? TFT_RADIO_ORANGE : UI_COL_ACCENT;
+  const uint16_t warnCol  = classic ? 0xFBE0 /* bursztyn */ : UI_COL_WARN;
+
+  // --- mapa ---
+  drawRadiosondeMap(landCol, outCol, bdrCol);
+
+  // --- znaczniki ---
+  const bool hunters = (radiosondeMode == "hunters");
+  const bool amateur = (radiosondeMode == "amateur");
+  // "na zywo": czerwone balony w stylu klasycznym, teal w nowoczesnym.
+  const uint16_t balloonCol = amateur ? TFT_GREEN : (classic ? TFT_RED : UI_COL_ACCENT);
+  const uint16_t ringCol    = classic ? TFT_BLACK : bdrCol;
+
+  double qlat, qlon;
+  sondeGetQth(qlat, qlon);
+
+  // QTH - zloty celownik (jak na ekranie ISS).
+  {
+    int qx, qy;
+    if (sondeProject((float)qlat, (float)qlon, qx, qy)) {
+      tft.drawCircle(qx, qy, 4, warnCol);
+      tft.drawFastHLine(qx - 7, qy, 3, warnCol);
+      tft.drawFastHLine(qx + 5, qy, 3, warnCol);
+      tft.drawFastVLine(qx, qy - 7, 3, warnCol);
+      tft.drawFastVLine(qx, qy + 5, 3, warnCol);
+    }
+  }
+
+  // Linia QTH -> najblizsza sonda (radiosondeShowPath).
+  if (radiosondeShowPath && sondeCount > 0) {
+    int qx, qy;
+    if (sondeProject((float)qlat, (float)qlon, qx, qy)) {
+      const SondeSpot &n = sondeSpots[0];
+      int nx, ny;
+      if (sondeProject(n.lat, n.lon, nx, ny)) {
+        tft.drawLine(qx, qy, nx, ny, bdrCol);
+        tft.drawLine(qx + 1, qy, nx + 1, ny, accent);
+      }
+    }
+  }
+
+  // Sondy / lowcy.
+  for (int i = 0; i < sondeCount; i++) {
+    const SondeSpot &s = sondeSpots[i];
+    int x, y;
+    if (!sondeProject(s.lat, s.lon, x, y)) continue;
+
+    if (hunters) {
+      // "maly balon" na pozycji sondy (cel)
+      tft.fillCircle(x, y, 3, accent);
+      tft.drawCircle(x, y, 3, ringCol);
+      // auto lowcy na pozycji uploadera
+      if (radiosondeShowUploader && (s.upLat != 0.0f || s.upLon != 0.0f)) {
+        int ux, uy;
+        if (sondeProject(s.upLat, s.upLon, ux, uy)) {
+          tft.fillRect(ux - 3, uy - 2, 6, 4, warnCol);
+          tft.drawFastVLine(ux, uy - 4, 2, warnCol);
+        }
+      }
+    } else {
+      // balon sondy: kolko + pierscien + "ogon"
+      tft.fillCircle(x, y, 3, balloonCol);
+      tft.drawCircle(x, y, 3, ringCol);
+      tft.drawFastVLine(x, y + 4, 3, balloonCol);
+    }
+    // etykieta najblizszej sondy (serial)
+    if (i == 0) {
+      tft.setTextSize(1);
+      tft.setTextDatum(TL_DATUM);
+      tft.setTextColor(textCol, outCol);
+      tft.drawString(s.serial, x + 8, y + 4, 1);
+    }
+  }
+
+  // --- dolny panel: status + lista najblizszych sond ---
+  const int stripY = 277;
+  tft.fillRect(0, stripY, 480, 320 - stripY, cardCol);
+  tft.drawFastHLine(0, stripY, 480, bdrCol);
+  tft.setTextSize(1);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextColor(accent, cardCol);
+  tft.drawString(String(sondeModeLabel()) + " | " + String(radiosondeRangeKm) + " km",
+                 6, stripY + 4, 1);
+  tft.setTextDatum(TR_DATUM);
+  tft.setTextColor(textCol, cardCol);
+  if (sondeFetchError) {
+    tft.drawString("SondeHub: " + String(sondeFetchErrMsg), 474, stripY + 4, 1);
+  } else {
+    tft.drawString(String("Sondy: ") + String(sondeCount), 474, stripY + 4, 1);
+  }
+  tft.setTextDatum(TL_DATUM);
+
+  const int rows = sondeCount < 3 ? sondeCount : 3;
+  for (int r = 0; r < rows; r++) {
+    const SondeSpot &s = sondeSpots[r];
+    const int yy = stripY + 22 + r * 12;
+    tft.setTextColor(accent, cardCol);
+    tft.drawString(String(s.serial), 6, yy, 1);
+    tft.setTextColor(textCol, cardCol);
+    tft.drawString(String(s.type), 110, yy, 1);
+    tft.setTextDatum(TR_DATUM);
+    tft.drawString(String((int)calculateDistance(qlat, qlon, s.lat, s.lon)) + " km",
+                   326, yy, 1);
+    tft.drawString(String((int)s.alt) + " m", 474, yy, 1);
+    tft.setTextDatum(TL_DATUM);
+  }
 }
 
 void drawIssPassTracking() {

@@ -2824,3 +2824,22 @@ Użytkownik: „po wgraniu programu brak sieci wifi esp32-ham-clock na PC". Zmia
 - Logi serial: `AP Mode: softAP() = OK/BLAD`, `AP Mode: tx power = 20 dBm`, `AP Mode uruchomiony`, `SSID:`.
 - Zasada: **pełna moc AP 19.5 dBm** jest bezpieczna (brownout detector wyłączony w setup, beacony nie ciągną wiele). Nie wracać do 11 dBm — to była główna przyczyna „niewidzialnej" sieci.
 - Jeśli po tym nadal nie ma AP na PC: użytkownik ma **zapisane dane STA w NVS** (NVS nie jest kasowane przez merged-flash!) i urządzenie łączy się z routerem domowym zamiast startować AP. Wtedy szukać po IP z sieci domowej (banner TFT pokazuje IP po połączeniu STA), ewentualnie zmienić SSID/hasło w WWW (sekcja WIFI) na puste – wtedy po zapisie i resecie wróci portal AP.
+
+## RADIOSONDY (SondeHub) — makieta v3 (02.11.2026–04.11.2026)
+Nowa propozycja ekranu 17 (SCREEN_RADIOSONDE) dla ESP32-S3 ILI9488 480×320. Stan: **makieta + WWW + firmware zrobione, zweryfikowane buildem pio**.
+
+Generator: `tools/render_radiosonda_v3.py` (Pillow). Podglądy 480×320 w `/workspace/share/radiosonda_{klasyczny,nowoczesny}_{main,menu,amatorskie,lowcy,detail}.png`; strona przeglądowa `/workspace/share/radiosonda-preview.html`.
+- Mapa Polski TYLKO, nieucięta: `data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg` (1536×1455), georeferencja **LAT_TOP=54.84/LAT_BOT=49.0/LON_LEFT=14.12/LON_RIGHT=24.15**; bbox na ekranie 479×287 (y 32–319), pełny kadr mapy (góra/dół bez przycinania).
+- Dane: SondeHub API v2 `https://api.v2.sondehub.org/sondes?lat=&lon=&distance=&last=`, 18 sond w zasięgu 700 km.
+- Nagłówek: hamburger lewy (4-24), tytuł „ESP32-HAM-CLOCK" wyśrodkowany (font 9 bold), „RADIOSONDY" do prawej przed przyciskiem `sondehub.org >` (font 9 bold; przycisk bx = W-bw-10). W FONTACH 12 kolizja tytuł↔label — w makiecie trzymać 9.
+- Menu (rešet hamburger): promień km (50–1000) + 3 przyciski NA ŻYWO / AMATORSKIE / ŁOWCY. Tryb LOW = auta (łowcy) na pozycjach uploaderów + mały balon (cel).
+- Detale (po „sondehub.org >"): serial, typ, dystans, azymut, MHz, SNR, status LIVE (kropka), wysokość ze strzałką ↑ (wznosi się) / ↓ (opada).
+- Ikony: balon Fluent Emoji „Balloon" 256×256 RGBA → `balloon_icon()`, auto `.mock/fluent3d/automobile.png`.
+
+FW (zacommitowane częściowo na `main`, HEAD 4e7ee43):
+- WWW: `data/index.html` — opcja `RADIOSONDY` we wszystkich 16 `screen_slot_*`; sekcja ustawień „🎈 RADIOSONDY (SondeHub)" (włącz ekran, zasięg km, typ live/amateur/hunters, live_min, linia QTH→sonda, podpis lowcy, link sondehub.org); `collectConfigPayload()` + reader `chk/val`.
+- main.cpp: `SCREEN_RADIOSONDE=17` w enum, `normalizeScreenType/screenTypeToCodeStr/screenCodeToType` z „radiosondy/radiosonda/sondehub/sondy"; globalne `radiosondeEnabled/RangeKm/Mode/LiveMin/ShowPath/ShowUploader`; NVS klucze **≤15**: `rs_en/rs_range/rs_mode/rs_live_min/rs_path/rs_uploader`; POST parse + GET emit; **pełny ekran**: `fetchRadiosondeData()` (HTTPS api.v2.sondehub.org, bufor `SondeSpot[24]`, sort wg odl. od QTH) + `drawRadiosondyScreen()` (mapa Polski z `poland_mask.h` 200×120, znaczniki balon/auto, celownik QTH, linia QTH→sonda, dolny panel status+3 najbliższe sondy). Globale (bufor sonde + flagi) są w bloku 277–311 (przed UI loop; touch handler i auto-odświeżanie odwołują się do `lastSondeAttemptMs/lastSondeFetchMs/sondeCount/sondeFetchError`).
+- Mapa: `tools/gen_poland_mask.py` → `poland_mask.h` (1-bit, 200×120, u góry `.pio` build `-e esp32-s3-n16r8` i `-notouch` SUCCESS, 0 warningów). Georeferencja `PL_LAT_TOP=54.84/PL_LAT_BOT=49.0/PL_LON_LEFT=14.12/PL_LON_RIGHT=24.15`; projekcja `sondeProject()` (Plate Carrée).
+- Wpisano do list pelnoekranowych: `issFullBleed` (drawScreen ~3600) i `isHeaderScreen` (~936) — ekran rysuje własny `uiHeader("RADIOSONDY", true)` + własny dolny pasek, bez `uiFooter()`.
+- Auto-odświeżanie: UI loop co `radiosondeLiveMin` min (`lastSondeFetchMs`/`staleMs`); hamburger w touch handlerze wymusza refetch (`lastSondeAttemptMs=lastSondeFetchMs=0` + redraw). `http.setTimeout(5000)`.
+- Kompilacja w pio: 4 envy jak wyżej. Po zmianach w `main.cpp` weryfikować balans nawiasów (pomoc: `git show HEAD:main.cpp` dla bazowego odchylenia {2,9} — nie wprowadzać nowych).
