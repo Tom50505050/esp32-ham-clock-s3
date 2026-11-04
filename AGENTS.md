@@ -2,6 +2,22 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Ekran RADIOSONDY: detale sondy jako obrysy + biale napisy; mapa PL z repo (04.11.2026)
+Uzytkownik: na ekranie po wejsciu w `sondehub.org >` nie maja byc kratki, tylko obwodki,
+a litery/cyfry biale. Dodatkowo mapa Polski ma byc wczytana i przekonwertowana z
+`data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg` (repo).
+- **Detale sondy**: ciemne tlo (0x0000), WSZYSTKIE ramki jako `drawRoundRect` (obrys),
+  bez `fillRoundRect` — karta sondy, 8 kafelek gridu, przycisk POWROT. Litery i cyfry
+  biale (`TFT_WHITE`). Zielona/czerwona kropka NA ZYWO i licznik < n/N > bez zmian.
+- **Mapa Polski z repo**: `PL_drogowa_750tys_95x90cm_01_10_2019.jpg` (1536x1455, 964007 B,
+  identyczny z wczesniejszym `/workspace/share/PL_map_raw.jpg`) trafil do `data/icon50/`.
+  `tools/gen_poland_mask.py` czyta teraz rowniez ten plik (fallback: share/PL_map_raw.jpg)
+  i regeneruje `poland_mask.h` (200x120, majority vote). `render_radiosonda_v3.py` bierze
+  mape najpierw z DATA_SRC (ten sam JPG z repo), potem fallback do MAP_SRC/URL.
+- Buildy obu env SUCCESS (po reinstalacji framework-arduinoespressif32 przez pio),
+  buildfs OK, merges 16 MB, ZIP 732 wpisy (8568917 B), serwery HTTP 12000/12001
+  podniesione ponownie (padly po restarcie srodowiska) i prawidlowo serwuja zip+mapa.
+
 ## Ekran RADIOSONDY: przycisk sondehub.org obok hamburgera + dzialajace przyciski (04.11.2026)
 Zgłoszenie: „nie pokazuje na mapie sond", „przycisk z prawej przesuń na lewą obok menu",
 „przyciski nie działają".
