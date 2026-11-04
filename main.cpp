@@ -28045,9 +28045,9 @@ void uiTaskLoop(void *parameter) {
         if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
           fetchRadiosondeData();
           const bool mCl = uiStyleClassic();
-          drawRadiosondeMarkers(mCl ? 0xFFFF : ISS_MAP_WATER,
-                                mCl ? 0xDEFA : ISS_COL_LAND,
-                                mCl ? 0x8410 : ISS_COL_BORDER,
+          drawRadiosondeMarkers(mCl ? 0xFFFF : 0x00C6,
+                                mCl ? 0xDEFA : 0x2A47,
+                                mCl ? 0x8410 : 0x298A,
                                 mCl ? TFT_BLACK : UI_COL_TEXT,
                                 TFT_RED,
                                 mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT);
