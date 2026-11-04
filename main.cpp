@@ -3753,11 +3753,10 @@ uint16_t colorWheel(uint8_t pos) {
 }
 
 void applyMenuThemeFromHue() {
-  // W trybie nowoczesnym menu ma zawsze teal (wspolny styl ISS), niezaleznie od
-  // suwaka motywu; w trybie klasycznym uzywamy koloru z kolowego (domyslnie
-  // pomaranczowy). Zapisujemy suwak do menuThemeHue, wiec powrot do klasycznego
-  // odtwarza wybrany wczesniej kolor.
-  menuThemeColor = uiStyleClassic() ? colorWheel(menuThemeHue) : UI_COL_ACCENT;
+  // Kolor motywu z kolowego stosowany w OBU stylach: klasyczny zmienia gorny
+  // pasek i strzalki, nowoczesny - kolor ramek i strzalek. Suwak zapisywany do
+  // menuThemeHue (NVS) zachowuje wybor miedzy restartami.
+  menuThemeColor = colorWheel(menuThemeHue);
 }
 
 // Definicja koloru "Radio Orange" - dynamiczny motyw
@@ -7602,7 +7601,7 @@ static void uiHamburger(int x, int y) {
   const int btnW = iconW + pad * 2, btnH = iconH + pad * 2;
   // Klasyczny: czarna ikona na pomaranczowym naglowku (jak w zegarze klasycznym).
   const uint16_t btnBg = classic ? TFT_RADIO_ORANGE : UI_COL_CARD;
-  const uint16_t ink = classic ? TFT_BLACK : UI_COL_ACCENT2;
+  const uint16_t ink = classic ? TFT_BLACK : menuThemeColor;
   tft.fillRoundRect(btnX, btnY, btnW, btnH, 3, btnBg);
   tft.drawRoundRect(btnX, btnY, btnW, btnH, 3, ink);
   tft.fillRect(x, y, iconW, 3, ink);
@@ -7618,7 +7617,7 @@ static void uiHeader(const char *title, bool showMenu) {
   const bool classic = uiStyleClassic();
   const uint16_t bg = classic ? TFT_RADIO_ORANGE : UI_COL_CARD;
   const uint16_t fg = classic ? TFT_BLACK : UI_COL_TEXT;
-  const uint16_t line = classic ? 0x8410 : UI_COL_ACCENT;
+  const uint16_t line = classic ? 0x8410 : menuThemeColor;
   tft.fillRect(0, 0, 480, UI_HEADER_H, bg);
   tft.drawFastHLine(0, UI_HEADER_H - 1, 480, line);
   if (showMenu) uiHamburger(5, 4);
@@ -30907,7 +30906,7 @@ static bool fetchRadiosondeData() {
   sondeFetchedOnce = true;
   lastSondeFetchMs = millis();
   Serial.printf("[Sonde] pobrano: %d sond, blad=%d (%s)\n", sondeCount,
-                (int)sondeFetchError, sondeFetchErrMsg.c_str());
+                (int)sondeFetchError, sondeFetchErrMsg);
   return sondeCount > 0;
 }
 
