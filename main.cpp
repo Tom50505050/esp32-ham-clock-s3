@@ -30906,6 +30906,8 @@ static bool fetchRadiosondeData() {
 
   sondeFetchedOnce = true;
   lastSondeFetchMs = millis();
+  Serial.printf("[Sonde] pobrano: %d sond, blad=%d (%s)\n", sondeCount,
+                (int)sondeFetchError, sondeFetchErrMsg.c_str());
   return sondeCount > 0;
 }
 
@@ -30963,9 +30965,12 @@ static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
 // Rysuje mala kolorowa ikone RGB565 wycentrowana na (x,y); piksel 0xF81F
 // (sentinel) jest przezroczysty - nie nadpisuje mapy pod spodem.
 static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int stride) {
-  const int z = 2;  // 2x powiekszenie ikony 16x16 -> 32x32 px (lepsza widocznosc na mapie)
-  const int x0 = x - (w * z) / 2;
-  const int y0 = y - (h * z) / 2;
+  const int z = 3;  // 3x powiekszenie ikony 16x16 -> 48x48 px (dobra widocznosc na mapie)
+  const int zw = w * z, zh = h * z;
+  const int x0 = x - zw / 2;
+  const int y0 = y - zh / 2;
+  // Bialy dysk pod ikona - ikona widoczna na kazdym tle mapy.
+  tft.fillCircle(x, y, zh / 2 + 1, 0xFFFF);
   for (int j = 0; j < h; j++) {
     for (int i = 0; i < w; i++) {
       uint16_t c = icon[j * stride + i];
@@ -30977,8 +30982,8 @@ static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int str
       }
     }
   }
-  // Bialy obrys dla kontrastu na mapie.
-  tft.drawRect(x0, y0, w * z, h * z, TFT_WHITE);
+  // Zolty obrys dla kontrastu na mapie.
+  tft.drawRect(x0, y0, zw, zh, 0xFFE0);
 }
 
 // Rysuje WARSTWE ZNACZNIKOW ekranu RADIOSONDY: mape, QTH (czerwony celownik),

@@ -283,6 +283,14 @@
                     </select>
                     <small>Tryb jasny: białe tło i czarne litery na głównych ekranach tabelowych TFT</small>
                 </div>
+                <div class="form-group">
+                    <label>🎨 Kolor motywu (hue):
+                        <input type="color" id="theme_color_picker" value="#ff8c1a" style="width:60px;height:34px;padding:2px;border:none;background:transparent;vertical-align:middle;" oninput="document.getElementById('menu_hue').value=hexToHue(this.value); syncThemeColorPicker();">
+                        <span id="menu_hue_value">42</span>/255
+                    </label>
+                    <input type="range" id="menu_hue" name="menu_hue" min="0" max="255" value="42" oninput="syncThemeColorPicker();">
+                    <small>Styl klasyczny: kolor górnego paska i strzałek. Styl nowoczesny: kolor ramek i strzałek. Zapisz, a zmiana pojawi się na ekranie TFT.</small>
+                </div>
             </div>
 
             <div class="config-section">
@@ -2326,6 +2334,38 @@
             const r = (num >> 16) & 0xFF, g = (num >> 8) & 0xFF, b = num & 0xFF;
             return (((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)) & 0xFFFF;
         };
+        // Kolor motywu TFT: suwak hue 0-255 to colorWheel() w firmware.
+        const hueToHex = (hue) => {
+            let pos = 255 - hue;
+            let r, g, b;
+            if (pos < 85) { r = 255 - pos * 3; g = 0; b = pos * 3; }
+            else if (pos < 170) { pos -= 85; r = 0; g = pos * 3; b = 255 - pos * 3; }
+            else { pos -= 170; r = pos * 3; g = 255 - pos * 3; b = 0; }
+            const h2 = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+            return '#' + h2(r) + h2(g) + h2(b);
+        };
+        const hexToHue = (hex) => {
+            const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
+            if (!m) return 42;
+            const num = parseInt(m[1], 16);
+            const tr = (num >> 16) & 0xFF, tg = (num >> 8) & 0xFF, tb = num & 0xFF;
+            let best = 42, bestDiff = Infinity;
+            for (let hue = 0; hue <= 255; hue++) {
+                const c = hueToHex(hue).replace('#', '');
+                const cn = parseInt(c, 16);
+                const diff = Math.abs(((cn >> 16) & 0xFF) - tr) + Math.abs(((cn >> 8) & 0xFF) - tg) + Math.abs((cn & 0xFF) - tb);
+                if (diff < bestDiff) { bestDiff = diff; best = hue; }
+            }
+            return best;
+        };
+        const syncThemeColorPicker = () => {
+            const slider = document.getElementById('menu_hue');
+            const picker = document.getElementById('theme_color_picker');
+            const lbl = document.getElementById('menu_hue_value');
+            const hue = slider ? (parseInt(slider.value, 10) || 0) : 42;
+            if (picker) picker.value = hueToHex(hue);
+            if (lbl) lbl.textContent = String(hue);
+        };
         const resetCallsignColor = () => {
             const picker = document.getElementById('callsign_color_picker');
             if (picker) picker.value = '#ffffff';
@@ -2597,6 +2637,11 @@
             const tftStyleSelect = document.getElementById('tft_style');
             if (tftStyleSelect) {
                 tftStyleSelect.value = data.tft_style || "dark";
+            }
+            const menuHueEl = document.getElementById('menu_hue');
+            if (menuHueEl) {
+                menuHueEl.value = (data.menu_hue !== undefined && data.menu_hue !== null) ? data.menu_hue : 42;
+                syncThemeColorPicker();
             }
             const tableSizeSelect = document.getElementById('table_size');
             if (tableSizeSelect) {
@@ -3931,6 +3976,7 @@
             tft_panel_brighten: document.getElementById('tft_panel_brighten').checked,
             tft_lang: (document.getElementById('tft_lang') ? document.getElementById('tft_lang').value : "pl"),
             tft_style: (document.getElementById('tft_style') ? document.getElementById('tft_style').value : "dark"),
+            menu_hue: parseInt(document.getElementById('menu_hue') ? document.getElementById('menu_hue').value : 42) || 42,
             table_size: (document.getElementById('table_size') ? document.getElementById('table_size').value : "normal"),
             tft_rotation: (isNaN(parseInt(document.getElementById('tft_rotation').value)) ? 1 : parseInt(document.getElementById('tft_rotation').value)),
             tft_invert: (document.getElementById('tft_invert').value === "1"),
