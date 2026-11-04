@@ -267,17 +267,13 @@ def draw_header(img, style, title="ESP32-HAM-CLOCK", right="RADIOSONDY"):
     for i in range(3):
         y = my + i * 5
         d.rectangle([mx, y, mx + mw, y + 2], fill=ink)
-    # przycisk "sondehub.org >" OBOK hamburgera (po nim ekran detali sondy)
+    # przycisk "sondehub.org >" OBOK hamburgera - obwodka (obrys) + biale napisy
     btn = "sondehub.org >"
     bf = F(9, True)
     bw = d.textlength(btn, font=bf) + 14
     bx = 32  # zaraz za hamburgerem (x=4..24)
-    if classic:
-        d.rounded_rectangle([bx, 7, bx + bw, 25], radius=4, fill=C_BLACK, outline=C_WHITE)
-        d.text((bx + 7, 9), btn, font=bf, fill=C_ORANGE)
-    else:
-        d.rounded_rectangle([bx, 7, bx + bw, 25], radius=4, fill=C_TEAL, outline=(28, 40, 60))
-        d.text((bx + 7, 9), btn, font=bf, fill=C_BLACK)
+    d.rounded_rectangle([bx, 7, bx + bw, 25], radius=4, fill=bg, outline=C_WHITE, width=2)
+    d.text((bx + 7, 9), btn, font=bf, fill=C_WHITE)
     # tytul (centrum) - przesuniety nieco w prawo, bo lewa zajeta przez
     # hamburger + przycisk sondehub.org
     tf = F(9, True)

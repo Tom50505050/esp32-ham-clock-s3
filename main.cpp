@@ -31059,10 +31059,9 @@ static void drawRadiosondeHeader() {
   tft.setTextDatum(TL_DATUM);
   const int bw = tft.textWidth(btn) + 16;
   const int bx = 30, by = 5, bh = 22;
-  tft.fillRoundRect(bx, by, bw, bh, 4, classic ? TFT_BLACK : TFT_RADIO_ORANGE);
-  tft.drawRoundRect(bx, by, bw, bh, 4, classic ? TFT_WHITE : UI_COL_BORDER);
-  tft.setTextColor(classic ? TFT_RADIO_ORANGE : TFT_BLACK,
-                   classic ? TFT_BLACK : TFT_RADIO_ORANGE);
+  // Obrys (obwodka) + biale napisy - bez wypelnienia/kratek.
+  tft.drawRoundRect(bx, by, bw, bh, 4, TFT_WHITE);
+  tft.setTextColor(TFT_WHITE, bg);
   tft.drawString(btn, bx + 8, by + 6, 1);
 
   // Tytul w centrum wolnej przestrzeni (miedzy przyciskiem a prawa strona).
