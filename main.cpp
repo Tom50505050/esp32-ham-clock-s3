@@ -3048,9 +3048,10 @@ bool tftIsNightTime() {
 }
 
 int effectiveBacklightPercent() {
-  // Ekran po starcie ma NIE przygasac: dopoki flaga jest aktywna i uzytkownik
-  // jawnie nie zmienil jasnosci (setBacklightPercent baza=100%), PWM = 100%.
-  if (forceFullBacklightAfterBoot && backlightPercent >= TFT_BACKLIGHT) {
+  // Ekran po starcie ma NIE przygasac: dopoki flaga jest aktywna, PWM = 100%,
+  // nawet gdy w NVS zapisano nizsza jasnosc. Dopiero jawna zmiana jasnosci
+  // przez uzytkownika (WWW lub suwak+ZAPISZ w menu) wylacza te flage.
+  if (forceFullBacklightAfterBoot) {
     return 100;
   }
   int p = backlightPercent;
@@ -32053,12 +32054,11 @@ void setup() {
   // ZAWSZE przywroc najpierw fabryczna krzywa gamy/VCOM, zeby zadna sekwencja
   // nie zostawila podbitej gamy z poprzedniego porzuconego stanu (np. stary
   // tftPanelBrighten w NVS); boost tylko gdy uzytkownik jawnie wlaczyl opcje.
+  // Bez boosta gamma przy starcie: fabryczna krzywa = czysta biel i najglebsza
+  // czern (maksymalny kontrast), wiec litery/cyfry po starcie sa najostrzejsze
+  // i nie "szarzeja". Rozjasnienie (applyPanelBrightnessBoost) dziala tylko gdy
+  // uzytkownik jawnie wlaczy opcje w WWW - wtedy /api/save ja stosuje.
   initTFTGamma();
-  Serial.printf("[TFT] Gamma/VCOM: %s (fabryczna krzywa = najjasniejszy bialy)\n",
-                tftPanelBrighten ? "rozjasnienie panelu AKTYWNE (WWW/opcja)" : "fabryczna (domyslnie)");
-  if (tftPanelBrighten) {
-    applyPanelBrightnessBoost();
-  }
   setBacklightPercentRaw(100);
   Serial.printf("[BL] Boot: PWM 100%% (baza=%d%%, nocne=%d%%, auto=%d, efekt po starcie=%d%%)\n",
                 backlightPercent, tftNightDimmingPercent, tftNightDimmingAuto ? 1 : 0,
