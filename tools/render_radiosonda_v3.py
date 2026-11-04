@@ -198,6 +198,14 @@ def load_map():
     return Image.open(MAP_SRC).convert('RGB')
 
 def project(lat, lon):
+    """Projekcja jak w firmware: punkty >0.25 st poza bboxem PL sa doklejane
+    do krawedzi mapy, zeby ikonka sondy nie znikala, gdy sonda jest nad granica."""
+    CLAMP = 0.25
+    if not (LON_LEFT - CLAMP <= lon <= LON_RIGHT + CLAMP and
+            LAT_BOT - CLAMP <= lat <= LAT_TOP + CLAMP):
+        return None
+    lat = min(max(lat, LAT_BOT), LAT_TOP)
+    lon = min(max(lon, LON_LEFT), LON_RIGHT)
     x = B_X0 + (lon - LON_LEFT) / (LON_RIGHT - LON_LEFT) * CBW
     y = B_Y0 + (LAT_TOP - lat) / (LAT_TOP - LAT_BOT) * CBH
     return x, y
@@ -220,7 +228,10 @@ class MapView:
     def draw_onto(self, img):
         img.paste(self.map_img, (self.ox, self.oy))
     def to_screen(self, lat, lon):
-        px, py = project(lat, lon)
+        pp = project(lat, lon)
+        if pp is None:
+            return None
+        px, py = pp
         return self.ox + int(px * self.scale), self.oy + int(py * self.scale)
     def km_to_px(self, km):
         """ile px to 'km' w poblizu (lat 52)."""
@@ -347,20 +358,27 @@ def render_main(style, sondes, mode='LIVE', rng=600):
             ulat, ulon = s.get('u_lat'), s.get('u_lon')
             if ulat is None or ulon is None:
                 continue
-            ux, uy = mv.to_screen(ulat, ulon)
+            ppx = mv.to_screen(ulat, ulon)
+            if ppx is None:
+                continue
+            ux, uy = ppx
             key = (ux // 8, uy // 8)
             if key in placed_cars:
                 continue
             placed_cars.add(key)
             markers_placed.append((aut, ux, uy))
             # cel sondy malym balonem
-            sx, sy = mv.to_screen(s['lat'], s['lon'])
-            markers_placed.append((balloon_icon(16), sx, sy))
+            pp = mv.to_screen(s['lat'], s['lon'])
+            if pp is not None:
+                markers_placed.append((balloon_icon(16), pp[0], pp[1]))
         # podpisz najblizszego lowce
         for i, s in enumerate(sondes):
             if s.get('u_lat') is None or s['dist'] > rng * 1.3:
                 continue
-            ux, uy = mv.to_screen(s['u_lat'], s['u_lon'])
+            ppx = mv.to_screen(s['u_lat'], s['u_lon'])
+            if ppx is None:
+                continue
+            ux, uy = ppx
             d.text((ux + 18, uy - 9), s['uploader'], font=F(10, True),
                    fill=C_BLACK if classic else C_WHITE)
             break
@@ -369,14 +387,18 @@ def render_main(style, sondes, mode='LIVE', rng=600):
         for i, s in enumerate(sondes):
             if s['dist'] > rng * 1.3:
                 continue
-            sx, sy = mv.to_screen(s['lat'], s['lon'])
-            markers_placed.append((bal, sx, sy))
+            pp = mv.to_screen(s['lat'], s['lon'])
+            if pp is None:
+                continue
+            markers_placed.append((bal, pp[0], pp[1]))
         if sondes:
             s0 = sondes[0]
-            sx, sy = mv.to_screen(s0['lat'], s0['lon'])
-            lbl = "%s %s %skm" % (s0['serial'], s0['type'], int(s0['dist']))
-            d.text((sx + 18, sy - 9), lbl, font=F(10, True),
-                   fill=C_BLACK if classic else C_WHITE)
+            pp = mv.to_screen(s0['lat'], s0['lon'])
+            if pp is not None:
+                sx, sy = pp
+                lbl = "%s %s %skm" % (s0['serial'], s0['type'], int(s0['dist']))
+                d.text((sx + 18, sy - 9), lbl, font=F(10, True),
+                       fill=C_BLACK if classic else C_WHITE)
     for idx, (ic, x, y) in enumerate(markers_placed):
         marker(d, ic, x, y, 28, selected=(idx == 0), halo=True)
 

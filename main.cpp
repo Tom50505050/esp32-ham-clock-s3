@@ -30736,10 +30736,17 @@ static void sondeGetQth(double &lat, double &lon) {
 }
 
 // Projekcja bbox Polski (Plate Carree, jak latLonToScreen dla mapy swiata).
-// Zwraca false, gdy punkt poza granicami - wtedy nie rysujemy znacznika.
+// Punkty troche poza granicami (do 0.25 st) sa DOKLEJANE do krawedzi mapy,
+// by sonda nad granica/za granica nie znikala bez sladu - inaczej przy danych
+// z SondeHub (szukanie 600 km wokol QTH) mapa bywala pusta (Bonus: "brak ikon").
+#define PL_PROJ_CLAMP_DEG 0.25f
 static bool sondeProject(float lat, float lon, int &x, int &y) {
-  if (lat < PL_LAT_BOT || lat > PL_LAT_TOP) return false;
-  if (lon < PL_LON_LEFT || lon > PL_LON_RIGHT) return false;
+  if (lat < PL_LAT_BOT - PL_PROJ_CLAMP_DEG || lat > PL_LAT_TOP + PL_PROJ_CLAMP_DEG) return false;
+  if (lon < PL_LON_LEFT - PL_PROJ_CLAMP_DEG || lon > PL_LON_RIGHT + PL_PROJ_CLAMP_DEG) return false;
+  if (lat < PL_LAT_BOT) lat = PL_LAT_BOT;
+  if (lat > PL_LAT_TOP) lat = PL_LAT_TOP;
+  if (lon < PL_LON_LEFT) lon = PL_LON_LEFT;
+  if (lon > PL_LON_RIGHT) lon = PL_LON_RIGHT;
   x = PL_MAP_X0 + (int)((lon - PL_LON_LEFT) / (PL_LON_RIGHT - PL_LON_LEFT) * PL_MAP_W);
   y = PL_MAP_Y0 + (int)((PL_LAT_TOP - lat) / (PL_LAT_TOP - PL_LAT_BOT) * PL_MAP_H);
   return true;
