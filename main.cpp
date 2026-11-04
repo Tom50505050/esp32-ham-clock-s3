@@ -9140,6 +9140,7 @@ void setThemeFromTouch(uint16_t x) {
   if (hue != menuThemeHue) {
     menuThemeHue = hue;
     applyMenuThemeFromHue();
+    savePreferences();
     drawBrightnessMenuHeader();
     drawThemeSlider();
     drawBrightnessSlider();
@@ -9260,6 +9261,14 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   // ObsĹ‚uga suwaka jasnoĹ›ci
   if (y >= sliderY - 6 && y <= sliderY + sliderH + 6) {
     setBrightnessFromTouch(x);
+  }
+  // ObsĹ‚uga suwaka KOLORU MOTYWU (rysowany na y=130 przez drawThemeSlider).
+  // Dotyk na tej belce ustawia menuThemeHue i odswieza ekran.
+  {
+    const int themeSliderY = 130;
+    if (y >= themeSliderY - 6 && y <= themeSliderY + sliderH + 6) {
+      setThemeFromTouch(x);
+    }
   }
 
   if (isNewTap) {
