@@ -291,7 +291,7 @@ bool radiosondeShowUploader = true; // podpis odbiorcy (lowcy)
 // przez fetchRadiosondeData() z UI_Task (jedyny kontekst rysujacy po TFT).
 #define SONDE_MAX_ENTRIES 24
 #define SONDE_FETCH_MIN_INTERVAL_MS 30000UL  // min przerwa miedzy zapytaniami
-#define SONDE_SCREEN_REFRESH_MS 30000UL      // odswiezanie ekranu RADIOSONDY co 30 s
+#define SONDE_SCREEN_REFRESH_MS 60000UL      // odswiezanie ekranu RADIOSONDY co 60 s
 #define SONDE_FETCH_MAX_BODY 32768UL         // max odpowiedz JSON (String)
 
 typedef struct {
@@ -2959,6 +2959,8 @@ static uint16_t getPskBandColor(int band);
 static uint16_t getDxColor(float distance);
 bool pskFetchAllowed(unsigned long now);
 void drawIssPassTracking();
+static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bdrCol,
+                                  uint16_t textCol, uint16_t qthCol, uint16_t accent);
 void drawRadiosondyScreen();
 
 // ========== INICJALIZACJA TFT (ESP32-S3 N16R8 + ILI9488) ==========
@@ -28041,7 +28043,15 @@ void uiTaskLoop(void *parameter) {
           !sondeMenuActive && !sondeDetailActive && !aprsAlertScreenActive &&
           lastSondeAttemptMs != 0) {
         if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
-          drawRadiosondyScreen();
+          fetchRadiosondeData();
+          const bool mCl = uiStyleClassic();
+          drawRadiosondeMarkers(mCl ? 0xFFFF : ISS_MAP_WATER,
+                                mCl ? 0xDEFA : ISS_COL_LAND,
+                                mCl ? 0x8410 : ISS_COL_BORDER,
+                                mCl ? TFT_BLACK : UI_COL_TEXT,
+                                TFT_RED,
+                                mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT);
+          lastSondeFetchMs = millis();
         }
       }
 
@@ -30971,45 +30981,27 @@ static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int str
   tft.drawRect(x0, y0, w * z, h * z, TFT_WHITE);
 }
 
-void drawRadiosondyScreen() {
-  if (!tftInitialized) return;
-  const bool classic = uiStyleClassic();
-
-  // Odswiez dane: pierwsze wejscie na ekran albo dane starsze niz 30 s.
-  if (!sondeFetchedOnce || lastSondeFetchMs == 0) {
-    if (radiosondeEnabled) fetchRadiosondeData();
-  } else if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
-    if (radiosondeEnabled) fetchRadiosondeData();
-  }
-
-  drawRadiosondeHeader();
-
-  const uint16_t outCol   = classic ? 0xFFFF /* bialy margines */ : ISS_MAP_WATER;
-  const uint16_t landCol  = classic ? 0xDEFA /* jasny bez */ : ISS_COL_LAND;
-  const uint16_t bdrCol   = classic ? 0x8410 : ISS_COL_BORDER;
-  const uint16_t textCol  = classic ? TFT_BLACK : UI_COL_TEXT;
-  const uint16_t cardCol  = classic ? 0xFFFF : UI_COL_CARD;
-  const uint16_t accent   = classic ? TFT_RADIO_ORANGE : UI_COL_ACCENT;
-  const uint16_t warnCol  = classic ? 0xFBE0 /* bursztyn */ : UI_COL_WARN;
-
-  // --- mapa ---
+// Rysuje WARSTWE ZNACZNIKOW ekranu RADIOSONDY: mape, QTH (czerwony celownik),
+// linie QTH->sonda i ikony balonow/aut lowcow. Bez headera i dolnego paska -
+// dzieki temu odswiezanie co 60 s dotyka tylko tej warstwy (nie miga caly ekran).
+static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bdrCol,
+                                  uint16_t textCol, uint16_t qthCol, uint16_t accent) {
   drawRadiosondeMap(landCol, outCol, bdrCol);
 
-  // --- znaczniki ---
   const bool hunters = (radiosondeMode == "hunters");
 
   double qlat, qlon;
   sondeGetQth(qlat, qlon);
 
-  // QTH - zloty celownik (jak na ekranie ISS).
+  // QTH - czerwony celownik.
   {
     int qx, qy;
     if (sondeProject((float)qlat, (float)qlon, qx, qy)) {
-      tft.drawCircle(qx, qy, 4, warnCol);
-      tft.drawFastHLine(qx - 7, qy, 3, warnCol);
-      tft.drawFastHLine(qx + 5, qy, 3, warnCol);
-      tft.drawFastVLine(qx, qy - 7, 3, warnCol);
-      tft.drawFastVLine(qx, qy + 5, 3, warnCol);
+      tft.drawCircle(qx, qy, 4, qthCol);
+      tft.drawFastHLine(qx - 7, qy, 3, qthCol);
+      tft.drawFastHLine(qx + 5, qy, 3, qthCol);
+      tft.drawFastVLine(qx, qy - 7, 3, qthCol);
+      tft.drawFastVLine(qx, qy + 5, 3, qthCol);
     }
   }
 
@@ -31054,6 +31046,41 @@ void drawRadiosondyScreen() {
       tft.drawString(s.serial, x + 9, y + 4, 1);
     }
   }
+}
+
+void drawRadiosondyScreen() {
+  if (!tftInitialized) return;
+  const bool classic = uiStyleClassic();
+
+  // Odswiez dane: pierwsze wejscie na ekran albo dane starsze niz 30 s.
+  if (!sondeFetchedOnce || lastSondeFetchMs == 0) {
+    if (radiosondeEnabled) fetchRadiosondeData();
+  } else if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
+    if (radiosondeEnabled) fetchRadiosondeData();
+  }
+
+  drawRadiosondeHeader();
+
+  const uint16_t outCol   = classic ? 0xFFFF /* bialy margines */ : ISS_MAP_WATER;
+  const uint16_t landCol  = classic ? 0xDEFA /* jasny bez */ : ISS_COL_LAND;
+  const uint16_t bdrCol   = classic ? 0x8410 : ISS_COL_BORDER;
+  const uint16_t textCol  = classic ? TFT_BLACK : UI_COL_TEXT;
+  const uint16_t cardCol  = classic ? 0xFFFF : UI_COL_CARD;
+  const uint16_t accent   = classic ? TFT_RADIO_ORANGE : UI_COL_ACCENT;
+  const uint16_t warnCol  = classic ? 0xFBE0 /* bursztyn */ : UI_COL_WARN;
+
+  // --- mapa ---
+  drawRadiosondeMap(landCol, outCol, bdrCol);
+
+  // --- znaczniki ---
+  const bool hunters = (radiosondeMode == "hunters");
+
+  double qlat, qlon;
+  sondeGetQth(qlat, qlon);
+
+  // Znaczniki: mapa + QTH + linia + ikony (ryzowane w osobnej funkcji,
+  // by odswiezanie co 60 s dotykalo tylko tej warstwy, a nie calego ekranu).
+  drawRadiosondeMarkers(landCol, outCol, bdrCol, textCol, TFT_RED, accent);
 
   // --- dolny panel: status + lista najblizszych sond ---
   const int stripY = 277;
