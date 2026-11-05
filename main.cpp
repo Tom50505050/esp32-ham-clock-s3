@@ -454,6 +454,59 @@ static char *sondeGunzipPsram(const uint8_t *gz, size_t gzLen, size_t *outLen) {
   *outLen = isize;
   return raw;
 }
+
+// Czyta cala odpowiedz HTTP (raw, moze byc gzip) ze strumienia HTTPClient do
+// PSRAM. Dodaje do bufora, gdy trzeba. Zwraca wskaznik PSRAM (zwalnianie
+// heap_caps_free) i *outLen; nullptr przy bledzie / braku pamieci.
+static uint8_t *sondeReadBodyPsram(WiFiClient *stream, size_t initialCap,
+                                   size_t maxLen, size_t *outLen,
+                                   uint16_t &errCode) {
+  *outLen = 0;
+  errCode = 0;
+  uint8_t *buf = (uint8_t *)heap_caps_malloc(initialCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!buf) { errCode = 1; return nullptr; }  // PSRAM alloc fail
+  size_t len = 0;
+  // Pobieramy calosc, nie bajt-po-bajcie (to trwalo >20 s i zamrazalo UI).
+  // read() czyta do bufora wewnetrznego HTTPClient/WiFiClientSecure.
+  unsigned long lastData = millis();
+  bool timeoutHit = false;
+  while (!timeoutHit) {
+    if (!stream->connected() && stream->available() == 0) break;
+    int avail = stream->available();
+    if (avail == 0) {
+      if (millis() - lastData >= 15000UL) timeoutHit = true;
+      else {
+        delay(5);
+        continue;
+      }
+      break;
+    }
+    if (len + (size_t)avail > maxLen) { errCode = 3; break; }  // za duzo
+    if (len + (size_t)avail > initialCap) {
+      // rosnij do maxLen
+      size_t newCap = initialCap;
+      while (newCap < len + (size_t)avail) newCap += 512 * 1024;
+      uint8_t *nb = (uint8_t *)heap_caps_realloc(buf, newCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!nb) { errCode = 2; break; }  // realloc fail
+      buf = nb;
+      initialCap = newCap;
+    }
+    int got = stream->read(buf + len, avail);
+    if (got <= 0) {
+      if (stream->connected() == false) break;
+      delay(2);
+      continue;
+    }
+    len += (size_t)got;
+    lastData = millis();
+  }
+  if (errCode != 0 || len == 0) {
+    heap_caps_free(buf);
+    return nullptr;
+  }
+  *outLen = len;
+  return buf;
+}
 static int sondeHistCount = 0;
 static unsigned long lastSondeHistFetchMs = 0; // ost. udane pobieranie historii
 static unsigned long lastSondeHistAttemptMs = 0;
@@ -466,6 +519,7 @@ static bool sondeHistNeedsFetch = false;      // uzytkownik wszedl na ekran hist
 #define SONDE_HUNT_REFRESH_MS 300000UL        // 5 min - duzy transfer, nie 60 s
 #define SONDE_LISTENERS_BODY_CAP 1572864UL    // 1.5 MB PSRAM na odpowiedz gzip/raw
 static unsigned long lastSondeHuntFetchMs = 0;
+static unsigned long lastSondeHuntStartMs = 0;  // stoper przy starcie fetcha LOWCY
 static bool sondeHuntNeedsFetch = false;
 
 // MQTT PSK Reporter - DOMYSLNY tryb od v1.2b (feed na zywo, mapa odswieza sie
@@ -31144,43 +31198,15 @@ static bool fetchRadiosondeHistory() {
   // /sondes/telemetry ZAWSZE zwraca gzip (ignoruje Accept-Encoding: identity).
   // Wczytujemy cala odpowiedz do PSRAM, dekompresujemy recznie (sondeGunzipPsram)
   // i budujemy dokument z surowego JSON z filtrem (lat/lon), tez w PSRAM.
-  size_t cap = 1024 * 1024;  // gzip ~370 KB
-  uint8_t *gz = (uint8_t *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!gz) {
-    http.end();
-    sondeFetchError = true;
-    sondeFetchErrMsg = "PSRAM gzip";
-    sondeHistLoading = false;
-    return false;
-  }
   size_t gzLen = 0;
-  WiFiClient *stream = http.getStreamPtr();
-  // Pobieramy cialo TYLKO gdy sa dane, z timeoutem: po 15 s bez bajtow
-  // (nawet gdy keep-alive utrzymuje TCP w stanie connected) wychodzimy -
-  // w innym razie read()<0 + connected()==true zapetlaloby sie bez konca
-  // i wieszalo UI task.
-  unsigned long lastGzData = millis();
-  while (stream && (millis() - lastGzData) < 15000UL) {
-    if (!stream->available()) {
-      if (!stream->connected()) break;
-      delay(5);
-      continue;
-    }
-    const int b = stream->read();
-    if (b < 0) break;
-    lastGzData = millis();
-    if (gzLen + 1 > cap) {
-      cap += 512 * 1024;
-      uint8_t *ng = (uint8_t *)heap_caps_realloc(gz, cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-      if (!ng) { heap_caps_free(gz); gz = nullptr; break; }
-      gz = ng;
-    }
-    gz[gzLen++] = (uint8_t)b;
-  }
+  uint16_t gzErr = 0;
+  uint8_t *gz = sondeReadBodyPsram(http.getStreamPtr(), 1024 * 1024,
+                                   4 * 1024 * 1024, &gzLen, gzErr);
   http.end();
   if (!gz) {
     sondeFetchError = true;
-    sondeFetchErrMsg = "PSRAM realloc";
+    sondeFetchErrMsg = (gzErr == 3) ? "za duzo" :
+                       (gzErr == 2) ? "PSRAM realloc" : "PSRAM gzip";
     sondeHistLoading = false;
     return false;
   }
@@ -31281,7 +31307,8 @@ static bool fetchRadiosondeHistory() {
   lastSondeHistFetchMs = millis();
   sondeFetchedOnce = true;
   sondeHistLoading = false;
-  Serial.printf("[Sonde] historia: %d lotow (fetch OK)\n", sondeHistCount);
+  Serial.printf("[Sonde] historia: %d lotow (fetch OK, %lu ms)\n", sondeHistCount,
+                (unsigned long)(millis() - lastSondeHistAttemptMs));
   return sondeHistCount > 0;
 }
 
@@ -31522,6 +31549,7 @@ static bool fetchSondeListenersData() {
   Serial.printf("[Sonde] LOWCY: fetch /listeners/telemetry start (lastMs=%lu, roznica %lu ms)\n",
                 (unsigned long)lastSondeHuntFetchMs,
                 lastSondeHuntFetchMs ? (unsigned long)(millis() - lastSondeHuntFetchMs) : 0UL);
+  lastSondeHuntStartMs = millis();
   sondeFetchError = false;
   sondeFetchErrMsg = "";
   if (!wifiConnected) {
@@ -31553,40 +31581,15 @@ static bool fetchSondeListenersData() {
   // /listeners/telemetry ZAWSZE zwraca gzip (ignoruje Accept-Encoding:
   // identity), a HTTPClient/deserializeJson nie dekompresuje. Wczytujemy
   // calosc do PSRAM, dekompresujemy (sondeGunzipPsram) i parsujemy raw JSON.
-  size_t cap = 512 * 1024;
-  uint8_t *gz = (uint8_t *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!gz) {
-    sondeFetchError = true;
-    sondeFetchErrMsg = "PSRAM gzip";
-    http.end();
-    return false;
-  }
   size_t gzLen = 0;
-  WiFiClient *stream = http.getStreamPtr();
-  // Po 15 s bez bajtow wychodzimy (keep-alive moze utrzymywac connected()==true
-  // po zakonczeniu body - inaczej pusta petla wieszalaby UI task).
-  unsigned long lastGzData = millis();
-  while (stream && (millis() - lastGzData) < 15000UL) {
-    if (!stream->available()) {
-      if (!stream->connected()) break;
-      delay(5);
-      continue;
-    }
-    const int b = stream->read();
-    if (b < 0) break;
-    lastGzData = millis();
-    if (gzLen + 1 > cap) {
-      cap += 256 * 1024;
-      uint8_t *ng = (uint8_t *)heap_caps_realloc(gz, cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-      if (!ng) { heap_caps_free(gz); gz = nullptr; break; }
-      gz = ng;
-    }
-    gz[gzLen++] = (uint8_t)b;
-  }
+  uint16_t gzErr = 0;
+  uint8_t *gz = sondeReadBodyPsram(http.getStreamPtr(), 512 * 1024,
+                                   6 * 1024 * 1024, &gzLen, gzErr);
   http.end();
   if (!gz) {
     sondeFetchError = true;
-    sondeFetchErrMsg = "PSRAM realloc";
+    sondeFetchErrMsg = (gzErr == 3) ? "za duzo" :
+                       (gzErr == 2) ? "PSRAM realloc" : "PSRAM gzip";
     return false;
   }
   size_t rawLen = 0;
@@ -31680,7 +31683,8 @@ static bool fetchSondeListenersData() {
     sondeHunters[j + 1] = key;
   }
   lastSondeHuntFetchMs = millis();
-  Serial.printf("[Sonde] lowcy: %d w okolicy\n", sondeHunterCount);
+  Serial.printf("[Sonde] lowcy: %d w okolicy (fetch OK, %lu ms)\n", sondeHunterCount,
+                (unsigned long)(millis() - lastSondeHuntStartMs));
   return sondeHunterCount > 0;
 }
 
