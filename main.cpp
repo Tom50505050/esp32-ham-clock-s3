@@ -30934,6 +30934,15 @@ static void sondeGetQth(double &lat, double &lon) {
 // by sonda nad granica/za granica nie znikala bez sladu - inaczej przy danych
 // z SondeHub (szukanie 600 km wokol QTH) mapa bywala pusta (Bonus: "brak ikon").
 #define PL_PROJ_CLAMP_DEG 3.0f
+
+// Czy punkt lezy WEWNATRZ geograficznego bboxu mapy (bez clampowania). Sluzy
+// do odfiltrowania lotow, ktorych trasa/balonik sa poza mape (np. Berlin,
+// Skandynawia) - NIE rysujemy ich na krawedzi mapy, bo nakladalyby sie.
+static bool sondePtInMap(float lat, float lon) {
+  return lat >= PL_LAT_BOT && lat <= PL_LAT_TOP &&
+         lon >= PL_LON_LEFT && lon <= PL_LON_RIGHT;
+}
+
 static bool sondeProject(float lat, float lon, int &x, int &y) {
   if (lat < PL_LAT_BOT - PL_PROJ_CLAMP_DEG || lat > PL_LAT_TOP + PL_PROJ_CLAMP_DEG) return false;
   if (lon < PL_LON_LEFT - PL_PROJ_CLAMP_DEG || lon > PL_LON_RIGHT + PL_PROJ_CLAMP_DEG) return false;
@@ -31396,20 +31405,20 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
     // Wazne: punkty SPOZA prostokata mapy (np. Berlin, Skandynawia) NIE sa
     // doklejane do krawedzi - pomijamy je, zeby ikony nie gromadzily sie na
     // obwodzie (a w panelu pokazujemy tylko loty z widocznym punktem).
-    const int mapX1 = PL_MAP_X0 + PL_MAP_W;
-    const int mapY1 = PL_MAP_Y0 + PL_MAP_H;
+    // Uwaga: sondeProject CLAMPUJE punkty do bboxu, dlatego po recepcji
+    // sprawdzamy surowa pozycje geograficzna (przed rzutowaniem).
     for (int fi = 0; fi < sondeHistCount; fi++) {
       const SondeHistFlight &f = sondeHist[fi];
       if (f.pointCount < 1) continue;
       int prevX, prevY;
       bool havePrev = false;
       for (int pt = 0; pt < f.pointCount; pt++) {
-        int px, py;
-        if (!sondeProject(f.lat[pt], f.lon[pt], px, py)) continue;
-        if (px < PL_MAP_X0 || py < PL_MAP_Y0 || px >= mapX1 || py >= mapY1) {
+        if (!sondePtInMap(f.lat[pt], f.lon[pt])) {
           havePrev = false;  // segment poza mapa - linia nie wchodzi w ekran
           continue;
         }
+        int px, py;
+        if (!sondeProject(f.lat[pt], f.lon[pt], px, py)) continue;
         if (havePrev) {
           // Slad w kolorze akcentu (ciemny obrys dla kontrastu z mapa).
           tft.drawLine(prevX - 1, prevY - 1, px - 1, py - 1, bdrCol);
@@ -31421,11 +31430,12 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
       }
       // Ostatnia pozycja - balonik TYLKO gdy lezy na mapie (inaczej ikona
       // byla by przyklejona do krawedzi i zlewala sie z innymi).
-      int bx, by;
-      if (sondeProject(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1], bx, by) &&
-          bx >= PL_MAP_X0 && by >= PL_MAP_Y0 && bx < mapX1 && by < mapY1) {
-        drawRsIcon(bx, by, RS_ICON_BALLOON_W, RS_ICON_BALLOON_H,
-                   RS_ICON_BALLOON, RS_ICON_BALLOON_W);
+      if (sondePtInMap(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1])) {
+        int bx, by;
+        if (sondeProject(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1], bx, by)) {
+          drawRsIcon(bx, by, RS_ICON_BALLOON_W, RS_ICON_BALLOON_H,
+                     RS_ICON_BALLOON, RS_ICON_BALLOON_W);
+        }
       }
     }
     return;  // w trybie history nie ma QTH ani zywych markerow
@@ -31563,15 +31573,10 @@ void drawRadiosondyScreen() {
     } else {
       // Pokazuj liczbe lotow WIDOCZNYCH na mapie (nie wszystkich w buforze:
       // czesc lotow konczy sie poza prostokatem mapy - nie ma ich na ekranie).
-      const int mapX1 = PL_MAP_X0 + PL_MAP_W;
-      const int mapY1 = PL_MAP_Y0 + PL_MAP_H;
       int histVisible = 0;
       for (int r = 0; r < sondeHistCount; r++) {
         const SondeHistFlight &f = sondeHist[r];
-        if (f.pointCount < 1) continue;
-        int fx, fy;
-        if (sondeProject(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1], fx, fy) &&
-            fx >= PL_MAP_X0 && fy >= PL_MAP_Y0 && fx < mapX1 && fy < mapY1) {
+        if (f.pointCount >= 1 && sondePtInMap(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1])) {
           histVisible++;
         }
       }
@@ -31587,15 +31592,11 @@ void drawRadiosondyScreen() {
   if (radiosondeMode == "history") {
     // Dolny panel w trybie HISTORYCZNE: lista WIDOCZNYCH lotow (ostatnia
     // pozycja na mapie) z liczba punktow w sladzie.
-    const int mapX1 = PL_MAP_X0 + PL_MAP_W;
-    const int mapY1 = PL_MAP_Y0 + PL_MAP_H;
     int shown = 0;
     for (int r = 0; r < sondeHistCount && shown < 3; r++) {
       const SondeHistFlight &f = sondeHist[r];
       if (f.pointCount < 1) continue;
-      int fx, fy;
-      if (!sondeProject(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1], fx, fy) ||
-          fx < PL_MAP_X0 || fy < PL_MAP_Y0 || fx >= mapX1 || fy >= mapY1) {
+      if (!sondePtInMap(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1])) {
         continue;  // lot konczy sie poza mapa - nie ma go na ekranie
       }
       const int yy = stripY + 22 + shown * 12;
