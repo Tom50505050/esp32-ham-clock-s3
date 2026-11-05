@@ -183,6 +183,7 @@ static void drawRadiosondeMenu();
 static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y);
 static void drawRadiosondeDetail();
 static void handleRadiosondeDetailTouch(uint16_t x, uint16_t y);
+static void drawRadiosondeHistoryStatus();
 static bool fetchRadiosondeData();
 static bool fetchSondeListenersData();
 static bool fetchRadiosondeHistory();
@@ -28432,18 +28433,15 @@ void uiTaskLoop(void *parameter) {
         // Rysowanie po zakonczeniu fetcha w tle (flaga).
         if (sondeFetchBgDone) {
           sondeFetchBgDone = false;
-          if (hist && refMs == 0) {
-            drawRadiosondyScreen();   // pierwszy render z danymi
-          } else {
-            const bool mCl = uiStyleClassic();
-            drawRadiosondeMarkers(mCl ? 0xFFFF : 0x00C6,
-                                  mCl ? 0xDEFA : 0x2A47,
-                                  mCl ? 0x8410 : 0x298A,
-                                  mCl ? TFT_BLACK : UI_COL_TEXT,
-                                  TFT_RED,
-                                  mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT,
-                                  true);
-          }
+          const bool mCl = uiStyleClassic();
+          drawRadiosondeMarkers(mCl ? 0xFFFF : 0x00C6,
+                                mCl ? 0xDEFA : 0x2A47,
+                                mCl ? 0x8410 : 0x298A,
+                                mCl ? TFT_BLACK : UI_COL_TEXT,
+                                TFT_RED,
+                                mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT,
+                                true);   // restoreMap z bufora PSRAM - bez TJpgDec
+          if (hist) drawRadiosondeHistoryStatus();
           if (hist) lastSondeHistFetchMs = millis();
           else lastSondeFetchMs = millis();
         }
@@ -31242,6 +31240,7 @@ static bool fetchRadiosondeHistory() {
   // /sondes/telemetry ZAWSZE zwraca gzip (ignoruje Accept-Encoding: identity).
   // Wczytujemy cala odpowiedz do PSRAM, dekompresujemy recznie (sondeGunzipPsram)
   // i budujemy dokument z surowego JSON z filtrem (lat/lon), tez w PSRAM.
+  unsigned long tGet = millis();
   size_t gzLen = 0;
   uint16_t gzErr = 0;
   uint8_t *gz = sondeReadBodyPsram(http.getStreamPtr(), 1024 * 1024,
@@ -31254,9 +31253,16 @@ static bool fetchRadiosondeHistory() {
     sondeHistLoading = false;
     return false;
   }
+  unsigned long tRead = millis();
   size_t rawLen = 0;
   char *raw = sondeGunzipPsram(gz, gzLen, &rawLen);
   heap_caps_free(gz);
+  unsigned long tDecomp = millis();
+  Serial.printf("[Sonde] hist: HTTP=%lu read=%lu decomp=%lu (gzip=%u raw=%u)\n",
+                (unsigned long)(tGet - lastSondeHistAttemptMs),
+                (unsigned long)(tRead - tGet),
+                (unsigned long)(tDecomp - tRead),
+                (unsigned)gzLen, (unsigned)rawLen);
   if (!raw) {
     sondeFetchError = true;
     sondeFetchErrMsg = "gzip";
@@ -32063,6 +32069,40 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
       tft.drawString(s.serial, lx, ly, 1);
     }
   }
+}
+
+// Szybkie odswiezenie tylko dolnego paska HISTORYCZNE po tym jak fetch w tle
+// dostarczy dane - bez rysowania calej mapy (TJpgDec) od nowa.
+static void drawRadiosondeHistoryStatus() {
+  if (!tftInitialized) return;
+  const bool classic = uiStyleClassic();
+  const uint16_t textCol = classic ? TFT_BLACK : UI_COL_TEXT;
+  const uint16_t cardCol = classic ? 0xFFFF : UI_COL_CARD;
+  const uint16_t accent  = classic ? TFT_RADIO_ORANGE : UI_COL_ACCENT;
+  const int stripY = 34;
+
+  // Tlo paska pod statusem (kasuje stare "LADOWANIE...").
+  tft.fillRect(0, stripY, 480, 20, cardCol);
+  tft.setTextSize(1);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextColor(accent, cardCol);
+  tft.drawString(String(sondeModeLabel()) + " | " + String(radiosondeRangeKm) + " km",
+                 6, stripY + 4, 1);
+  tft.setTextDatum(TR_DATUM);
+  tft.setTextColor(textCol, cardCol);
+  if (sondeFetchError) {
+    tft.drawString("SondeHub: " + String(sondeFetchErrMsg), 474, stripY + 4, 1);
+  } else {
+    int histVisible = 0;
+    for (int r = 0; r < sondeHistCount; r++) {
+      const SondeHistFlight &f = sondeHist[r];
+      if (f.pointCount >= 1 && sondePtInMap(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1])) {
+        histVisible++;
+      }
+    }
+    tft.drawString(String("Loty: ") + String(histVisible), 474, stripY + 4, 1);
+  }
+  tft.setTextDatum(TL_DATUM);
 }
 
 void drawRadiosondyScreen() {
@@ -33340,7 +33380,7 @@ void setup() {
       xTaskCreatePinnedToCore(
         sondeFetchBgTask,
         "SondeFetch_Task",
-        24576,                  // HTTPS + TLS + dekompresja gzip (tak jak ISS)
+        16384,                  // HTTPS + TLS + dekompresja gzip (dekompresor w PSRAM)
         nullptr,
         1,                      // nizszy priorytet niz UI_Task (rysowanie wazniejsze)
         &sondeFetchTaskHandle,
