@@ -458,47 +458,60 @@ static char *sondeGunzipPsram(const uint8_t *gz, size_t gzLen, size_t *outLen) {
 // Czyta cala odpowiedz HTTP (raw, moze byc gzip) ze strumienia HTTPClient do
 // PSRAM. Dodaje do bufora, gdy trzeba. Zwraca wskaznik PSRAM (zwalnianie
 // heap_caps_free) i *outLen; nullptr przy bledzie / braku pamieci.
+// expectedLen = http.getSize() (Content-Length) lub -1 gdy chunked.
+// Gdy expectedLen>0 czytamy DOKLADNIE tyle bajtow (nie czekamy na timeout
+// po zakonczeniu body - to wlanie robilo 15-20 s opoznienia na keep-alive).
 static uint8_t *sondeReadBodyPsram(WiFiClient *stream, size_t initialCap,
-                                   size_t maxLen, size_t *outLen,
-                                   uint16_t &errCode) {
+                                   size_t maxLen, int expectedLen,
+                                   size_t *outLen, uint16_t &errCode) {
   *outLen = 0;
   errCode = 0;
+  if (expectedLen > 0 && (size_t)expectedLen > maxLen) { errCode = 3; return nullptr; }
+  if (expectedLen > 0 && (size_t)expectedLen > initialCap) initialCap = (size_t)expectedLen;
   uint8_t *buf = (uint8_t *)heap_caps_malloc(initialCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!buf) { errCode = 1; return nullptr; }  // PSRAM alloc fail
   size_t len = 0;
-  // Pobieramy calosc, nie bajt-po-bajcie (to trwalo >20 s i zamrazalo UI).
-  // read() czyta do bufora wewnetrznego HTTPClient/WiFiClientSecure.
-  unsigned long lastData = millis();
-  bool timeoutHit = false;
-  while (!timeoutHit) {
-    if (!stream->connected() && stream->available() == 0) break;
-    int avail = stream->available();
-    if (avail == 0) {
-      if (millis() - lastData >= 15000UL) timeoutHit = true;
-      else {
+  stream->setTimeout(8000);  // max czekania na pojedynczy read()
+  if (expectedLen > 0) {
+    // Sciagnij dokladnie expectedLen bajtow. readBytes wraca gdy przeczytane
+    // lub timeout; petla uzywana, by obsluzyc podzial na pakiety TCP.
+    unsigned long lastProgress = millis();
+    while (len < (size_t)expectedLen) {
+      int got = stream->readBytes((char *)buf + len, (size_t)expectedLen - len);
+      if (got <= 0) break;
+      len += (size_t)got;
+      lastProgress = millis();
+      if (millis() - lastProgress >= 8000UL) break;  // brak postepu
+    }
+  } else {
+    // chunked: czytaj porcjami z available() + timeout j.w.
+    stream->setTimeout(8000);
+    unsigned long lastData = millis();
+    while (millis() - lastData < 15000UL) {
+      if (!stream->connected() && stream->available() == 0) break;
+      int avail = stream->available();
+      if (avail == 0) {
         delay(5);
         continue;
       }
-      break;
+      if (len + (size_t)avail > maxLen) { errCode = 3; break; }
+      if (len + (size_t)avail > initialCap) {
+        size_t newCap = initialCap;
+        while (newCap < len + (size_t)avail) newCap += 512 * 1024;
+        uint8_t *nb = (uint8_t *)heap_caps_realloc(buf, newCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!nb) { errCode = 2; break; }
+        buf = nb;
+        initialCap = newCap;
+      }
+      int got = stream->read(buf + len, avail);
+      if (got <= 0) {
+        if (!stream->connected()) break;
+        delay(2);
+        continue;
+      }
+      len += (size_t)got;
+      lastData = millis();
     }
-    if (len + (size_t)avail > maxLen) { errCode = 3; break; }  // za duzo
-    if (len + (size_t)avail > initialCap) {
-      // rosnij do maxLen
-      size_t newCap = initialCap;
-      while (newCap < len + (size_t)avail) newCap += 512 * 1024;
-      uint8_t *nb = (uint8_t *)heap_caps_realloc(buf, newCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-      if (!nb) { errCode = 2; break; }  // realloc fail
-      buf = nb;
-      initialCap = newCap;
-    }
-    int got = stream->read(buf + len, avail);
-    if (got <= 0) {
-      if (stream->connected() == false) break;
-      delay(2);
-      continue;
-    }
-    len += (size_t)got;
-    lastData = millis();
   }
   if (errCode != 0 || len == 0) {
     heap_caps_free(buf);
@@ -31201,7 +31214,7 @@ static bool fetchRadiosondeHistory() {
   size_t gzLen = 0;
   uint16_t gzErr = 0;
   uint8_t *gz = sondeReadBodyPsram(http.getStreamPtr(), 1024 * 1024,
-                                   4 * 1024 * 1024, &gzLen, gzErr);
+                                   4 * 1024 * 1024, http.getSize(), &gzLen, gzErr);
   http.end();
   if (!gz) {
     sondeFetchError = true;
@@ -31584,7 +31597,7 @@ static bool fetchSondeListenersData() {
   size_t gzLen = 0;
   uint16_t gzErr = 0;
   uint8_t *gz = sondeReadBodyPsram(http.getStreamPtr(), 512 * 1024,
-                                   6 * 1024 * 1024, &gzLen, gzErr);
+                                   6 * 1024 * 1024, http.getSize(), &gzLen, gzErr);
   http.end();
   if (!gz) {
     sondeFetchError = true;
