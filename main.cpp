@@ -31182,7 +31182,15 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
                                   uint16_t textCol, uint16_t qthCol, uint16_t accent,
                                   bool restoreMap) {
   if (restoreMap && g_rsMapBuf) {
-    tft.pushRect(PL_MAP_X0, PL_MAP_Y0, PL_MAP_W, PL_MAP_H, g_rsMapBuf);
+    // Podzial na pasma po 32 linie (30 KB) - bezpieczne dla SPI DMA i TFT_eSPI
+    // (pojedynczy pushRect 234 KB moglby przekroczyc limit transakcji).
+    const int stripeH = 32;
+    for (int sy = 0; sy < PL_MAP_H; sy += stripeH) {
+      int hh = PL_MAP_H - sy;
+      if (hh > stripeH) hh = stripeH;
+      tft.pushRect(PL_MAP_X0, PL_MAP_Y0 + sy, PL_MAP_W, hh,
+                   &g_rsMapBuf[(size_t)sy * PL_MAP_W]);
+    }
   }
 
   const bool hunters = (radiosondeMode == "hunters");
