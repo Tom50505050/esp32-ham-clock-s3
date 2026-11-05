@@ -314,6 +314,19 @@ typedef struct {
   bool valid;
 } SondeSpot;
 
+// LOWCY: unikalni uploaderzy z odpowiedzi /sondes. SondeHub nie udostepnia
+// osobnego REST endpointu "lista lowcow", wiec zbieramy ich z rekordow sond
+// (pole uploader_callsign + uploader_position) - kazdy unikalny znak to
+// jeden lowca na mapie w trybie LOWCY, bez limitu 24 dotyczacego sond.
+#define SONDE_MAX_HUNTERS 48
+typedef struct {
+  char callsign[18];
+  float lat, lon;      // pozycja lowcy (uploader_position)
+  int   nSondes;       // ile sond uploadowal w tej odpowiedzi
+} SondeHunter;
+static SondeHunter sondeHunters[SONDE_MAX_HUNTERS];
+static int sondeHunterCount = 0;
+
 static SondeSpot sondeSpots[SONDE_MAX_ENTRIES];
 static int sondeCount = 0;
 static bool sondeFetchedOnce = false;
@@ -31203,6 +31216,37 @@ static bool fetchRadiosondeData() {
     return false;
   }
 
+  // Najpierw zebierz L O W C O W: unikalnych uploaderow (callsign + pozycja)
+  // ze wszystkich rekordow odpowiedzi. Nie dotyczy ich limit SONDE_MAX_ENTRIES.
+  sondeHunterCount = 0;
+  for (JsonPair hkv : root) {
+    JsonObject ho = hkv.value().as<JsonObject>();
+    if (ho.isNull()) continue;
+    const char *hc = ho["uploader_callsign"] | "";
+    const char *hp = ho["uploader_position"] | "";
+    if (!hc[0] || !hp[0]) continue;
+    // Unikalnosc po callsign.
+    int hi = 0;
+    while (hi < sondeHunterCount) {
+      if (strcmp(sondeHunters[hi].callsign, hc) == 0) break;
+      hi++;
+    }
+    if (hi >= sondeHunterCount) {
+      if (hi >= SONDE_MAX_HUNTERS) continue;
+      sondeHunterCount++;
+      strlcpy(sondeHunters[hi].callsign, hc, sizeof(sondeHunters[hi].callsign));
+      sondeHunters[hi].nSondes = 0;
+      sondeHunters[hi].lat = 0; sondeHunters[hi].lon = 0;
+      String hpStr(hp);
+      int comma = hpStr.indexOf(',');
+      if (comma > 0) {
+        sondeHunters[hi].lat = hpStr.substring(0, comma).toFloat();
+        sondeHunters[hi].lon = hpStr.substring(comma + 1).toFloat();
+      }
+    }
+    sondeHunters[hi].nSondes++;
+  }
+
   for (JsonPair kv : root) {
     if (sondeCount >= SONDE_MAX_ENTRIES) break;
     JsonObject o = kv.value().as<JsonObject>();
@@ -31472,6 +31516,21 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
     }
   }
 
+  // LOWCY: najpierw wszystkie unikalne auta (uploaderzy z /sondes).
+  // Rysowane niezaleznie od limitow sond, by SQ9CIN i inni byli widoczni.
+  // (Ikona auta jest tu TYLKO jako znacznik lowcy; balon narysuje pętla nizej.)
+  if (hunters) {
+    for (int hi = 0; hi < sondeHunterCount; hi++) {
+      const SondeHunter &h = sondeHunters[hi];
+      // Lowca z uploader_position 0,0 jest podejrzany - nie rysuj go poza mapa.
+      if ((h.lat == 0.0f && h.lon == 0.0f)) continue;
+      if (!sondePtInMap(h.lat, h.lon)) continue;
+      int hx, hy;
+      if (!sondeProject(h.lat, h.lon, hx, hy)) continue;
+      drawRsIcon(hx, hy, RS_ICON_AUTO_W, RS_ICON_AUTO_H, RS_ICON_AUTO, RS_ICON_AUTO_W);
+    }
+  }
+
   // Sondy / lowcy.
   for (int i = 0; i < sondeCount; i++) {
     const SondeSpot &s = sondeSpots[i];
@@ -31481,13 +31540,6 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
     if (hunters) {
       // "maly balon" na pozycji sondy (cel) - kolorowe ikony, mniejsze niz sonda
       drawRsIcon(x, y, RS_ICON_BALLOON_W, RS_ICON_BALLOON_H, RS_ICON_BALLOON, RS_ICON_BALLOON_W);
-      // auto lowcy na pozycji uploadera
-      if (radiosondeShowUploader && (s.upLat != 0.0f || s.upLon != 0.0f)) {
-        int ux, uy;
-        if (sondeProject(s.upLat, s.upLon, ux, uy)) {
-          drawRsIcon(ux, uy, RS_ICON_AUTO_W, RS_ICON_AUTO_H, RS_ICON_AUTO, RS_ICON_AUTO_W);
-        }
-      }
     } else {
       // balon sondy - mala kolorowa ikona z internetu (Fluent 3D)
       drawRsIcon(x, y, RS_ICON_BALLOON_W, RS_ICON_BALLOON_H, RS_ICON_BALLOON, RS_ICON_BALLOON_W);
@@ -31582,6 +31634,20 @@ void drawRadiosondyScreen() {
       }
       tft.drawString(String("Loty: ") + String(histVisible), 474, stripY + 4, 1);
     }
+  } else if (hunters) {
+    if (sondeFetchError) {
+      tft.drawString("SondeHub: " + String(sondeFetchErrMsg), 474, stripY + 4, 1);
+    } else {
+      // W trybie LOWCY licznik pokazuje liczbe lowcow (unikalnych uploaderow)
+      // widocznych na mapie, nie liczbe balonow.
+      int hv = 0;
+      for (int hi = 0; hi < sondeHunterCount; hi++) {
+        const SondeHunter &h = sondeHunters[hi];
+        if (h.lat == 0.0f && h.lon == 0.0f) continue;
+        if (sondePtInMap(h.lat, h.lon)) hv++;
+      }
+      tft.drawString(String("Lowcy: ") + String(hv), 474, stripY + 4, 1);
+    }
   } else if (sondeFetchError) {
     tft.drawString("SondeHub: " + String(sondeFetchErrMsg), 474, stripY + 4, 1);
   } else {
@@ -31610,6 +31676,25 @@ void drawRadiosondyScreen() {
       tft.drawString(String((int)calculateDistance(qlat, qlon, dLat, dLon)) + " km",
                      326, yy, 1);
       tft.drawString("12 h", 474, yy, 1);
+      tft.setTextDatum(TL_DATUM);
+      shown++;
+    }
+  } else if (hunters) {
+    // Lista widocznych LOWCOW (unikalnych uploaderow) - najpierw ci z
+    // najwieksza liczba odebranych sond; kolejnosc jak w sondeHunters.
+    int shown = 0;
+    for (int hi = 0; hi < sondeHunterCount && shown < 3; hi++) {
+      const SondeHunter &h = sondeHunters[hi];
+      if (h.lat == 0.0f && h.lon == 0.0f) continue;
+      if (!sondePtInMap(h.lat, h.lon)) continue;
+      const int yy = stripY + 22 + shown * 12;
+      tft.setTextColor(accent, cardCol);
+      tft.drawString(String(h.callsign), 6, yy, 1);
+      tft.setTextColor(textCol, cardCol);
+      tft.drawString(String((int)calculateDistance(qlat, qlon, h.lat, h.lon)) + " km",
+                     110, yy, 1);
+      tft.setTextDatum(TR_DATUM);
+      tft.drawString(String(h.nSondes) + " sond", 326, yy, 1);
       tft.setTextDatum(TL_DATUM);
       shown++;
     }
