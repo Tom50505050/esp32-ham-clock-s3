@@ -11323,7 +11323,7 @@ bool fetchPropagationData() {
   client.setInsecure();
 
   HTTPClient http;
-  http.setTimeout(2500);
+  http.setTimeout(10000);
   if (!http.begin(client, PROPAGATION_URL)) {
     propagationData.lastError = "HTTP begin failed";
     return false;
@@ -11814,7 +11814,7 @@ bool fetchWeatherData() {
                  "&appid=" + weatherApiKey + "&units=metric&lang=" + langParam;
 
     HTTPClient http;
-    http.setTimeout(2500);
+    http.setTimeout(10000);
     if (!http.begin(client, url)) {
       weatherData.lastError = "HTTP begin failed";
       weatherData.valid = false;
@@ -11921,7 +11921,7 @@ bool fetchWeatherForecast(double lat, double lon) {
                "&appid=" + weatherApiKey + "&units=metric&lang=" + langParam + "&cnt=40";
 
   HTTPClient http;
-  http.setTimeout(2500);
+  http.setTimeout(10000);
   if (!http.begin(client, url)) {
     return false;
   }
@@ -12158,7 +12158,7 @@ bool fetchAirPollutionData(double lat, double lon) {
                "&appid=" + weatherApiKey;
 
   HTTPClient http;
-  http.setTimeout(2500);
+  http.setTimeout(10000);
   if (!http.begin(client, url)) {
     return false;
   }
@@ -15634,7 +15634,7 @@ bool fetchOpenMeteoAlerts() {
                "&forecast_days=2&timezone=UTC";
 
   HTTPClient http;
-  http.setTimeout(4000);
+  http.setTimeout(10000);
   if (!http.begin(client, url)) {
     return false;
   }
@@ -17150,7 +17150,7 @@ bool ensureQrzSession(String &sessionKey) {
   Serial.println("[QRZ DEBUG] Encoded pass preview: " + passPreview + " (total len=" + String(encodedPass.length()) + ")");
   
   HTTPClient http;
-  http.setTimeout(3000);
+  http.setTimeout(10000);
   static WiFiClientSecure qrzSessionClient;
   qrzSessionClient.setInsecure();
   http.begin(qrzSessionClient, url);
@@ -17239,7 +17239,7 @@ bool fetchHamDbCallsignInfo(const String &callsign, String &outGrid, String &out
   String url = "http://api.hamdb.org/v1/" + call + "/json/esp32hamclock";
   WiFiClient hamdbClient;
   HTTPClient http;
-  http.setTimeout(5000);
+  http.setTimeout(10000);
   http.begin(hamdbClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -17370,7 +17370,7 @@ bool fetchCallookCallsignInfo(const String &callsign, String &outGrid, String &o
   static WiFiClientSecure callookClient;
   callookClient.setInsecure();
   HTTPClient http;
-  http.setTimeout(5000);
+  http.setTimeout(10000);
   http.begin(callookClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -17691,7 +17691,7 @@ bool fetchHamQthCallsignInfo(const String &callsign, String &outGrid, String &ou
   static WiFiClientSecure hamqthClient;
   hamqthClient.setInsecure();
   HTTPClient http;
-  http.setTimeout(5000);
+  http.setTimeout(10000);
   http.begin(hamqthClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -17827,7 +17827,7 @@ bool fetchQrzCallsignInfo(const String &callsign, String &outGrid, String &outCo
   static WiFiClientSecure qrzLookupClient;
   qrzLookupClient.setInsecure();
   HTTPClient http;
-  http.setTimeout(3000);
+  http.setTimeout(10000);
   http.begin(qrzLookupClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -18640,7 +18640,7 @@ bool fetchQrzRawXml(const String &callsign, String &body) {
   static WiFiClientSecure qrzRawClient;
   qrzRawClient.setInsecure();
   HTTPClient http;
-  http.setTimeout(3000);
+  http.setTimeout(10000);
   http.begin(qrzRawClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -29860,7 +29860,7 @@ bool fetchIssTLE() {
   for (int i = 0; i < 2 && !got; i++) {
     HTTPClient http;
     http.begin(client, textUrls[i]);
-    http.setTimeout(5000);
+    http.setTimeout(10000);
     http.addHeader("User-Agent", "ESP32-HAM-CLOCK/1.2 (TLE fetch)");
     int code = http.GET();
     if (code == 200) {
@@ -29882,7 +29882,7 @@ bool fetchIssTLE() {
   if (!got) {
     HTTPClient http;
     http.begin(client, "https://db.satnogs.org/api/tle/?norad_cat_id=25544");
-    http.setTimeout(5000);
+    http.setTimeout(10000);
     int code = http.GET();
     if (code == 200) {
       DynamicJsonDocument filter(256);
@@ -30120,7 +30120,7 @@ static void fetchIssVisualPassesFromN2yo() {
                String(userLatLocal, 4) + "/" + String(userLonLocal, 4) + "/0/2/0/" +
                "&apiKey=" + n2yoApiKey;
   http.begin(client, url);
-  http.setTimeout(4000);
+  http.setTimeout(10000);
   int httpCode = http.GET();
   if (httpCode != 200) {
     Serial.printf("[ISS PASS n2yo] visualpasses HTTP kod: %d\n", httpCode);
@@ -30198,7 +30198,7 @@ bool fetchIssNextPassFromN2yo() {
                String(userLatLocal, 4) + "/" + String(userLonLocal, 4) + "/0/2/5/" +
                "&apiKey=" + n2yoApiKey;
   http.begin(client, url);
-  http.setTimeout(4000);
+  http.setTimeout(10000);
   int httpCode = http.GET();
 
   bool ok = false;
@@ -30440,7 +30440,7 @@ void fetchIssData() {
   // Jesli klucz n2yo jest dostepny, uzyj ich API do pozycji ISS
   if (n2yoApiKey.length() > 0) {
     HTTPClient http;
-    http.setTimeout(4000);
+    http.setTimeout(10000);
     String url = "https://api.n2yo.com/rest/v1/satellite/positions/25544/" +
                  String(userLatLocal, 4) + "/" + String(userLonLocal, 4) + "/0/1/&apiKey=" + n2yoApiKey;
     Serial.printf("[ISS] Pobieram pozycje z n2yo.com...\n");
@@ -30471,7 +30471,7 @@ void fetchIssData() {
   // Fallback na wheretheiss.at jesli n2yo nie dal pozycji
   if (!gotPosition) {
     HTTPClient http;
-    http.setTimeout(2500);
+    http.setTimeout(10000);
     http.begin(issSecureClient, "https://api.wheretheiss.at/v1/satellites/25544");
     int httpCode = http.GET();
     if (httpCode == 200) {
