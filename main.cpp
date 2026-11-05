@@ -31155,10 +31155,16 @@ static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
 static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int stride) {
   const int z = 2;  // 2x powiekszenie ikony 16x16 -> 32x32 px (kompaktowe, nie zaslaniaja mapy)
   const int zw = w * z, zh = h * z;
-  const int x0 = x - zw / 2;
-  const int y0 = y - zh / 2;
+  int x0 = x - zw / 2;
+  int y0 = y - zh / 2;
+  // Przyciagnij ikone do obszaru mapy, by sondy/auta na krawedzi mapy nie
+  // wysuwaly jej poza mape (do headera lub dolnego panelu).
+  if (x0 < PL_MAP_X0) x0 = PL_MAP_X0;
+  if (y0 < PL_MAP_Y0) y0 = PL_MAP_Y0;
+  if (x0 + zw > PL_MAP_X0 + PL_MAP_W) x0 = PL_MAP_X0 + PL_MAP_W - zw;
+  if (y0 + zh > PL_MAP_Y0 + PL_MAP_H) y0 = PL_MAP_Y0 + PL_MAP_H - zh;
   // Bialy dysk pod ikona - ikona widoczna na kazdym tle mapy.
-  tft.fillCircle(x, y, zh / 2 + 1, 0xFFFF);
+  tft.fillCircle(x0 + zw / 2, y0 + zh / 2, zh / 2 + 1, 0xFFFF);
   for (int j = 0; j < h; j++) {
     for (int i = 0; i < w; i++) {
       uint16_t c = icon[j * stride + i];
