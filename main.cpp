@@ -319,7 +319,7 @@ typedef struct {
 // osobnego REST endpointu "lista lowcow", wiec zbieramy ich z rekordow sond
 // (pole uploader_callsign + uploader_position) - kazdy unikalny znak to
 // jeden lowca na mapie w trybie LOWCY, bez limitu 24 dotyczacego sond.
-#define SONDE_MAX_HUNTERS 48
+#define SONDE_MAX_HUNTERS 160  // bufor ±3° wokol PL miesci ~220 lowcow swiata
 typedef struct {
   char callsign[18];
   float lat, lon;      // pozycja lowcy (uploader_position)
@@ -31419,6 +31419,29 @@ static bool fetchSondeListenersData() {
     h.lat = lat; h.lon = lon;
     h.nSondes = 0;  // lista lowcow nie niesie liczby sond
     sondeHunterCount++;
+  }
+  // Sortuj wg odleglosci od QTH (najblizsze na poczatku - lista w panelu
+  // i pierwszenstwo przy limicie SONDE_MAX_HUNTERS). Uzywamy kwadratu
+  // odleglosci w metrach (bez trygonometrii - szybkie, monotoniczne z
+  // prawdziwa odlegloscia w lokalnym rejonie).
+  double qLat, qLon;
+  sondeGetQth(qLat, qLon);
+  const double mPerDeg = 111320.0;
+  const double cosLat = cos(qLat * 3.14159265358979323846 / 180.0);
+  for (int i = 1; i < sondeHunterCount; i++) {
+    SondeHunter key = sondeHunters[i];
+    double dk = (key.lat - qLat) * (key.lat - qLat) * mPerDeg * mPerDeg +
+                (key.lon - qLon) * (key.lon - qLon) * mPerDeg * mPerDeg * cosLat * cosLat;
+    int j = i - 1;
+    while (j >= 0) {
+      double dy = (sondeHunters[j].lat - qLat) * mPerDeg;
+      double dx = (sondeHunters[j].lon - qLon) * mPerDeg * cosLat;
+      double dj = dy * dy + dx * dx;
+      if (dj <= dk) break;
+      sondeHunters[j + 1] = sondeHunters[j];
+      j--;
+    }
+    sondeHunters[j + 1] = key;
   }
   lastSondeHuntFetchMs = millis();
   Serial.printf("[Sonde] lowcy: %d w okolicy\n", sondeHunterCount);
