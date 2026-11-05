@@ -80,6 +80,30 @@ Zgłoszenia „ściemnienie czcionki przy wgrywaniu w okolicy LittleFS" oraz
 - `effectiveBacklightPercent()` obniża tylko gdy `tftNightDimmingPercent>0 &&
   tftNightDimmingAuto && tftIsNightTime()` — suwak bez auto nie sciemnia stale.
 
+## DIAGNOZA „szarzenia" v1.2d (05.11.2026) — przyczyna i eliminacja w v1.2e-beta
+Objaw: „po chwili wczytywania napisy szarzeją jakby ekran świecił słabiej,
+napięcie nie spada". Przyczyna **(potwierdzona w tagu v1.2d, `git show v1.2d:main.cpp`)**:
+- v1.2d `effectiveBacklightPercent()` (ok. linii 2726): `if (tftNightDimmingPercent > 0
+  && tftIsNightTime()) p-=p*dim/100` — **bez** `tftNightDimmingAuto` (ten flag w v1.2d
+  w ogóle nie istniał). Ustawienie suwaka „nocne obniżenie" >0 = stałe ściemnianie
+  przy `tftIsNightTime()` — czyli gdy ikona OWM jest "n" albo godzina lokalna ≥18/<6
+  (dokładnie tak jak o 18:50 użytkownika). Efekt: PWM 100%→70%, litery szare,
+  napięcie stabilne (to NIE jest spadek zasilania, tylko mniejsze wypełnienie PWM).
+- v1.2d `loop()` co wykrycie zmiany pory wołało `applyEffectiveBacklight()` → stąd
+  „po chwili wczytywania" (boot świeci 100%, potem przy pierwszym policzeniu pory siada).
+- WERSJA POPRAWIONA (v1.2e-beta): dimming TYLKO `tftNightDimmingPercent>0 &&
+  tftNightDimmingAuto && tftIsNightTime()`; `tftNightDimmingAuto` domyślnie false i
+  ustawiane wyłącznie jawnym dotykiem „WLACZ" w menu jasności (linia ~9587).
+  Boot: `forceFullBacklightAfterBoot=true` → PWM 100% do jawnej zmiany przez usera.
+  Migracje NVS: `tft_bl_mig` (powrót 100%), `tft_clr_mig` (biel czcionki), `tft_pbr_mig`
+  (fabryczna gamma/VCOM). `initTFTGamma()` po loadPreferences w setup().
+- AUDYT v1.2e-beta (05.11.2026): wszystkie 24 wywołania zmiany jasności są bootowe
+  (100%) albo jawne (menu/WWW/sleep). BRAK ścieżki nieświadomego przygaszenia.
+  Jeżeli użytkownik zgłosi „szarzenie" na v1.2e-beta: sprawdź najpierw serial [BL]
+  (baza/nocne/auto/night), potem czy `tft_night_dim_auto` w WWW/menu jest ON; olej
+  poza tym sprzęt (panel/wieża zasilania), bo PWM 100% przy stabilnym napięciu
+  daje maksymalną biel jaką panel potrafi.
+
 ## Kolor czcionki: cyfry/znak zegara biały jak boot (03.11.2026)
 Analiza `beta_video.mp4` (330 klatek + OCR bootu) wykazała: podświetlenie w
 okolicy LittleFS **nie** przygasa (PWM 100%, biały tekst ~250/255). Jedyny
