@@ -50,6 +50,7 @@ void normalizePolish(String &text);
 #include <PubSubClient.h>
 #include <esp_rom_sys.h>
 #include <esp_system.h>
+#include "esp32s3/rom/miniz.h"   // inflate gzip z ROM (SondeHub /telemetry nie respektuje identity)
 #if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S3
   #include <soc/rtc_cntl_reg.h>
 #endif
@@ -374,6 +375,56 @@ typedef struct {
 } SondeHistFlight;
 
 static SondeHistFlight sondeHist[SONDE_HIST_MAX_SONDES];
+
+// Alokator ArduinoJson kierujacy pamiec do PSRAM (duze odpowiedzi SondeHub).
+struct SondeHubPsramAllocator {
+  void* allocate(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
+  void deallocate(void* p) { if (p) heap_caps_free(p); }
+  void* reallocate(void* p, size_t n) { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM); }
+};
+
+// SondeHub /sondes/telemetry zawsze zwraca Content-Encoding: gzip (ignoruje
+// Accept-Encoding: identity), a HTTPClient (arduino-esp32) NIE dekompresuje.
+// Dekompresujemy recznie inflate'em z ROM ESP32-S3 (miniz): gzip header +
+// raw DEFLATE. Zwraca wskaznik do PSRAM (musi byc zwolniony heap_caps_free)
+// albo nullptr przy bledzie; *outLen = rozmiar wyjscia.
+static char *sondeGunzipPsram(const uint8_t *gz, size_t gzLen, size_t *outLen) {
+  *outLen = 0;
+  if (!gz || gzLen < 18 || gz[0] != 0x1F || gz[1] != 0x8B) return nullptr;
+  const uint8_t flg = gz[3];
+  size_t off = 10;  // magic(2) CM(1) FLG(1) MTIME(4) XFL(1) OS(1)
+  if (flg & 0x04) {  // FEXTRA
+    if (off + 2 > gzLen) return nullptr;
+    size_t xlen = gz[off] | (gz[off + 1] << 8);
+    off += 2 + xlen;
+    if (off >= gzLen - 8) return nullptr;
+  }
+  if (flg & 0x08) {  // FNAME - zero-terminated
+    while (off < gzLen && gz[off]) off++;
+    off++;
+  }
+  if (flg & 0x10) {  // FCOMMENT - zero-terminated
+    while (off < gzLen && gz[off]) off++;
+    off++;
+  }
+  if (flg & 0x02) off += 2;  // FHCRC
+  if (off >= gzLen - 8) return nullptr;
+  // ISIZE w trailerze (ostatnie 4 bajty, little-endian) = rozmiar wyjscia.
+  size_t isize = (size_t)gz[gzLen - 4] | ((size_t)gz[gzLen - 3] << 8) |
+                 ((size_t)gz[gzLen - 2] << 16) | ((size_t)gz[gzLen - 1] << 24);
+  if (isize == 0 || isize > 6 * 1024 * 1024) return nullptr;
+  char *raw = (char *)heap_caps_malloc(isize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!raw) return nullptr;
+  const size_t n = tinfl_decompress_mem_to_mem(raw, isize, gz + off, gzLen - off,
+                    TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  if (n != isize) {
+    heap_caps_free(raw);
+    return nullptr;
+  }
+  raw[isize] = 0;
+  *outLen = isize;
+  return raw;
+}
 static int sondeHistCount = 0;
 static unsigned long lastSondeHistFetchMs = 0; // ost. udane pobieranie historii
 static unsigned long lastSondeHistAttemptMs = 0;
@@ -31061,21 +31112,61 @@ static bool fetchRadiosondeHistory() {
     sondeHistLoading = false;
     return false;
   }
-  // Pobieramy do PSRAM - duza odpowiedz (setki KB).
-  struct SondeHubPsramAllocator {
-    void* allocate(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
-    void deallocate(void* p) { if (p) heap_caps_free(p); }
-    void* reallocate(void* p, size_t n) { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM); }
-  };
+  // /sondes/telemetry ZAWSZE zwraca gzip (ignoruje Accept-Encoding: identity).
+  // Wczytujemy cala odpowiedz do PSRAM, dekompresujemy recznie (sondeGunzipPsram)
+  // i budujemy dokument z surowego JSON z filtrem (lat/lon), tez w PSRAM.
+  size_t cap = 1024 * 1024;  // gzip ~370 KB
+  uint8_t *gz = (uint8_t *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!gz) {
+    http.end();
+    sondeFetchError = true;
+    sondeFetchErrMsg = "PSRAM gzip";
+    sondeHistLoading = false;
+    return false;
+  }
+  size_t gzLen = 0;
+  WiFiClient *stream = http.getStreamPtr();
+  while (stream && (stream->available() || stream->connected())) {
+    const int b = stream->read();
+    if (b < 0) {
+      // read() <0 tylko gdy chwilowo brak / blad; daj szanse na reszte.
+      if (!stream->connected()) break;
+      delay(2);
+      continue;
+    }
+    if (gzLen + 1 > cap) {
+      cap += 512 * 1024;
+      uint8_t *ng = (uint8_t *)heap_caps_realloc(gz, cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!ng) { heap_caps_free(gz); gz = nullptr; break; }
+      gz = ng;
+    }
+    gz[gzLen++] = (uint8_t)b;
+  }
+  http.end();
+  if (!gz) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "PSRAM realloc";
+    sondeHistLoading = false;
+    return false;
+  }
+  size_t rawLen = 0;
+  char *raw = sondeGunzipPsram(gz, gzLen, &rawLen);
+  heap_caps_free(gz);
+  if (!raw) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "gzip";
+    sondeHistLoading = false;
+    return false;
+  }
   // Filtr: z ~3 MB raw zostawia TYLKO lat/lon - struktura JSON po filtrze jest
   // rzedu dziesiątek KB zamiast wielu MB. Dokument budujemy w PSRAM (8 MB).
   StaticJsonDocument<128> filter;
   filter["*"]["*"]["lat"] = true;
   filter["*"]["*"]["lon"] = true;
-  BasicJsonDocument<SondeHubPsramAllocator> doc(4194304);
-  DeserializationError err = deserializeJson(doc, http.getStream(),
+  BasicJsonDocument<SondeHubPsramAllocator> doc(1048576);
+  DeserializationError err = deserializeJson(doc, raw,
                                              DeserializationOption::Filter(filter));
-  http.end();
+  heap_caps_free(raw);
   if (err) {
     sondeFetchError = true;
     sondeFetchErrMsg = "JSON parse";
@@ -31155,7 +31246,7 @@ static bool fetchRadiosondeHistory() {
   lastSondeHistFetchMs = millis();
   sondeFetchedOnce = true;
   sondeHistLoading = false;
-  Serial.printf("[Sonde] historia: %d lotow\n", sondeHistCount);
+  Serial.printf("[Sonde] historia: %d lotow (fetch OK)\n", sondeHistCount);
   return sondeHistCount > 0;
 }
 
@@ -31234,11 +31325,6 @@ static bool fetchRadiosondeData() {
   // Dokument trzymamy w PSRAM (8 MB) - przy 1000 km jest ~129 sond, a po
   // filtrze 12 pol na sonde potrzebujemy ~100 KB; 24 KB (heap) nie wystarczalo
   // ("JSON parse" / NoMemory). Alokator kieruje pulo pamieci do PSRAM.
-  struct SondeHubPsramAllocator {
-    void* allocate(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
-    void deallocate(void* p) { if (p) heap_caps_free(p); }
-    void* reallocate(void* p, size_t n) { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM); }
-  };
   BasicJsonDocument<SondeHubPsramAllocator> doc(131072);
   DeserializationError err = deserializeJson(doc, payload,
                                              DeserializationOption::Filter(filter));
@@ -31398,6 +31484,9 @@ static bool fetchSondeListenersData() {
   }
   // lastSondeHuntFetchMs aktualizujemy dopiero po SUKCESIE (na koncu funkcji),
   // wiec nieudana proba nie blokuje retry przez SONDE_HUNT_REFRESH_MS.
+  Serial.printf("[Sonde] LOWCY: fetch /listeners/telemetry start (lastMs=%lu, roznica %lu ms)\n",
+                (unsigned long)lastSondeHuntFetchMs,
+                lastSondeHuntFetchMs ? (unsigned long)(millis() - lastSondeHuntFetchMs) : 0UL);
   sondeFetchError = false;
   sondeFetchErrMsg = "";
   if (!wifiConnected) {
@@ -31426,19 +31515,60 @@ static bool fetchSondeListenersData() {
     return false;
   }
 
+  // /listeners/telemetry ZAWSZE zwraca gzip (ignoruje Accept-Encoding:
+  // identity), a HTTPClient/deserializeJson nie dekompresuje. Wczytujemy
+  // calosc do PSRAM, dekompresujemy (sondeGunzipPsram) i parsujemy raw JSON.
+  size_t cap = 512 * 1024;
+  uint8_t *gz = (uint8_t *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!gz) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "PSRAM gzip";
+    http.end();
+    return false;
+  }
+  size_t gzLen = 0;
+  WiFiClient *stream = http.getStreamPtr();
+  while (stream && (stream->available() || stream->connected())) {
+    const int b = stream->read();
+    if (b < 0) {
+      if (!stream->connected()) break;
+      delay(2);
+      continue;
+    }
+    if (gzLen + 1 > cap) {
+      cap += 256 * 1024;
+      uint8_t *ng = (uint8_t *)heap_caps_realloc(gz, cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!ng) { heap_caps_free(gz); gz = nullptr; break; }
+      gz = ng;
+    }
+    gz[gzLen++] = (uint8_t)b;
+  }
+  http.end();
+  if (!gz) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "PSRAM realloc";
+    return false;
+  }
+  size_t rawLen = 0;
+  char *raw = sondeGunzipPsram(gz, gzLen, &rawLen);
+  heap_caps_free(gz);
+  if (!raw) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "gzip";
+    return false;
+  }
+
   // Dokument z filtrem: tylko uploader_callsign + uploader_position.
-  // Czytamy z http.getStream() - jak w fetchRadiosondeHistory (gzip/raw
-  // nie jest trzymany w calosci w PSRAM; doc zapamietuje TYLKO pola z
-  // filtra, ~200-400 KB zamiast 1.3 MB).
+  // z ~1.3 MB raw zostaje ~200-400 KB (filtrowane pola).
   StaticJsonDocument<128> filter;
   filter["*"]["*"]["uploader_callsign"] = true;
   filter["*"]["*"]["uploader_position"] = true;
   filter["*"]["*"]["software_name"] = true;
   filter["*"]["*"]["mobile"] = true;
   BasicJsonDocument<PskPsramAllocator> doc(SONDE_LISTENERS_BODY_CAP);
-  DeserializationError err = deserializeJson(doc, http.getStream(),
+  DeserializationError err = deserializeJson(doc, raw,
                                              DeserializationOption::Filter(filter));
-  http.end();
+  heap_caps_free(raw);
   if (err) {
     sondeFetchError = true;
     sondeFetchErrMsg = "JSON parse";
@@ -32115,13 +32245,16 @@ static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y) {
           // History (3 MB) pobierz nieblokujaco przez uiTaskLoop.
           if (radiosondeMode == "history") {
             lastSondeHistFetchMs = 0;
+            lastSondeHistAttemptMs = 0;
             sondeHistNeedsFetch = true;
+            Serial.println("[Sonde] HISTORYCZNE: wlaczone, fetch telemetry (gzip) w nastepnym przebiegu UI");
           }
           // LOWCY: pelne zrodlo /listeners/telemetry pobierz od razu po
           // wejsciu w tryb (nie czekaj SONDE_HUNT_REFRESH_MS od ostatniego).
           if (radiosondeMode == "hunters") {
             lastSondeHuntFetchMs = 0;
             sondeHuntNeedsFetch = true;
+            Serial.println("[Sonde] LOWCY: wlaczony, fetch /listeners/telemetry w nastepnym przebiegu UI");
           }
           savePreferences();
         }
