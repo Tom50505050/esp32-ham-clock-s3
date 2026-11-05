@@ -29846,7 +29846,7 @@ bool fetchIssTLE() {
     return false;
   }
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM!)
   client.setInsecure();
 
   String name, l1, l2;
@@ -31217,7 +31217,7 @@ static bool fetchRadiosondeHistory() {
   // (dane globalne - raw ok. 3 MB, gzip ~350 KB). Datetime domyslne = teraz.
   String url = "https://api.v2.sondehub.org/sondes/telemetry?duration=12h";
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: po http.end() destruktor zwalnia bufor TLS (DRAM!)
   client.setInsecure();
   HTTPClient http;
   http.setTimeout(20000);  // 3 MB raw JSON wymaga dluzej niz zwykle
@@ -31388,7 +31388,7 @@ static bool fetchRadiosondeData() {
                "&lon=" + String(qlon, 4) +
                "&distance=" + String((long)radiosondeRangeKm * 1000);
 
-  static WiFiClientSecure client;  // reuse, nie buduj kontekstu TLS za kazdym razem
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS po fetchu (DRAM)
   client.setInsecure();
   HTTPClient http;
   http.setTimeout(5000);
@@ -31609,7 +31609,7 @@ static bool fetchSondeListenersData() {
   }
 
   String url = "https://api.v2.sondehub.org/listeners/telemetry";
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS po fetchu (DRAM)
   client.setInsecure();
   HTTPClient http;
   http.setTimeout(20000);
