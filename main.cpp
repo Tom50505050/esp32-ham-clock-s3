@@ -33124,6 +33124,7 @@ void setup() {
   yield();
   
   bootLogLine("System ready!");
+  bootLogLine("[BUILD] gzip-fix 388886f 2026-11-05 (LOWCY + historia dekoduja gzip)");
   String ipStr = wifiConnected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   bootLogLine("IP: " + ipStr);
   
