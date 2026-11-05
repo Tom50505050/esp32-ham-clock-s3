@@ -325,6 +325,7 @@ typedef struct {
   char callsign[18];
   float lat, lon;      // pozycja lowcy (uploader_position)
   int   nSondes;       // ile sond uploadowal w tej odpowiedzi
+  char  software[16];  // program odbiornika (z /listeners), pusty w trybach live
 } SondeHunter;
 static SondeHunter sondeHunters[SONDE_MAX_HUNTERS];
 static int sondeHunterCount = 0;
@@ -31378,6 +31379,7 @@ static bool fetchSondeListenersData() {
   StaticJsonDocument<128> filter;
   filter["*"]["*"]["uploader_callsign"] = true;
   filter["*"]["*"]["uploader_position"] = true;
+  filter["*"]["*"]["software_name"] = true;
   BasicJsonDocument<PskPsramAllocator> doc(SONDE_LISTENERS_BODY_CAP);
   DeserializationError err = deserializeJson(doc, http.getStream(),
                                              DeserializationOption::Filter(filter));
@@ -31409,6 +31411,7 @@ static bool fetchSondeListenersData() {
     if (last.isNull()) continue;
     const char *hc = last["uploader_callsign"] | "";
     if (!hc[0]) continue;
+    const char *hsw = last["software_name"] | "";
     // uploader_position: [lat, lon, alt]
     if (!last["uploader_position"].is<JsonArray>()) continue;
     JsonArray pos = last["uploader_position"].as<JsonArray>();
@@ -31422,6 +31425,7 @@ static bool fetchSondeListenersData() {
     SondeHunter &h = sondeHunters[sondeHunterCount];
     memset(&h, 0, sizeof(h));
     strlcpy(h.callsign, hc, sizeof(h.callsign));
+    strlcpy(h.software, hsw, sizeof(h.software));
     h.lat = lat; h.lon = lon;
     h.nSondes = 0;  // lista lowcow nie niesie liczby sond
     sondeHunterCount++;
@@ -31882,7 +31886,11 @@ void drawRadiosondyScreen() {
       tft.drawString(String((int)calculateDistance(qlat, qlon, h.lat, h.lon)) + " km",
                      110, yy, 1);
       tft.setTextDatum(TR_DATUM);
-      tft.drawString(String(h.nSondes) + " sond", 326, yy, 1);
+      if (h.software[0]) {
+        tft.drawString(String(h.software), 326, yy, 1);
+      } else {
+        tft.drawString(String(h.nSondes) + " sond", 326, yy, 1);
+      }
       tft.setTextDatum(TL_DATUM);
       shown++;
     }
