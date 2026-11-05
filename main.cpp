@@ -535,6 +535,19 @@ static unsigned long lastSondeHuntFetchMs = 0;
 static unsigned long lastSondeHuntStartMs = 0;  // stoper przy starcie fetcha LOWCY
 static bool sondeHuntNeedsFetch = false;
 
+// ====== Zadanie tla pobierania danych SondeHub (LOWCY + HISTORIA) ======
+// Ciezkie fetche (gzip 1.3 MB / historia 3 MB) nie moga blokowac UI_Task -
+// wieszaly dotyk i przycisk wyjscia na ~10-20 s. Zadanie tla pobiera samodzielnie,
+// a UI_Task tylko czeka na flage i przerysowuje markery.
+static TaskHandle_t sondeFetchTaskHandle = nullptr;
+static volatile bool sondeFetchBgBusy = false;   // task wlasnie pracuje
+static volatile bool sondeFetchBgReqLive = false;
+static volatile bool sondeFetchBgReqHist = false;
+static volatile bool sondeFetchBgReqHunters = false;
+static volatile bool sondeFetchBgDone = false;   // nowe dane gotowe do rysowania
+static volatile bool sondeFetchBgResultOk = false;
+static String sondeFetchBgErr = "";
+
 // MQTT PSK Reporter - DOMYSLNY tryb od v1.2b (feed na zywo, mapa odswieza sie
 // sama, bez limitu zapytan HTTP). Broker mqtt.pskreporter.info publikuje PSK
 // na pskr/filter/v2raw_1pc. Tryb HTTP (pskreporter.info/query) zostaje jako
@@ -28380,29 +28393,47 @@ void uiTaskLoop(void *parameter) {
       // (reentrancja -> lawina odswiezen).
       // Auto-odswiezanie ekranu RADIOSONDY (co 60 s). W trybie HISTORYCZNE
       // pobieramy slady balonow z ostatnich 12 h, inaczej zywe sondy.
+      // Ciezkie fetche (historia 3 MB / LOWCY 1.3 MB) sa przeniesione do
+      // osobnego taska (sondeFetchBgTask) - UI nie czeka, wiec dotyk i wyjscie
+      // dzialaja. Task ustawia sondeFetchBgDone, tu tylko przerysowujemy.
       if (tftInitialized && currentScreen == SCREEN_RADIOSONDE && !inMenu &&
           !sondeMenuActive && !sondeDetailActive && !aprsAlertScreenActive &&
-          (lastSondeAttemptMs != 0 || sondeHistNeedsFetch)) {
+          (lastSondeAttemptMs != 0 || sondeHistNeedsFetch || sondeHuntNeedsFetch)) {
         bool hist = (radiosondeMode == "history");
         unsigned long refMs = hist ? lastSondeHistFetchMs : lastSondeFetchMs;
         // Historia: rzadziej (5 min) - pobiera globalny JSON ~3 MB.
         unsigned long refInt = hist ? SONDE_HIST_REFRESH_MS : SONDE_SCREEN_REFRESH_MS;
         bool needFetch = sondeHistNeedsFetch || sondeHuntNeedsFetch ||
               (refMs != 0 && (millis() - refMs) >= refInt);
+
+        // Przekaz zadanie do taska tla (nie blokuj UI).
         if (needFetch) {
-          if (sondeHistNeedsFetch) sondeHistNeedsFetch = false;
-          if (hist) fetchRadiosondeHistory();
-          else fetchRadiosondeData();
-          // LOWCY: po zywych sondach pobierz tez pelna liste lowcow z
-          // /listeners/telemetry (dedykowane zrodlo, rzadko - raz na 5 min).
-          if (!hist && radiosondeMode == "hunters" && sondeHuntNeedsFetch) {
-            sondeHuntNeedsFetch = false;
-            fetchSondeListenersData();
+          if (sondeFetchTaskHandle != nullptr && !sondeFetchBgBusy) {
+            if (hist && sondeHistNeedsFetch) {
+              sondeFetchBgReqHist = true;
+              sondeHistNeedsFetch = false;
+            }
+            if (!hist && sondeHuntNeedsFetch) {
+              sondeFetchBgReqHunters = true;
+              sondeHuntNeedsFetch = false;
+            }
+            if (!hist && !sondeHuntNeedsFetch && (refMs != 0 && (millis() - refMs) >= refInt)) {
+              // Odswiez zywe sondy co 60 s (lekkie) - w UI jak dawniej.
+              fetchRadiosondeData();
+            }
+          } else {
+            // Brak taska (stary fallback): wykonaj w UI.
+            if (hist && sondeHistNeedsFetch) { sondeHistNeedsFetch = false; fetchRadiosondeHistory(); }
+            if (!hist && sondeHuntNeedsFetch) { sondeHuntNeedsFetch = false; fetchSondeListenersData(); }
+            if (!hist && !sondeHuntNeedsFetch && (refMs != 0 && (millis() - refMs) >= refInt)) fetchRadiosondeData();
           }
+        }
+
+        // Rysowanie po zakonczeniu fetcha w tle (flaga).
+        if (sondeFetchBgDone) {
+          sondeFetchBgDone = false;
           if (hist && refMs == 0) {
-            // Pierwsze pobranie historii: przerysuj CALY ekran (wczesniej
-            // byla tylko pusta mapa + LADOWANIE...; teraz sa dane + panel).
-            drawRadiosondyScreen();
+            drawRadiosondyScreen();   // pierwszy render z danymi
           } else {
             const bool mCl = uiStyleClassic();
             drawRadiosondeMarkers(mCl ? 0xFFFF : 0x00C6,
@@ -28411,7 +28442,7 @@ void uiTaskLoop(void *parameter) {
                                   mCl ? TFT_BLACK : UI_COL_TEXT,
                                   TFT_RED,
                                   mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT,
-                                  true);  // restoreMap - kasuje stare znaczniki z bufora
+                                  true);
           }
           if (hist) lastSondeHistFetchMs = millis();
           else lastSondeFetchMs = millis();
@@ -31701,6 +31732,47 @@ static bool fetchSondeListenersData() {
   return sondeHunterCount > 0;
 }
 
+// Zadanie tla: pobiera LOWCY (listeners) lub HISTORIE. UI_Task nie moze czekac
+// ~5-9 s na te fetche (wieszal dotyk / wyjscie). Wykonujemy je TU, w tle.
+// Po zakonczeniu ustawiane sa flagi: sondeFetchBgDone / ResultOk / ErrMsgBuf.
+// UWAGA: wywoluje fetchRadiosondeHistory()/fetchSondeListenersData(), ktore
+// ustawiaja sondeFetchError/ErrMsg - sa bezpieczne z innego watku (bez TFT).
+static char sondeBgErrBuf[32];
+static void sondeFetchBgTask(void *param) {
+  for (;;) {
+    // Czekaj az pojawi sie zadanie.
+    while (!sondeFetchBgReqLive && !sondeFetchBgReqHist && !sondeFetchBgReqHunters) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    sondeFetchBgBusy = true;
+    sondeFetchBgDone = false;
+
+    bool ok = false;
+    if (sondeFetchBgReqHist) {
+      sondeFetchBgReqHist = false;
+      ok = fetchRadiosondeHistory();
+    } else if (sondeFetchBgReqHunters) {
+      sondeFetchBgReqHunters = false;
+      ok = fetchSondeListenersData();
+    } else if (sondeFetchBgReqLive) {
+      sondeFetchBgReqLive = false;
+      ok = fetchRadiosondeData();
+    }
+
+    // Zapisz wynik/error (bufory, nie obiekt String - watki).
+    sondeFetchBgResultOk = ok;
+    if (sondeFetchError && sondeFetchErrMsg) {
+      strncpy(sondeBgErrBuf, sondeFetchErrMsg, sizeof(sondeBgErrBuf) - 1);
+      sondeBgErrBuf[sizeof(sondeBgErrBuf) - 1] = 0;
+    } else {
+      sondeBgErrBuf[0] = 0;
+    }
+    sondeFetchBgDone = true;
+    sondeFetchBgBusy = false;
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
 // Callback TJpgDec: bloki MCU przychodza w juz bezwzglednych wspolrzednych
 // ekranu - wstawiamy prosto do TFT i kopiujemy do bufora PSRAM (warstwa mapy).
 static bool tjpgMapOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
@@ -33259,6 +33331,20 @@ void setup() {
         2,
         &uiTaskHandle,
         1
+      );
+    }
+
+    // Zadanie tla pobierania danych SondeHub (LOWCY + HISTORIA) - ciezka
+    // praca sieciowa/JSON poza UI_Task, zeby dotyk i wyjscie nie zamieraly.
+    if (sondeFetchTaskHandle == nullptr) {
+      xTaskCreatePinnedToCore(
+        sondeFetchBgTask,
+        "SondeFetch_Task",
+        24576,                  // HTTPS + TLS + dekompresja gzip (tak jak ISS)
+        nullptr,
+        1,                      // nizszy priorytet niz UI_Task (rysowanie wazniejsze)
+        &sondeFetchTaskHandle,
+        0                       // Core 0 (UI_Task jest na Core 1)
       );
     }
   }
