@@ -183,6 +183,7 @@ static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y);
 static void drawRadiosondeDetail();
 static void handleRadiosondeDetailTouch(uint16_t x, uint16_t y);
 static bool fetchRadiosondeData();
+static bool fetchSondeListenersData();
 static bool fetchRadiosondeHistory();
 static bool isScreen6RadarRangeTileHit(uint16_t x, uint16_t y, int &index);
 static void uiHeader(const char *title, bool showMenu);
@@ -354,6 +355,14 @@ static unsigned long lastSondeHistFetchMs = 0; // ost. udane pobieranie historii
 static unsigned long lastSondeHistAttemptMs = 0;
 static bool sondeHistLoading = false;         // trwa pobieranie 12h projektow
 static bool sondeHistNeedsFetch = false;      // uzytkownik wszedl na ekran history
+
+// LOWCY - pelne zrodlo (SondeHub /listeners/telemetry, global 1.3 MB raw).
+// Pobierane rzadko (5 min) i filtrowane do bboxu mapy. sondeHunters[]
+// wypelnia: tryb hunters -> to zrodlo; inaczej uploaderzy z /sondes.
+#define SONDE_HUNT_REFRESH_MS 300000UL        // 5 min - duzy transfer, nie 60 s
+#define SONDE_LISTENERS_BODY_CAP 1572864UL    // 1.5 MB PSRAM na odpowiedz gzip/raw
+static unsigned long lastSondeHuntFetchMs = 0;
+static bool sondeHuntNeedsFetch = false;
 
 // MQTT PSK Reporter - DOMYSLNY tryb od v1.2b (feed na zywo, mapa odswieza sie
 // sama, bez limitu zapytan HTTP). Broker mqtt.pskreporter.info publikuje PSK
@@ -28207,11 +28216,18 @@ void uiTaskLoop(void *parameter) {
         unsigned long refMs = hist ? lastSondeHistFetchMs : lastSondeFetchMs;
         // Historia: rzadziej (5 min) - pobiera globalny JSON ~3 MB.
         unsigned long refInt = hist ? SONDE_HIST_REFRESH_MS : SONDE_SCREEN_REFRESH_MS;
-        bool needFetch = sondeHistNeedsFetch || (refMs != 0 && (millis() - refMs) >= refInt);
+        bool needFetch = sondeHistNeedsFetch || sondeHuntNeedsFetch ||
+              (refMs != 0 && (millis() - refMs) >= refInt);
         if (needFetch) {
           if (sondeHistNeedsFetch) sondeHistNeedsFetch = false;
           if (hist) fetchRadiosondeHistory();
           else fetchRadiosondeData();
+          // LOWCY: po zywych sondach pobierz tez pelna liste lowcow z
+          // /listeners/telemetry (dedykowane zrodlo, rzadko - raz na 5 min).
+          if (!hist && radiosondeMode == "hunters" && sondeHuntNeedsFetch) {
+            sondeHuntNeedsFetch = false;
+            fetchSondeListenersData();
+          }
           if (hist && refMs == 0) {
             // Pierwsze pobranie historii: przerysuj CALY ekran (wczesniej
             // byla tylko pusta mapa + LADOWANIE...; teraz sa dane + panel).
@@ -31218,33 +31234,37 @@ static bool fetchRadiosondeData() {
 
   // Najpierw zebierz L O W C O W: unikalnych uploaderow (callsign + pozycja)
   // ze wszystkich rekordow odpowiedzi. Nie dotyczy ich limit SONDE_MAX_ENTRIES.
-  sondeHunterCount = 0;
-  for (JsonPair hkv : root) {
-    JsonObject ho = hkv.value().as<JsonObject>();
-    if (ho.isNull()) continue;
-    const char *hc = ho["uploader_callsign"] | "";
-    const char *hp = ho["uploader_position"] | "";
-    if (!hc[0] || !hp[0]) continue;
-    // Unikalnosc po callsign.
-    int hi = 0;
-    while (hi < sondeHunterCount) {
-      if (strcmp(sondeHunters[hi].callsign, hc) == 0) break;
-      hi++;
-    }
-    if (hi >= sondeHunterCount) {
-      if (hi >= SONDE_MAX_HUNTERS) continue;
-      sondeHunterCount++;
-      strlcpy(sondeHunters[hi].callsign, hc, sizeof(sondeHunters[hi].callsign));
-      sondeHunters[hi].nSondes = 0;
-      sondeHunters[hi].lat = 0; sondeHunters[hi].lon = 0;
-      String hpStr(hp);
-      int comma = hpStr.indexOf(',');
-      if (comma > 0) {
-        sondeHunters[hi].lat = hpStr.substring(0, comma).toFloat();
-        sondeHunters[hi].lon = hpStr.substring(comma + 1).toFloat();
+  // W trybie HUNTERS ta tablica jest WYPELNIANA przez fetchSondeListenersData
+  // (pelne zrodlo /listeners/telemetry) - tu zbieramy tylko poza nim.
+  if (radiosondeMode != "hunters") {
+    sondeHunterCount = 0;
+    for (JsonPair hkv : root) {
+      JsonObject ho = hkv.value().as<JsonObject>();
+      if (ho.isNull()) continue;
+      const char *hc = ho["uploader_callsign"] | "";
+      const char *hp = ho["uploader_position"] | "";
+      if (!hc[0] || !hp[0]) continue;
+      // Unikalnosc po callsign.
+      int hi = 0;
+      while (hi < sondeHunterCount) {
+        if (strcmp(sondeHunters[hi].callsign, hc) == 0) break;
+        hi++;
       }
+      if (hi >= sondeHunterCount) {
+        if (hi >= SONDE_MAX_HUNTERS) continue;
+        sondeHunterCount++;
+        strlcpy(sondeHunters[hi].callsign, hc, sizeof(sondeHunters[hi].callsign));
+        sondeHunters[hi].nSondes = 0;
+        sondeHunters[hi].lat = 0; sondeHunters[hi].lon = 0;
+        String hpStr(hp);
+        int comma = hpStr.indexOf(',');
+        if (comma > 0) {
+          sondeHunters[hi].lat = hpStr.substring(0, comma).toFloat();
+          sondeHunters[hi].lon = hpStr.substring(comma + 1).toFloat();
+        }
+      }
+      sondeHunters[hi].nSondes++;
     }
-    sondeHunters[hi].nSondes++;
   }
 
   for (JsonPair kv : root) {
@@ -31303,6 +31323,106 @@ static bool fetchRadiosondeData() {
   Serial.printf("[Sonde] pobrano: %d sond, blad=%d (%s)\n", sondeCount,
                 (int)sondeFetchError, sondeFetchErrMsg);
   return sondeCount > 0;
+}
+
+// Pobiera pelna liste LOWCOW z SondeHub /listeners/telemetry. To globalny
+// zrzut wszystkich aktywnych nasluchow (~1.3 MB raw JSON / ~123 KB gzip); nie
+// wspiera parametrow lat/lon/distance. Pobieramy go do PSRAM i zostawiamy
+// TYLKO lowcow w prostokacie mapy (z buforem ~3 st, jak sondeProject).
+// HTTPClient wysyla "Accept-Encoding: identity", wiec dostajemy 1.3 MB raw -
+// tak jak w fetchRadiosondeHistory (3 MB). Odswiezanie rzadkie (5 min).
+static bool fetchSondeListenersData() {
+  unsigned long nowMs = millis();
+  if (lastSondeHuntFetchMs != 0 && (nowMs - lastSondeHuntFetchMs) < SONDE_FETCH_MIN_INTERVAL_MS) {
+    return sondeHunterCount > 0;
+  }
+  lastSondeHuntFetchMs = nowMs;
+  sondeFetchError = false;
+  sondeFetchErrMsg = "";
+  if (!wifiConnected) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "BRAK WIFI";
+    return false;
+  }
+
+  String url = "https://api.v2.sondehub.org/listeners/telemetry";
+  static WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(20000);
+  if (!http.begin(client, url)) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "HTTP begin";
+    return false;
+  }
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    sondeFetchError = true;
+    static char httpErrBuf[24];
+    snprintf(httpErrBuf, sizeof(httpErrBuf), "HTTP %d", code);
+    sondeFetchErrMsg = httpErrBuf;
+    http.end();
+    return false;
+  }
+
+  // Dokument z filtrem: tylko uploader_callsign + uploader_position.
+  // Czytamy z http.getStream() - jak w fetchRadiosondeHistory (gzip/raw
+  // nie jest trzymany w calosci w PSRAM; doc zapamietuje TYLKO pola z
+  // filtra, ~200-400 KB zamiast 1.3 MB).
+  StaticJsonDocument<128> filter;
+  filter["*"]["*"]["uploader_callsign"] = true;
+  filter["*"]["*"]["uploader_position"] = true;
+  BasicJsonDocument<PskPsramAllocator> doc(SONDE_LISTENERS_BODY_CAP);
+  DeserializationError err = deserializeJson(doc, http.getStream(),
+                                             DeserializationOption::Filter(filter));
+  http.end();
+  if (err) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "JSON parse";
+    return false;
+  }
+
+  // Wyciagnij lowcow z bboxu mapy (+ bufor 3 st).
+  JsonObject root = doc.as<JsonObject>();
+  if (root.isNull()) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "Brak danych";
+    return false;
+  }
+
+  sondeHunterCount = 0;
+  for (JsonPair hkv : root) {
+    if (sondeHunterCount >= SONDE_MAX_HUNTERS) break;
+    JsonObject byTime = hkv.value().as<JsonObject>();
+    if (byTime.isNull()) continue;
+    // Ostatni punkt czasowy (najnowsza pozycja lowcy).
+    JsonObject last = JsonObject();
+    for (JsonPair tp : byTime) {
+      last = tp.value().as<JsonObject>();
+    }
+    if (last.isNull()) continue;
+    const char *hc = last["uploader_callsign"] | "";
+    if (!hc[0]) continue;
+    // uploader_position: [lat, lon, alt]
+    if (!last["uploader_position"].is<JsonArray>()) continue;
+    JsonArray pos = last["uploader_position"].as<JsonArray>();
+    if (pos.size() < 2) continue;
+    float lat = pos[0] | 0.0f;
+    float lon = pos[1] | 0.0f;
+    if (lat < PL_LAT_BOT - 3.0f || lat > PL_LAT_TOP + 3.0f ||
+        lon < PL_LON_LEFT - 3.0f || lon > PL_LON_RIGHT + 3.0f) {
+      continue;  // poza obszarem mapy
+    }
+    SondeHunter &h = sondeHunters[sondeHunterCount];
+    memset(&h, 0, sizeof(h));
+    strlcpy(h.callsign, hc, sizeof(h.callsign));
+    h.lat = lat; h.lon = lon;
+    h.nSondes = 0;  // lista lowcow nie niesie liczby sond
+    sondeHunterCount++;
+  }
+  lastSondeHuntFetchMs = millis();
+  Serial.printf("[Sonde] lowcy: %d w okolicy\n", sondeHunterCount);
+  return sondeHunterCount > 0;
 }
 
 // Callback TJpgDec: bloki MCU przychodza w juz bezwzglednych wspolrzednych
@@ -31583,6 +31703,17 @@ void drawRadiosondyScreen() {
     if (radiosondeEnabled) fetchRadiosondeData();
   } else if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
     if (radiosondeEnabled) fetchRadiosondeData();
+  }
+
+  // TrL OW C Y: dodatkowo pobierz pelna liste lowcow (dedykowane zrodlo
+  // /listeners/telemetry) rzadziej - raz na SONDE_HUNT_REFRESH_MS (5 min).
+  if (radiosondeMode == "hunters") {
+    unsigned long hRef = lastSondeHuntFetchMs;
+    if (hRef == 0 || (millis() - hRef) >= SONDE_HUNT_REFRESH_MS) {
+      if (radiosondeEnabled) {
+        sondeHuntNeedsFetch = true;
+      }
+    }
   }
 
   drawRadiosondeHeader();
