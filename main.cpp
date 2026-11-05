@@ -320,13 +320,35 @@ typedef struct {
 // osobnego REST endpointu "lista lowcow", wiec zbieramy ich z rekordow sond
 // (pole uploader_callsign + uploader_position) - kazdy unikalny znak to
 // jeden lowca na mapie w trybie LOWCY, bez limitu 24 dotyczacego sond.
-#define SONDE_MAX_HUNTERS 160  // bufor ±3° wokol PL miesci ~220 lowcow swiata
+#define SONDE_MAX_HUNTERS 256  // bufor ±3° wokol PL miesci 200-240 lowcow
 typedef struct {
   char callsign[18];
   float lat, lon;      // pozycja lowcy (uploader_position)
   int   nSondes;       // ile sond uploadowal w tej odpowiedzi
   char  software[16];  // program odbiornika (z /listeners), pusty w trybach live
+  bool  mobile;        // z /listeners: stacja przenosna (tracker w aucie)
 } SondeHunter;
+
+// SondeHub zbroi uploader_callsign o emoji/flagi krajow (np. "🇦🇺 I1OAB 🇮🇹") -
+// na wyswietlaczu GLCD to smieci. Zostawiamy tylko ASCII drukowalne.
+static void sondeSanitizeCall(const char *src, char *dst, size_t cap) {
+  size_t o = 0;
+  for (const unsigned char *p = (const unsigned char *)src; *p && o + 1 < cap; p++) {
+    unsigned char ch = *p;
+    if (ch >= 0x20 && ch <= 0x7E) dst[o++] = (char)ch;
+  }
+  dst[o] = 0;
+}
+
+// Znak typu stacji lowcy do etykiety: mobilna=Ms, TTGO tracker=T,
+// radiosonde_auto_rx=R, OpenWebRX=W, inna stala=?.
+static char sondeHunterTypeChar(const SondeHunter &h) {
+  if (h.mobile) return 'M';
+  if (strstr(h.software, "TTGO") || strstr(h.software, "rdz")) return 'T';
+  if (strstr(h.software, "auto_rx")) return 'R';
+  if (strstr(h.software, "WebRX")) return 'W';
+  return h.software[0] ? '?' : ' ';
+}
 static SondeHunter sondeHunters[SONDE_MAX_HUNTERS];
 static int sondeHunterCount = 0;
 
@@ -31238,7 +31260,38 @@ static bool fetchRadiosondeData() {
   // ze wszystkich rekordow odpowiedzi. Nie dotyczy ich limit SONDE_MAX_ENTRIES.
   // W trybie HUNTERS ta tablica jest WYPELNIANA przez fetchSondeListenersData
   // (pelne zrodlo /listeners/telemetry) - tu zbieramy tylko poza nim.
-  if (radiosondeMode != "hunters") {
+  if (radiosondeMode == "hunters") {
+    // Tryb LOWCY: pelne zrodlo /listeners wypelnia sondeHunters (w
+    // fetchSondeListenersData). Tu tylko AKTUALIZUJEMY licznik odebranych
+    // sond (nSondes>0 = lowca aktywny w tej chwili). Jesli /listeners jeszcze
+    // nie pobrany, a lowca jest w /sondes - tworzymy wpis z pozycji z /sondes,
+    // zeby aktywni nie znikneli z mapy przed pierwszym pelnym pobraniem.
+    for (JsonPair hkv : root) {
+      JsonObject ho = hkv.value().as<JsonObject>();
+      if (ho.isNull()) continue;
+      const char *hc = ho["uploader_callsign"] | "";
+      const char *hp = ho["uploader_position"] | "";
+      if (!hc[0] || !hp[0]) continue;
+      int hi = 0;
+      while (hi < sondeHunterCount) {
+        if (strcmp(sondeHunters[hi].callsign, hc) == 0) break;
+        hi++;
+      }
+      if (hi >= sondeHunterCount) {
+        if (hi >= SONDE_MAX_HUNTERS) continue;
+        sondeHunterCount++;
+        memset(&sondeHunters[hi], 0, sizeof(sondeHunters[hi]));
+        sondeSanitizeCall(hc, sondeHunters[hi].callsign, sizeof(sondeHunters[hi].callsign));
+        String hpStr(hp);
+        int comma = hpStr.indexOf(',');
+        if (comma > 0) {
+          sondeHunters[hi].lat = hpStr.substring(0, comma).toFloat();
+          sondeHunters[hi].lon = hpStr.substring(comma + 1).toFloat();
+        }
+      }
+      sondeHunters[hi].nSondes++;
+    }
+  } else {
     sondeHunterCount = 0;
     for (JsonPair hkv : root) {
       JsonObject ho = hkv.value().as<JsonObject>();
@@ -31255,7 +31308,8 @@ static bool fetchRadiosondeData() {
       if (hi >= sondeHunterCount) {
         if (hi >= SONDE_MAX_HUNTERS) continue;
         sondeHunterCount++;
-        strlcpy(sondeHunters[hi].callsign, hc, sizeof(sondeHunters[hi].callsign));
+        memset(&sondeHunters[hi], 0, sizeof(sondeHunters[hi]));
+        sondeSanitizeCall(hc, sondeHunters[hi].callsign, sizeof(sondeHunters[hi].callsign));
         sondeHunters[hi].nSondes = 0;
         sondeHunters[hi].lat = 0; sondeHunters[hi].lon = 0;
         String hpStr(hp);
@@ -31380,6 +31434,7 @@ static bool fetchSondeListenersData() {
   filter["*"]["*"]["uploader_callsign"] = true;
   filter["*"]["*"]["uploader_position"] = true;
   filter["*"]["*"]["software_name"] = true;
+  filter["*"]["*"]["mobile"] = true;
   BasicJsonDocument<PskPsramAllocator> doc(SONDE_LISTENERS_BODY_CAP);
   DeserializationError err = deserializeJson(doc, http.getStream(),
                                              DeserializationOption::Filter(filter));
@@ -31424,8 +31479,9 @@ static bool fetchSondeListenersData() {
     }
     SondeHunter &h = sondeHunters[sondeHunterCount];
     memset(&h, 0, sizeof(h));
-    strlcpy(h.callsign, hc, sizeof(h.callsign));
+    sondeSanitizeCall(hc, h.callsign, sizeof(h.callsign));
     strlcpy(h.software, hsw, sizeof(h.software));
+    h.mobile = last["mobile"] | false;
     h.lat = lat; h.lon = lon;
     h.nSondes = 0;  // lista lowcow nie niesie liczby sond
     sondeHunterCount++;
@@ -31705,8 +31761,16 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
         if (clash) continue;
         tft.setTextSize(1);
         tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(textCol, outCol);
-        tft.drawString(String(h.callsign), lx, ly, 1);
+        const char tch = sondeHunterTypeChar(h);
+        if (tch != ' ') {
+          tft.setTextColor(accent, outCol);
+          tft.drawChar(tch, lx, ly, 1);
+          tft.setTextColor(textCol, outCol);
+          tft.drawString(String(h.callsign), lx + 7, ly, 1);
+        } else {
+          tft.setTextColor(textCol, outCol);
+          tft.drawString(String(h.callsign), lx, ly, 1);
+        }
         if (labN < (int)(sizeof(labX) / sizeof(labX[0]))) { labX[labN] = lx; labY[labN] = ly; labN++; }
       }
     }
@@ -31872,16 +31936,39 @@ void drawRadiosondyScreen() {
       shown++;
     }
   } else if (hunters) {
-    // Lista widocznych LOWCOW (unikalnych uploaderow) - najpierw ci z
-    // najwieksza liczba odebranych sond; kolejnosc jak w sondeHunters.
+    // Lista widocznych LOWCOW. Priorytet pokazywania: AKTYWNI (w tej chwili
+    // odbieraja sonde, nSondes>0) przed nieaktywnymi; w kazdej grupie
+    // najblizsi QTH. Algorytm top-3 w dwoch przebiegach.
+    int pick[3] = { -1, -1, -1 };
+    double pickD[3] = { 0, 0, 0 };
     int shown = 0;
-    for (int hi = 0; hi < sondeHunterCount && shown < 3; hi++) {
-      const SondeHunter &h = sondeHunters[hi];
-      if (h.lat == 0.0f && h.lon == 0.0f) continue;
-      if (!sondePtInMap(h.lat, h.lon)) continue;
-      const int yy = stripY + 22 + shown * 12;
+    for (int pass = 0; pass < 2; pass++) {
+      const bool wantActive = (pass == 0);
+      for (int hi = 0; hi < sondeHunterCount; hi++) {
+        const SondeHunter &h = sondeHunters[hi];
+        if (h.lat == 0.0f && h.lon == 0.0f) continue;
+        if (!sondePtInMap(h.lat, h.lon)) continue;
+        const bool isActive = (h.nSondes > 0);
+        if (isActive != wantActive) continue;
+        bool already = false;
+        for (int u = 0; u < shown; u++) if (pick[u] == hi) { already = true; break; }
+        if (already) continue;
+        const double d = calculateDistance(qlat, qlon, h.lat, h.lon);
+        if (shown < 3) {
+          pick[shown] = hi; pickD[shown] = d; shown++;
+        } else {
+          int worst = 0; for (int w = 1; w < 3; w++) if (pickD[w] > pickD[worst]) worst = w;
+          if (d < pickD[worst]) { pick[worst] = hi; pickD[worst] = d; }
+        }
+      }
+    }
+    for (int p = 0; p < shown; p++) {
+      const SondeHunter &h = sondeHunters[pick[p]];
+      const int yy = stripY + 22 + p * 12;
       tft.setTextColor(accent, cardCol);
-      tft.drawString(String(h.callsign), 6, yy, 1);
+      char callbuf[24];
+      snprintf(callbuf, sizeof(callbuf), "%c %s", sondeHunterTypeChar(h), h.callsign);
+      tft.drawString(String(callbuf), 6, yy, 1);
       tft.setTextColor(textCol, cardCol);
       tft.drawString(String((int)calculateDistance(qlat, qlon, h.lat, h.lon)) + " km",
                      110, yy, 1);
@@ -31892,7 +31979,6 @@ void drawRadiosondyScreen() {
         tft.drawString(String(h.nSondes) + " sond", 326, yy, 1);
       }
       tft.setTextDatum(TL_DATUM);
-      shown++;
     }
   } else {
     const int rows = sondeCount < 3 ? sondeCount : 3;
