@@ -5,13 +5,14 @@ cd "$(dirname "$0")/.."
 # Statyczne zasoby WWW skompresowane (index*.html.gz, style*.css.gz, satellite.js.gz)
 # - firmware serwuje je gdy klient wysle Accept-Encoding: gzip (streamStaticAsset).
 python3 tools/make_gz.py
-ESPTOOL=~/.platformio/packages/tool-esptoolpy/esptool.py
+# esptool z bibliotekami platformio (systemowy python3 nie ma modulu esptool).
+ESPTOOL_ROOT=/workspace/pioenv
 BOOT_APP0=~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin
 
 merge() {
   local env="$1" out="$2"
   local b=".pio/build/$env"
-  python3 "$ESPTOOL" --chip esp32s3 merge_bin -o "$out" \
+  "$ESPTOOL_ROOT/bin/python3" "$ESPTOOL_ROOT/bin/esptool.py" --chip esp32s3 merge_bin -o "$out" \
     --flash_mode dio --flash_freq 80m --flash_size 16MB \
     0x0 "$b/bootloader.bin" \
     0x8000 "$b/partitions.bin" \

@@ -183,6 +183,7 @@ static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y);
 static void drawRadiosondeDetail();
 static void handleRadiosondeDetailTouch(uint16_t x, uint16_t y);
 static bool fetchRadiosondeData();
+static bool fetchRadiosondeHistory();
 static bool isScreen6RadarRangeTileHit(uint16_t x, uint16_t y, int &index);
 static void uiHeader(const char *title, bool showMenu);
 static void uiHeaderClock();
@@ -283,7 +284,7 @@ int pskAutoRefreshMinutes = 5;
 // RADIOSONDY (SondeHub) - dane sond meteop na mapie Polski (ekran 17).
 bool radiosondeEnabled = true;      // widac ekran w kolejnosci ekranow
 int  radiosondeRangeKm = 600;       // promien wyszukiwania wokol QTH (50-1000)
-String radiosondeMode = "live";     // live | amateur | hunters
+String radiosondeMode = "live";     // live | amateur | hunters | history
 int  radiosondeLiveMin = 10;        // "na zywo" = ramka nie starsza niz tyle minut
 bool radiosondeShowPath = true;     // linia QTH -> sonda
 bool radiosondeShowUploader = true; // podpis odbiorcy (lowcy)
@@ -320,6 +321,21 @@ static unsigned long lastSondeAttemptMs = 0; // kazda proba (interwal min. 30 s)
 static bool sondeMenuActive = false;         // aktywne menu sondy (hamburger)
 static bool sondeDetailActive = false;       // ekran detali sondy (przycisk sondehub.org)
 static int  sondeDetailIndex = 0;            // ktora sonda w detalach (domyslnie najblizsza)
+
+// --- HISTORIA sond (tryb HISTORYCZNE): slady balonow z ostatnich 12 h. ---
+#define SONDE_HIST_MAX_SONDES 24   // maks. liczba sond z rysowana historia
+#define SONDE_HIST_MAX_POINTS 24   // maks. punktow (pozycji) na jedna sonde
+typedef struct {
+  char serial[16];
+  int pointCount;              // ile punktow w sladzie ponizej
+  float lat[SONDE_HIST_MAX_POINTS];
+  float lon[SONDE_HIST_MAX_POINTS];
+} SondeHistFlight;
+
+static SondeHistFlight sondeHist[SONDE_HIST_MAX_SONDES];
+static int sondeHistCount = 0;
+static unsigned long lastSondeHistFetchMs = 0; // ost. udane pobranie historii
+static unsigned long lastSondeHistAttemptMs = 0;
 
 // MQTT PSK Reporter - DOMYSLNY tryb od v1.2b (feed na zywo, mapa odswieza sie
 // sama, bez limitu zapytan HTTP). Broker mqtt.pskreporter.info publikuje PSK
@@ -26059,7 +26075,7 @@ void setupWebServer() {
       if (doc["radiosonde_mode"].is<String>()) {
         String m = doc["radiosonde_mode"].as<String>();
         m.toLowerCase(); m.trim();
-        if (m == "live" || m == "amateur" || m == "hunters") radiosondeMode = m;
+        if (m == "live" || m == "amateur" || m == "hunters" || m == "history") radiosondeMode = m;
       }
       if (doc["radiosonde_live_min"].is<int>()) {
         radiosondeLiveMin = doc["radiosonde_live_min"].as<int>();
@@ -28161,12 +28177,16 @@ void uiTaskLoop(void *parameter) {
       // pozostale ekrany. Wczesniej MQTT wolano z UI_Task i z loop() naraz
       // (wyscig -> crash) oraz drawPskMap() z wnetrza processPskMqttBuffer()
       // (reentrancja -> lawina odswiezen).
-      // Auto-odswiezanie ekranu RADIOSONDY co 30 s (drawRadiosondyScreen pobierze JSON).
+      // Auto-odswiezanie ekranu RADIOSONDY (co 60 s). W trybie HISTORYCZNE
+      // pobieramy slady balonow z ostatnich 12 h, inaczej zywe sondy.
       if (tftInitialized && currentScreen == SCREEN_RADIOSONDE && !inMenu &&
           !sondeMenuActive && !sondeDetailActive && !aprsAlertScreenActive &&
           lastSondeAttemptMs != 0) {
-        if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
-          fetchRadiosondeData();
+        bool hist = (radiosondeMode == "history");
+        unsigned long refMs = hist ? lastSondeHistFetchMs : lastSondeFetchMs;
+        if ((millis() - refMs) >= SONDE_SCREEN_REFRESH_MS) {
+          if (hist) fetchRadiosondeHistory();
+          else fetchRadiosondeData();
           const bool mCl = uiStyleClassic();
           drawRadiosondeMarkers(mCl ? 0xFFFF : 0x00C6,
                                 mCl ? 0xDEFA : 0x2A47,
@@ -28174,8 +28194,9 @@ void uiTaskLoop(void *parameter) {
                                 mCl ? TFT_BLACK : UI_COL_TEXT,
                                 TFT_RED,
                                 mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT,
-                                true);  // restoreMap - casuje stare znaczniki z bufora
-          lastSondeFetchMs = millis();
+                                true);  // restoreMap - kasuje stare znaczniki z bufora
+          if (hist) lastSondeHistFetchMs = millis();
+          else lastSondeFetchMs = millis();
         }
       }
 
@@ -30910,7 +30931,145 @@ static bool sondeProject(float lat, float lon, int &x, int &y) {
 static const char *sondeModeLabel() {
   if (radiosondeMode == "amateur") return "AMATORSKIE";
   if (radiosondeMode == "hunters") return "LOWCY";
+  if (radiosondeMode == "history") return "HISTORYCZNE";
   return "NA ZYWO";
+}
+
+// Pobiera HISTORIE sond z SondeHub (API v2): /sondes/telemetry z duration=12h.
+// Odpowiedz to {serial: {timestamp: {lat,lon,...}}} globalnie (cala Europa),
+// surowy JSON ok. 3 MB (gzip ~350 KB). Parsujemy przez PSRAM (8 MB),
+// zapamietujac do SONDE_HIST_MAX_SONDES najblizszych sond (posortowanych wg
+// odleglosci od QTH), kazda z max SONDE_HIST_MAX_POINTS punktow.
+static bool fetchRadiosondeHistory() {
+  unsigned long nowMs = millis();
+  if (lastSondeHistAttemptMs != 0 && (nowMs - lastSondeHistAttemptMs) < SONDE_FETCH_MIN_INTERVAL_MS) {
+    return sondeHistCount > 0;
+  }
+  lastSondeHistAttemptMs = nowMs;
+  lastSondeAttemptMs = nowMs;   // wspolny straznik "ostatnia proba" dla auto-refresh
+  sondeFetchError = false;
+  sondeFetchErrMsg = "";
+  if (!wifiConnected) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "BRAK WIFI";
+    return false;
+  }
+
+  // Endpoint globalny: duration=12h (ostatnie 12 godzin); bez lat/lon/distance
+  // (dane globalne - raw ok. 3 MB, gzip ~350 KB). Datetime domyslne = teraz.
+  String url = "https://api.v2.sondehub.org/sondes/telemetry?duration=12h";
+
+  static WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(20000);  // 3 MB raw JSON wymaga dluzej niz zwykle
+  if (!http.begin(client, url)) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "HTTP begin";
+    return false;
+  }
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    sondeFetchError = true;
+    static char httpErrBuf[24];
+    snprintf(httpErrBuf, sizeof(httpErrBuf), "HTTP %d", code);
+    sondeFetchErrMsg = httpErrBuf;
+    http.end();
+    return false;
+  }
+  // Pobieramy do PSRAM - duza odpowiedz (setki KB).
+  struct SondeHubPsramAllocator {
+    void* allocate(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
+    void deallocate(void* p) { if (p) heap_caps_free(p); }
+    void* reallocate(void* p, size_t n) { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM); }
+  };
+  // Filtr: z ~3 MB raw zostawia TYLKO lat/lon - struktura JSON po filtrze jest
+  // rzedu dziesiątek KB zamiast wielu MB. Dokument budujemy w PSRAM (8 MB).
+  StaticJsonDocument<128> filter;
+  filter["*"]["*"]["lat"] = true;
+  filter["*"]["*"]["lon"] = true;
+  BasicJsonDocument<SondeHubPsramAllocator> doc(4194304);
+  DeserializationError err = deserializeJson(doc, http.getStream(),
+                                             DeserializationOption::Filter(filter));
+  http.end();
+  if (err) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "JSON parse";
+    return false;
+  }
+
+  sondeHistCount = 0;
+  JsonObject root = doc.as<JsonObject>();
+  if (root.isNull()) {
+    sondeFetchError = true;
+    sondeFetchErrMsg = "Brak danych";
+    return false;
+  }
+
+  // Kolejka sond pod QTH (najblizsze maja pierwszenstwo w buforze sladow).
+  double qlat, qlon;
+  sondeGetQth(qlat, qlon);
+
+  for (JsonPair kv : root) {
+    if (sondeHistCount >= SONDE_HIST_MAX_SONDES) break;
+    JsonObject byTime = kv.value().as<JsonObject>();
+    if (byTime.isNull()) continue;
+    float sLat = 0, sLon = 0;
+    // Ostatni punkt (najnowszy) daje pozycje sondy do sortowania.
+    int n = 0;
+    for (JsonPair tp : byTime) {
+      JsonObject o = tp.value().as<JsonObject>();
+      if (o.isNull() || o["lat"].isNull() || o["lon"].isNull()) continue;
+      sLat = o["lat"] | sLat;
+      sLon = o["lon"] | sLon;
+      n++;
+    }
+    if (n == 0) continue;
+    // Odrzuc spoza promienia (jak w /sondes).
+    if (calculateDistance(qlat, qlon, sLat, sLon) > (double)radiosondeRangeKm) continue;
+
+    SondeHistFlight &f = sondeHist[sondeHistCount];
+    memset(&f, 0, sizeof(f));
+    const char *k = kv.key().c_str();
+    strlcpy(f.serial, (k && k[0]) ? k : "", sizeof(f.serial));
+    // Zachowaj punkt STARTU (najstarszy) i KONCA (najnowszy) dla sladu.
+    int p = 0;
+    for (JsonPair tp : byTime) {
+      JsonObject o = tp.value().as<JsonObject>();
+      if (o.isNull() || o["lat"].isNull() || o["lon"].isNull()) continue;
+      if (p >= SONDE_HIST_MAX_POINTS) break;
+      f.lat[p] = o["lat"];
+      f.lon[p] = o["lon"];
+      p++;
+    }
+    f.pointCount = p;
+    // W API v2 kluczami byTime sa timestampy ISO w kolejnosci chronologicznej
+    // (start -> najnowszy), wiec slad w tably lat/lon jest już we wlasciwej
+    // kolejnosci - bez sortowania.
+    sondeHistCount++;
+  }
+  // Sortuj wg odleglosci ostatniej pozycji od QTH (najblizsze na poczatku),
+  // jak dla zywych sond - lista w dolnym panelu i kolejnosc w buforze.
+  for (int i = 1; i < sondeHistCount; i++) {
+    SondeHistFlight key = sondeHist[i];
+    int j = i - 1;
+    while (j >= 0) {
+      double dl = key.pointCount > 0 ? calculateDistance(qlat, qlon,
+              key.lat[key.pointCount - 1], key.lon[key.pointCount - 1]) : 1e9;
+      double dj = sondeHist[j].pointCount > 0 ? calculateDistance(qlat, qlon,
+              sondeHist[j].lat[sondeHist[j].pointCount - 1],
+              sondeHist[j].lon[sondeHist[j].pointCount - 1]) : 1e9;
+      if (dj <= dl) break;
+      sondeHist[j + 1] = sondeHist[j];
+      j--;
+    }
+    sondeHist[j + 1] = key;
+  }
+
+  lastSondeHistFetchMs = millis();
+  sondeFetchedOnce = true;
+  Serial.printf("[Sonde] historia: %d lotow\n", sondeHistCount);
+  return sondeHistCount > 0;
 }
 
 // Pobiera sondy z SondeHub (API v2) na podstawie pozycji QTH i promienia.
@@ -31153,7 +31312,7 @@ static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
 // Rysuje mala kolorowa ikone RGB565 wycentrowana na (x,y); piksel 0xF81F
 // (sentinel) jest przezroczysty - nie nadpisuje mapy pod spodem.
 static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int stride) {
-  const int z = 2;  // 2x powiekszenie ikony 16x16 -> 32x32 px (kompaktowe, nie zaslaniaja mapy)
+  const int z = 1;  // 1x - ikona 16x16 px (kompaktowa, nie zaslania mapy)
   const int zw = w * z, zh = h * z;
   int x0 = x - zw / 2;
   int y0 = y - zh / 2;
@@ -31163,8 +31322,7 @@ static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int str
   if (y0 < PL_MAP_Y0) y0 = PL_MAP_Y0;
   if (x0 + zw > PL_MAP_X0 + PL_MAP_W) x0 = PL_MAP_X0 + PL_MAP_W - zw;
   if (y0 + zh > PL_MAP_Y0 + PL_MAP_H) y0 = PL_MAP_Y0 + PL_MAP_H - zh;
-  // Bialy dysk pod ikona - ikona widoczna na kazdym tle mapy.
-  tft.fillCircle(x0 + zw / 2, y0 + zh / 2, zh / 2 + 1, 0xFFFF);
+  // Bez bialego dysku - tylko ikona (przezroczysty sentinel nie nadpisuje mapy).
   for (int j = 0; j < h; j++) {
     for (int i = 0; i < w; i++) {
       uint16_t c = icon[j * stride + i];
@@ -31199,10 +31357,42 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
     }
   }
 
+  const bool historyMode = (radiosondeMode == "history");
   const bool hunters = (radiosondeMode == "hunters");
 
   double qlat, qlon;
   sondeGetQth(qlat, qlon);
+
+  if (historyMode) {
+    // HISTORYCZNE: zamiast zywych sond rysujemy slady balonow z ostatnich
+    // 12 h. Kazdy lot: linia przez punkty (start -> najnowszy) i balonik na
+    // ostatniej pozycji. Bez QTH (celownik zniknalby pod sladami).
+    for (int fi = 0; fi < sondeHistCount; fi++) {
+      const SondeHistFlight &f = sondeHist[fi];
+      if (f.pointCount < 1) continue;
+      int prevX, prevY;
+      bool havePrev = false;
+      for (int pt = 0; pt < f.pointCount; pt++) {
+        int px, py;
+        if (!sondeProject(f.lat[pt], f.lon[pt], px, py)) continue;
+        if (havePrev) {
+          // Slad w kolorze akcentu (ciemny obrys dla kontrastu z mapa).
+          tft.drawLine(prevX - 1, prevY - 1, px - 1, py - 1, bdrCol);
+          tft.drawLine(prevX, prevY, px, py, bdrCol);
+          tft.drawLine(prevX + 1, prevY + 1, px + 1, py + 1, bdrCol);
+          tft.drawLine(prevX, prevY, px, py, accent);
+        }
+        prevX = px; prevY = py; havePrev = true;
+      }
+      // Ostatnia pozycja - balonik (mniejsza ikona, przezroczyste tlo).
+      int bx, by;
+      if (sondeProject(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1], bx, by)) {
+        drawRsIcon(bx, by, RS_ICON_BALLOON_W, RS_ICON_BALLOON_H,
+                   RS_ICON_BALLOON, RS_ICON_BALLOON_W);
+      }
+    }
+    return;  // w trybie history nie ma QTH ani zywych markerow
+  }
 
   // QTH - czerwony celownik.
   {
@@ -31276,8 +31466,13 @@ void drawRadiosondyScreen() {
   if (!tftInitialized) return;
   const bool classic = uiStyleClassic();
 
-  // Odswiez dane: pierwsze wejscie na ekran albo dane starsze niz 30 s.
-  if (!sondeFetchedOnce || lastSondeFetchMs == 0) {
+  // Odswiez dane: pierwsze wejscie na ekran albo dane starsze niz 60 s.
+  if (radiosondeMode == "history") {
+    unsigned long hRef = lastSondeHistFetchMs;
+    if (hRef == 0 || (millis() - hRef) >= SONDE_SCREEN_REFRESH_MS) {
+      if (radiosondeEnabled) fetchRadiosondeHistory();
+    }
+  } else if (!sondeFetchedOnce || lastSondeFetchMs == 0) {
     if (radiosondeEnabled) fetchRadiosondeData();
   } else if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
     if (radiosondeEnabled) fetchRadiosondeData();
@@ -31317,26 +31512,53 @@ void drawRadiosondyScreen() {
                  6, stripY + 4, 1);
   tft.setTextDatum(TR_DATUM);
   tft.setTextColor(textCol, cardCol);
-  if (sondeFetchError) {
+  if (radiosondeMode == "history") {
+    if (sondeFetchError) {
+      tft.drawString("SondeHub: " + String(sondeFetchErrMsg), 474, stripY + 4, 1);
+    } else {
+      tft.drawString(String("Loty: ") + String(sondeHistCount), 474, stripY + 4, 1);
+    }
+  } else if (sondeFetchError) {
     tft.drawString("SondeHub: " + String(sondeFetchErrMsg), 474, stripY + 4, 1);
   } else {
     tft.drawString(String("Sondy: ") + String(sondeCount), 474, stripY + 4, 1);
   }
   tft.setTextDatum(TL_DATUM);
 
-  const int rows = sondeCount < 3 ? sondeCount : 3;
-  for (int r = 0; r < rows; r++) {
-    const SondeSpot &s = sondeSpots[r];
-    const int yy = stripY + 22 + r * 12;
-    tft.setTextColor(accent, cardCol);
-    tft.drawString(String(s.serial), 6, yy, 1);
-    tft.setTextColor(textCol, cardCol);
-    tft.drawString(String(s.type), 110, yy, 1);
-    tft.setTextDatum(TR_DATUM);
-    tft.drawString(String((int)calculateDistance(qlat, qlon, s.lat, s.lon)) + " km",
-                   326, yy, 1);
-    tft.drawString(String((int)s.alt) + " m", 474, yy, 1);
-    tft.setTextDatum(TL_DATUM);
+  if (radiosondeMode == "history") {
+    // Dolny panel w trybie HISTORYCZNE: lista najblizszych lotow (ostatnia
+    // pozycja) z liczba punktow w sladzie.
+    const int rows = sondeHistCount < 3 ? sondeHistCount : 3;
+    for (int r = 0; r < rows; r++) {
+      const SondeHistFlight &f = sondeHist[r];
+      const int yy = stripY + 22 + r * 12;
+      tft.setTextColor(accent, cardCol);
+      tft.drawString(String(f.serial), 6, yy, 1);
+      tft.setTextColor(textCol, cardCol);
+      double dLat = f.pointCount > 0 ? f.lat[f.pointCount - 1] : 0;
+      double dLon = f.pointCount > 0 ? f.lon[f.pointCount - 1] : 0;
+      tft.drawString(String(f.pointCount) + " pkt.", 110, yy, 1);
+      tft.setTextDatum(TR_DATUM);
+      tft.drawString(String((int)calculateDistance(qlat, qlon, dLat, dLon)) + " km",
+                     326, yy, 1);
+      tft.drawString("12 h", 474, yy, 1);
+      tft.setTextDatum(TL_DATUM);
+    }
+  } else {
+    const int rows = sondeCount < 3 ? sondeCount : 3;
+    for (int r = 0; r < rows; r++) {
+      const SondeSpot &s = sondeSpots[r];
+      const int yy = stripY + 22 + r * 12;
+      tft.setTextColor(accent, cardCol);
+      tft.drawString(String(s.serial), 6, yy, 1);
+      tft.setTextColor(textCol, cardCol);
+      tft.drawString(String(s.type), 110, yy, 1);
+      tft.setTextDatum(TR_DATUM);
+      tft.drawString(String((int)calculateDistance(qlat, qlon, s.lat, s.lon)) + " km",
+                     326, yy, 1);
+      tft.drawString(String((int)s.alt) + " m", 474, yy, 1);
+      tft.setTextDatum(TL_DATUM);
+    }
   }
 }
 // Naglowek ekranu RADIOSONDY: hamburger + przycisk "sondehub.org >" OBOK niego
@@ -31383,7 +31605,8 @@ static void drawRadiosondeHeader() {
 }
 
 // Menu sondy (po hamburgerze, wzorowane na makiety v3): tryb NA ZYWO /
-// AMATORSKIE / LOWCY, zasieg -/+ 100 km, REFRESH i CLOSE.
+// AMATORSKIE / LOWCY / HISTORYCZNE (2x2 kafle), zasieg -/+ 100 km,
+// REFRESH i CLOSE.
 static void drawRadiosondeMenu() {
   tft.fillScreen(TFT_BLACK);
   uiMenuHeader("RADIOSONDY MENU");
@@ -31393,29 +31616,31 @@ static void drawRadiosondeMenu() {
   tft.setCursor(10, 42);
   tft.print("TRYB SOND / STACJI");
   const int tileW = 140, tileH = 36, gap = 10;
-  const int startX = (480 - (3 * tileW + 2 * gap)) / 2;
+  const int startX = (480 - (2 * tileW + 1 * gap)) / 2;
   const int modeY = 56;
+  // Rzad 1: NA ZYWO / AMATORSKIE. Rzad 2: LOWCY / HISTORYCZNE.
   drawFilterTile(startX + 0 * (tileW + gap), modeY, tileW, tileH, "NA ZYWO", radiosondeMode == "live");
   drawFilterTile(startX + 1 * (tileW + gap), modeY, tileW, tileH, "AMATORSKIE", radiosondeMode == "amateur");
-  drawFilterTile(startX + 2 * (tileW + gap), modeY, tileW, tileH, "LOWCY", radiosondeMode == "hunters");
+  drawFilterTile(startX + 0 * (tileW + gap), modeY + tileH + gap, tileW, tileH, "LOWCY", radiosondeMode == "hunters");
+  drawFilterTile(startX + 1 * (tileW + gap), modeY + tileH + gap, tileW, tileH, "HISTORYCZNE", radiosondeMode == "history");
 
   tft.setTextColor(UI_COL_FAINT);
-  tft.setCursor(10, 100);
+  tft.setCursor(10, 150);
   tft.print("ZASIEG WYSZUKIWANIA");
-  tft.setCursor(10, 116);
+  tft.setCursor(10, 166);
   tft.setTextColor(TFT_RADIO_ORANGE);
   tft.setTextSize(2);
   tft.print(String(radiosondeRangeKm) + " km");
   tft.setTextSize(1);
 
-  const int rY = 116;
+  const int rY = 166;
   drawFilterTile(startX + 1 * (tileW + gap), rY, (tileW - gap) / 2, tileH, "-100", radiosondeRangeKm > 50);
   drawFilterTile(startX + 1 * (tileW + gap) + (tileW - gap) / 2 + gap, rY, (tileW - gap) / 2, tileH, "+100", radiosondeRangeKm < 1000);
 
-  tft.setCursor(10, 176);
+  tft.setCursor(10, 226);
   tft.setTextColor(UI_COL_FAINT);
   tft.print("POKAZUJ NA MAPIE");
-  tft.setCursor(10, 193);
+  tft.setCursor(10, 243);
   tft.setTextColor(UI_COL_TEXT);
   tft.print("BALON = sonda      AUTO = lowca");
 
@@ -31427,24 +31652,30 @@ static void drawRadiosondeMenu() {
 
 static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y) {
   const int tileW = 140, tileH = 36, gap = 10;
-  const int startX = (480 - (3 * tileW + 2 * gap)) / 2;
+  const int startX = (480 - (2 * tileW + 1 * gap)) / 2;
   const int modeY = 56;
 
-  for (int i = 0; i < 3; i++) {
-    if (isPointInRect(x, y, startX + i * (tileW + gap), modeY, tileW, tileH)) {
-      const char *m = (i == 0) ? "live" : (i == 1) ? "amateur" : "hunters";
-      if (radiosondeMode != m) {
-        radiosondeMode = m;
-        lastSondeFetchMs = 0;    // po zmianie trybu pobierz dane ponownie
-        lastSondeAttemptMs = 0;
-        savePreferences();
+  // Kafle 2x2: [NA ZYWO, AMATORSKIE] / [LOWCY, HISTORYCZNE]
+  {
+    struct { int row, col; const char *mode; } tiles[] = {
+      {0, 0, "live"}, {0, 1, "amateur"},
+      {1, 0, "hunters"}, {1, 1, "history"},
+    };
+    for (const auto &t : tiles) {
+      if (isPointInRect(x, y, startX + t.col * (tileW + gap), modeY + t.row * (tileH + gap), tileW, tileH)) {
+        if (radiosondeMode != t.mode) {
+          radiosondeMode = t.mode;
+          lastSondeFetchMs = 0;    // po zmianie trybu pobierz dane ponownie
+          lastSondeAttemptMs = 0;
+          savePreferences();
+        }
+        drawRadiosondeMenu();
+        return;
       }
-      drawRadiosondeMenu();
-      return;
     }
   }
 
-  const int rY = 128;
+  const int rY = 166;
   if (isPointInRect(x, y, startX + 1 * (tileW + gap), rY, (tileW - gap) / 2, tileH)) {
     if (radiosondeRangeKm > 50) radiosondeRangeKm -= 100;
     if (radiosondeRangeKm < 50) radiosondeRangeKm = 50;
