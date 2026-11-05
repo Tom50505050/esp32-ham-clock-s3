@@ -292,7 +292,8 @@ bool radiosondeShowUploader = true; // podpis odbiorcy (lowcy)
 
 // Bufor sond pobranych z SondeHub (ekran RADIOSONDY). Zbiorcze globalne wczytane
 // przez fetchRadiosondeData() z UI_Task (jedyny kontekst rysujacy po TFT).
-#define SONDE_MAX_ENTRIES 24
+#define SONDE_MAX_ENTRIES 24          // ile sond WYSWIETLAMY (limit UI / RAM)
+#define SONDE_MAX_FETCH 64            // do ilu pobieramy z /sondes przed sortem
 #define SONDE_FETCH_MIN_INTERVAL_MS 30000UL  // min przerwa miedzy zapytaniami
 #define SONDE_SCREEN_REFRESH_MS 60000UL      // odswiezanie ekranu RADIOSONDY co 60 s
 // Historia (12 h) pobiera globalny JSON ~3 MB - odswiezaj rzadziej (5 min),
@@ -328,7 +329,7 @@ typedef struct {
 static SondeHunter sondeHunters[SONDE_MAX_HUNTERS];
 static int sondeHunterCount = 0;
 
-static SondeSpot sondeSpots[SONDE_MAX_ENTRIES];
+static SondeSpot sondeSpots[SONDE_MAX_FETCH];
 static int sondeCount = 0;
 static bool sondeFetchedOnce = false;
 static bool sondeFetchError = false;
@@ -31268,7 +31269,7 @@ static bool fetchRadiosondeData() {
   }
 
   for (JsonPair kv : root) {
-    if (sondeCount >= SONDE_MAX_ENTRIES) break;
+    if (sondeCount >= SONDE_MAX_FETCH) break;
     JsonObject o = kv.value().as<JsonObject>();
     if (o.isNull() || o["lat"].isNull() || o["lon"].isNull()) continue;
     SondeSpot &s = sondeSpots[sondeCount];
@@ -31317,6 +31318,10 @@ static bool fetchRadiosondeData() {
     }
     sondeSpots[j + 1] = key;
   }
+  // Po sortowaniu zostaw tylko 24 najblizsze (SONDE_MAX_ENTRIES). Dzieki temu
+  // sonda blisko QTH nie ginie, gdy API zwroci ja poza pierwszymi 24 wpisami
+  // (kolejnosc JSON nie jest wg odleglosci).
+  if (sondeCount > SONDE_MAX_ENTRIES) sondeCount = SONDE_MAX_ENTRIES;
 
   sondeFetchedOnce = true;
   lastSondeFetchMs = millis();
@@ -31663,6 +31668,10 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
   // Rysowane niezaleznie od limitow sond, by SQ9CIN i inni byli widoczni.
   // (Ikona auta jest tu TYLKO jako znacznik lowcy; balon narysuje pętla nizej.)
   if (hunters) {
+    // Rysuj etykiety callsignu TYLKO dla kilku najblizszych lowcow, zeby nie
+    // zasmiécic mapy przy ~100+ aktywnych stacjach. Po posortowaniu wg
+    // odleglosci pierwsze wpisy to najblizsi.
+    const int labelMax = 8;
     for (int hi = 0; hi < sondeHunterCount; hi++) {
       const SondeHunter &h = sondeHunters[hi];
       // Lowca z uploader_position 0,0 jest podejrzany - nie rysuj go poza mapa.
@@ -31671,6 +31680,20 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
       int hx, hy;
       if (!sondeProject(h.lat, h.lon, hx, hy)) continue;
       drawRsIcon(hx, hy, RS_ICON_AUTO_W, RS_ICON_AUTO_H, RS_ICON_AUTO, RS_ICON_AUTO_W);
+      if (hi < labelMax && radiosondeShowUploader) {
+        // Etykieta pod ikona - maly tekst z konturem na tle mapy.
+        // Przyciagana do mapy, by nie wystawala poza nia (do headera/panelu).
+        int lx = hx + RS_ICON_AUTO_W / 2 + 2;
+        int ly = hy + RS_ICON_AUTO_H / 2 + 1;
+        if (lx < PL_MAP_X0) lx = PL_MAP_X0;
+        if (ly < PL_MAP_Y0) ly = PL_MAP_Y0;
+        if (lx > PL_MAP_X0 + PL_MAP_W - 60) lx = PL_MAP_X0 + PL_MAP_W - 60;
+        if (ly > PL_MAP_Y0 + PL_MAP_H - 10) ly = PL_MAP_Y0 + PL_MAP_H - 10;
+        tft.setTextSize(1);
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(textCol, outCol);
+        tft.drawString(String(h.callsign), lx, ly, 1);
+      }
     }
   }
 
@@ -31988,6 +32011,12 @@ static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y) {
           if (radiosondeMode == "history") {
             lastSondeHistFetchMs = 0;
             sondeHistNeedsFetch = true;
+          }
+          // LOWCY: pelne zrodlo /listeners/telemetry pobierz od razu po
+          // wejsciu w tryb (nie czekaj SONDE_HUNT_REFRESH_MS od ostatniego).
+          if (radiosondeMode == "hunters") {
+            lastSondeHuntFetchMs = 0;
+            sondeHuntNeedsFetch = true;
           }
           savePreferences();
         }
