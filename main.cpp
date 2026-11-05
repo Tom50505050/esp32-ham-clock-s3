@@ -337,9 +337,10 @@ typedef struct {
 
 static SondeHistFlight sondeHist[SONDE_HIST_MAX_SONDES];
 static int sondeHistCount = 0;
-static unsigned long lastSondeHistFetchMs = 0; // ost. udane pobranie historii
+static unsigned long lastSondeHistFetchMs = 0; // ost. udane pobieranie historii
 static unsigned long lastSondeHistAttemptMs = 0;
 static bool sondeHistLoading = false;         // trwa pobieranie 12h projektow
+static bool sondeHistNeedsFetch = false;      // uzytkownik wszedl na ekran history
 
 // MQTT PSK Reporter - DOMYSLNY tryb od v1.2b (feed na zywo, mapa odswieza sie
 // sama, bez limitu zapytan HTTP). Broker mqtt.pskreporter.info publikuje PSK
@@ -7454,7 +7455,10 @@ void handleTouchNavigation() {
         drawRadiosondeMenu();
         return;
       }
-      if (isNewTap && y < 32 && x >= 30 && x < 180) {
+      if (isNewTap && y < 32 && x >= 30 && x < 180 &&
+          radiosondeMode != "history") {
+        // Detal sondy tylko dla zywych sond - w trybie history nie ma danych
+        // 'sondeSpots' (slady nie maja serii/odbiorcy do podgladu).
         sondeDetailActive = true;
         sondeMenuActive = false;
         inMenu = false;
@@ -28185,22 +28189,30 @@ void uiTaskLoop(void *parameter) {
       // pobieramy slady balonow z ostatnich 12 h, inaczej zywe sondy.
       if (tftInitialized && currentScreen == SCREEN_RADIOSONDE && !inMenu &&
           !sondeMenuActive && !sondeDetailActive && !aprsAlertScreenActive &&
-          lastSondeAttemptMs != 0) {
+          (lastSondeAttemptMs != 0 || sondeHistNeedsFetch)) {
         bool hist = (radiosondeMode == "history");
         unsigned long refMs = hist ? lastSondeHistFetchMs : lastSondeFetchMs;
         // Historia: rzadziej (5 min) - pobiera globalny JSON ~3 MB.
         unsigned long refInt = hist ? SONDE_HIST_REFRESH_MS : SONDE_SCREEN_REFRESH_MS;
-        if ((millis() - refMs) >= refInt) {
+        bool needFetch = sondeHistNeedsFetch || (refMs != 0 && (millis() - refMs) >= refInt);
+        if (needFetch) {
+          if (sondeHistNeedsFetch) sondeHistNeedsFetch = false;
           if (hist) fetchRadiosondeHistory();
           else fetchRadiosondeData();
-          const bool mCl = uiStyleClassic();
-          drawRadiosondeMarkers(mCl ? 0xFFFF : 0x00C6,
-                                mCl ? 0xDEFA : 0x2A47,
-                                mCl ? 0x8410 : 0x298A,
-                                mCl ? TFT_BLACK : UI_COL_TEXT,
-                                TFT_RED,
-                                mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT,
-                                true);  // restoreMap - kasuje stare znaczniki z bufora
+          if (hist && refMs == 0) {
+            // Pierwsze pobranie historii: przerysuj CALY ekran (wczesniej
+            // byla tylko pusta mapa + LADOWANIE...; teraz sa dane + panel).
+            drawRadiosondyScreen();
+          } else {
+            const bool mCl = uiStyleClassic();
+            drawRadiosondeMarkers(mCl ? 0xFFFF : 0x00C6,
+                                  mCl ? 0xDEFA : 0x2A47,
+                                  mCl ? 0x8410 : 0x298A,
+                                  mCl ? TFT_BLACK : UI_COL_TEXT,
+                                  TFT_RED,
+                                  mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT,
+                                  true);  // restoreMap - kasuje stare znaczniki z bufora
+          }
           if (hist) lastSondeHistFetchMs = millis();
           else lastSondeFetchMs = millis();
         }
@@ -31492,11 +31504,18 @@ void drawRadiosondyScreen() {
   const bool classic = uiStyleClassic();
 
   // Odswiez dane: pierwsze wejscie na ekran albo dane starsze niz 60 s.
+  // UWAGA: historii (3 MB) NIE pobieramy synchroniznie przy rysowaniu -
+  // tylko zaznaczamy 'sondeHistNeedsFetch', a fetch + przerys markerow
+  // zrobi najblizszy przebieg uiTaskLoop. Dzieki temu pierwszy render nie
+  // wisi kilka sekund, tylko od razu pokazuje mape + "LADOWANIE...".
   if (radiosondeMode == "history") {
     unsigned long hRef = lastSondeHistFetchMs;
-    // Historia pobiera ~3 MB - odswiezaj co 5 min (nie co 60 s jak na zywo).
     if (hRef == 0 || (millis() - hRef) >= SONDE_HIST_REFRESH_MS) {
-      if (radiosondeEnabled) fetchRadiosondeHistory();
+      if (radiosondeEnabled) {
+        sondeHistNeedsFetch = true;
+        // Napis LADOWANIE... bedzie widoczny od razu (fetch wykona uiTaskLoop).
+        sondeHistLoading = true;
+      }
     }
   } else if (!sondeFetchedOnce || lastSondeFetchMs == 0) {
     if (radiosondeEnabled) fetchRadiosondeData();
@@ -31725,6 +31744,11 @@ static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y) {
           radiosondeMode = t.mode;
           lastSondeFetchMs = 0;    // po zmianie trybu pobierz dane ponownie
           lastSondeAttemptMs = 0;
+          // History (3 MB) pobierz nieblokujaco przez uiTaskLoop.
+          if (radiosondeMode == "history") {
+            lastSondeHistFetchMs = 0;
+            sondeHistNeedsFetch = true;
+          }
           savePreferences();
         }
         drawRadiosondeMenu();
@@ -31761,6 +31785,15 @@ static void handleRadiosondeMenuTouch(uint16_t x, uint16_t y) {
   if (isPointInRect(x, y, 300, 262, footW, footH)) {
     sondeMenuActive = false;
     inMenu = false;
+    // REFRESH: historia (3 MB) - nie blokuj renderu; narysuj ekran od razu
+    // (LADOWANIE...), a fetch zrobi najblizszy przebieg uiTaskLoop.
+    if (radiosondeMode == "history") {
+      lastSondeHistFetchMs = 0;
+      sondeHistNeedsFetch = true;
+    } else {
+      lastSondeFetchMs = 0;
+      lastSondeAttemptMs = 0;
+    }
     drawRadiosondyScreen();
     return;
   }
