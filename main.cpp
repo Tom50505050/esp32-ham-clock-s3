@@ -294,6 +294,9 @@ bool radiosondeShowUploader = true; // podpis odbiorcy (lowcy)
 #define SONDE_MAX_ENTRIES 24
 #define SONDE_FETCH_MIN_INTERVAL_MS 30000UL  // min przerwa miedzy zapytaniami
 #define SONDE_SCREEN_REFRESH_MS 60000UL      // odswiezanie ekranu RADIOSONDY co 60 s
+// Historia (12 h) pobiera globalny JSON ~3 MB - odswiezaj rzadziej (5 min),
+// zeby nie blokowac UI czestymi duzymi transferami na kazdym wejsciu.
+#define SONDE_HIST_REFRESH_MS 300000UL
 #define SONDE_FETCH_MAX_BODY 131072UL        // max odpowiedz JSON (String); 1000 km ~ 100 KB
 
 typedef struct {
@@ -336,6 +339,7 @@ static SondeHistFlight sondeHist[SONDE_HIST_MAX_SONDES];
 static int sondeHistCount = 0;
 static unsigned long lastSondeHistFetchMs = 0; // ost. udane pobranie historii
 static unsigned long lastSondeHistAttemptMs = 0;
+static bool sondeHistLoading = false;         // trwa pobieranie 12h projektow
 
 // MQTT PSK Reporter - DOMYSLNY tryb od v1.2b (feed na zywo, mapa odswieza sie
 // sama, bez limitu zapytan HTTP). Broker mqtt.pskreporter.info publikuje PSK
@@ -28184,7 +28188,9 @@ void uiTaskLoop(void *parameter) {
           lastSondeAttemptMs != 0) {
         bool hist = (radiosondeMode == "history");
         unsigned long refMs = hist ? lastSondeHistFetchMs : lastSondeFetchMs;
-        if ((millis() - refMs) >= SONDE_SCREEN_REFRESH_MS) {
+        // Historia: rzadziej (5 min) - pobiera globalny JSON ~3 MB.
+        unsigned long refInt = hist ? SONDE_HIST_REFRESH_MS : SONDE_SCREEN_REFRESH_MS;
+        if ((millis() - refMs) >= refInt) {
           if (hist) fetchRadiosondeHistory();
           else fetchRadiosondeData();
           const bool mCl = uiStyleClassic();
@@ -30949,9 +30955,11 @@ static bool fetchRadiosondeHistory() {
   lastSondeAttemptMs = nowMs;   // wspolny straznik "ostatnia proba" dla auto-refresh
   sondeFetchError = false;
   sondeFetchErrMsg = "";
+  sondeHistLoading = true;
   if (!wifiConnected) {
     sondeFetchError = true;
     sondeFetchErrMsg = "BRAK WIFI";
+    sondeHistLoading = false;
     return false;
   }
 
@@ -30966,6 +30974,7 @@ static bool fetchRadiosondeHistory() {
   if (!http.begin(client, url)) {
     sondeFetchError = true;
     sondeFetchErrMsg = "HTTP begin";
+    sondeHistLoading = false;
     return false;
   }
   int code = http.GET();
@@ -30975,6 +30984,7 @@ static bool fetchRadiosondeHistory() {
     snprintf(httpErrBuf, sizeof(httpErrBuf), "HTTP %d", code);
     sondeFetchErrMsg = httpErrBuf;
     http.end();
+    sondeHistLoading = false;
     return false;
   }
   // Pobieramy do PSRAM - duza odpowiedz (setki KB).
@@ -30995,6 +31005,7 @@ static bool fetchRadiosondeHistory() {
   if (err) {
     sondeFetchError = true;
     sondeFetchErrMsg = "JSON parse";
+    sondeHistLoading = false;
     return false;
   }
 
@@ -31003,6 +31014,7 @@ static bool fetchRadiosondeHistory() {
   if (root.isNull()) {
     sondeFetchError = true;
     sondeFetchErrMsg = "Brak danych";
+    sondeHistLoading = false;
     return false;
   }
 
@@ -31068,6 +31080,7 @@ static bool fetchRadiosondeHistory() {
 
   lastSondeHistFetchMs = millis();
   sondeFetchedOnce = true;
+  sondeHistLoading = false;
   Serial.printf("[Sonde] historia: %d lotow\n", sondeHistCount);
   return sondeHistCount > 0;
 }
@@ -31367,6 +31380,12 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
     // HISTORYCZNE: zamiast zywych sond rysujemy slady balonow z ostatnich
     // 12 h. Kazdy lot: linia przez punkty (start -> najnowszy) i balonik na
     // ostatniej pozycji. Bez QTH (celownik zniknalby pod sladami).
+    //
+    // Wazne: punkty SPOZA prostokata mapy (np. Berlin, Skandynawia) NIE sa
+    // doklejane do krawedzi - pomijamy je, zeby ikony nie gromadzily sie na
+    // obwodzie (a w panelu pokazujemy tylko loty z widocznym punktem).
+    const int mapX1 = PL_MAP_X0 + PL_MAP_W;
+    const int mapY1 = PL_MAP_Y0 + PL_MAP_H;
     for (int fi = 0; fi < sondeHistCount; fi++) {
       const SondeHistFlight &f = sondeHist[fi];
       if (f.pointCount < 1) continue;
@@ -31375,6 +31394,10 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
       for (int pt = 0; pt < f.pointCount; pt++) {
         int px, py;
         if (!sondeProject(f.lat[pt], f.lon[pt], px, py)) continue;
+        if (px < PL_MAP_X0 || py < PL_MAP_Y0 || px >= mapX1 || py >= mapY1) {
+          havePrev = false;  // segment poza mapa - linia nie wchodzi w ekran
+          continue;
+        }
         if (havePrev) {
           // Slad w kolorze akcentu (ciemny obrys dla kontrastu z mapa).
           tft.drawLine(prevX - 1, prevY - 1, px - 1, py - 1, bdrCol);
@@ -31384,9 +31407,11 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
         }
         prevX = px; prevY = py; havePrev = true;
       }
-      // Ostatnia pozycja - balonik (mniejsza ikona, przezroczyste tlo).
+      // Ostatnia pozycja - balonik TYLKO gdy lezy na mapie (inaczej ikona
+      // byla by przyklejona do krawedzi i zlewala sie z innymi).
       int bx, by;
-      if (sondeProject(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1], bx, by)) {
+      if (sondeProject(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1], bx, by) &&
+          bx >= PL_MAP_X0 && by >= PL_MAP_Y0 && bx < mapX1 && by < mapY1) {
         drawRsIcon(bx, by, RS_ICON_BALLOON_W, RS_ICON_BALLOON_H,
                    RS_ICON_BALLOON, RS_ICON_BALLOON_W);
       }
@@ -31469,7 +31494,8 @@ void drawRadiosondyScreen() {
   // Odswiez dane: pierwsze wejscie na ekran albo dane starsze niz 60 s.
   if (radiosondeMode == "history") {
     unsigned long hRef = lastSondeHistFetchMs;
-    if (hRef == 0 || (millis() - hRef) >= SONDE_SCREEN_REFRESH_MS) {
+    // Historia pobiera ~3 MB - odswiezaj co 5 min (nie co 60 s jak na zywo).
+    if (hRef == 0 || (millis() - hRef) >= SONDE_HIST_REFRESH_MS) {
       if (radiosondeEnabled) fetchRadiosondeHistory();
     }
   } else if (!sondeFetchedOnce || lastSondeFetchMs == 0) {
@@ -31516,7 +31542,21 @@ void drawRadiosondyScreen() {
     if (sondeFetchError) {
       tft.drawString("SondeHub: " + String(sondeFetchErrMsg), 474, stripY + 4, 1);
     } else {
-      tft.drawString(String("Loty: ") + String(sondeHistCount), 474, stripY + 4, 1);
+      // Pokazuj liczbe lotow WIDOCZNYCH na mapie (nie wszystkich w buforze:
+      // czesc lotow konczy sie poza prostokatem mapy - nie ma ich na ekranie).
+      const int mapX1 = PL_MAP_X0 + PL_MAP_W;
+      const int mapY1 = PL_MAP_Y0 + PL_MAP_H;
+      int histVisible = 0;
+      for (int r = 0; r < sondeHistCount; r++) {
+        const SondeHistFlight &f = sondeHist[r];
+        if (f.pointCount < 1) continue;
+        int fx, fy;
+        if (sondeProject(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1], fx, fy) &&
+            fx >= PL_MAP_X0 && fy >= PL_MAP_Y0 && fx < mapX1 && fy < mapY1) {
+          histVisible++;
+        }
+      }
+      tft.drawString(String("Loty: ") + String(histVisible), 474, stripY + 4, 1);
     }
   } else if (sondeFetchError) {
     tft.drawString("SondeHub: " + String(sondeFetchErrMsg), 474, stripY + 4, 1);
@@ -31526,23 +31566,32 @@ void drawRadiosondyScreen() {
   tft.setTextDatum(TL_DATUM);
 
   if (radiosondeMode == "history") {
-    // Dolny panel w trybie HISTORYCZNE: lista najblizszych lotow (ostatnia
-    // pozycja) z liczba punktow w sladzie.
-    const int rows = sondeHistCount < 3 ? sondeHistCount : 3;
-    for (int r = 0; r < rows; r++) {
+    // Dolny panel w trybie HISTORYCZNE: lista WIDOCZNYCH lotow (ostatnia
+    // pozycja na mapie) z liczba punktow w sladzie.
+    const int mapX1 = PL_MAP_X0 + PL_MAP_W;
+    const int mapY1 = PL_MAP_Y0 + PL_MAP_H;
+    int shown = 0;
+    for (int r = 0; r < sondeHistCount && shown < 3; r++) {
       const SondeHistFlight &f = sondeHist[r];
-      const int yy = stripY + 22 + r * 12;
+      if (f.pointCount < 1) continue;
+      int fx, fy;
+      if (!sondeProject(f.lat[f.pointCount - 1], f.lon[f.pointCount - 1], fx, fy) ||
+          fx < PL_MAP_X0 || fy < PL_MAP_Y0 || fx >= mapX1 || fy >= mapY1) {
+        continue;  // lot konczy sie poza mapa - nie ma go na ekranie
+      }
+      const int yy = stripY + 22 + shown * 12;
       tft.setTextColor(accent, cardCol);
       tft.drawString(String(f.serial), 6, yy, 1);
       tft.setTextColor(textCol, cardCol);
-      double dLat = f.pointCount > 0 ? f.lat[f.pointCount - 1] : 0;
-      double dLon = f.pointCount > 0 ? f.lon[f.pointCount - 1] : 0;
+      double dLat = f.lat[f.pointCount - 1];
+      double dLon = f.lon[f.pointCount - 1];
       tft.drawString(String(f.pointCount) + " pkt.", 110, yy, 1);
       tft.setTextDatum(TR_DATUM);
       tft.drawString(String((int)calculateDistance(qlat, qlon, dLat, dLon)) + " km",
                      326, yy, 1);
       tft.drawString("12 h", 474, yy, 1);
       tft.setTextDatum(TL_DATUM);
+      shown++;
     }
   } else {
     const int rows = sondeCount < 3 ? sondeCount : 3;
@@ -31602,6 +31651,15 @@ static void drawRadiosondeHeader() {
   tft.setTextDatum(TL_DATUM);
   drawWifiSignalBars(445, 1, -1, bg);
   drawBatteryIcon(408, 1, -1, bg);
+
+  // Komunikat "LADOWANIE..." gdy trwa pobieranie 12 h trasy balonow
+  // (globalny JSON ~3 MB potrafi trwac kilka sekund).
+  if (radiosondeMode == "history" && sondeHistLoading) {
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(TFT_WHITE, bg);
+    tft.drawString("LADOWANIE...", 438, 36, 1);
+    tft.setTextDatum(TL_DATUM);
+  }
 }
 
 // Menu sondy (po hamburgerze, wzorowane na makiety v3): tryb NA ZYWO /
