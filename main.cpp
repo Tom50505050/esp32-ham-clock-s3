@@ -388,6 +388,36 @@ struct SondeHubPsramAllocator {
 // Dekompresujemy recznie inflate'em z ROM ESP32-S3 (miniz): gzip header +
 // raw DEFLATE. Zwraca wskaznik do PSRAM (musi byc zwolniony heap_caps_free)
 // albo nullptr przy bledzie; *outLen = rozmiar wyjscia.
+//
+// Uwaga: tinfl_decompress_mem_to_mem() tworzy tinfl_decompressor (~10.5 KB,
+// tablice Huffmana) NA STOSIE - a wywolywane jest z UI_Task (stack 8 KB),
+// co powodowalo "Stack canary watchpoint triggered". Dlatego dekompresujemy
+// niskopoziomowym tinfl_decompress() z decompressorem w PSRAM.
+static size_t sondeInflatePsram(void *pOut, size_t outLen, const void *pIn, size_t inLen) {
+  tinfl_decompressor *r = (tinfl_decompressor *)heap_caps_malloc(sizeof(tinfl_decompressor),
+                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!r) return (size_t)-1;
+  tinfl_init(r);
+  const mz_uint8 *inNext = (const mz_uint8 *)pIn;
+  size_t inLeft = inLen;
+  mz_uint8 *outStart = (mz_uint8 *)pOut;
+  mz_uint8 *outNext = outStart;
+  size_t outLeft = outLen;
+  const mz_uint32 flags = TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+  for (;;) {
+    size_t inAvail = inLeft, outAvail = outLeft;
+    tinfl_status st = tinfl_decompress(r, inNext, &inAvail, outStart, outNext, &outAvail, flags);
+    inNext += inAvail;      inLeft -= inAvail;
+    outNext += outAvail;    outLeft -= outAvail;
+    if (st == TINFL_STATUS_DONE) break;
+    if (st == TINFL_STATUS_HAS_MORE_OUTPUT) continue;
+    heap_caps_free(r);
+    return (size_t)-1;  // TINFL_STATUS_FAILED / NEEDS_MORE_INPUT
+  }
+  heap_caps_free(r);
+  return (size_t)(outNext - outStart);
+}
+
 static char *sondeGunzipPsram(const uint8_t *gz, size_t gzLen, size_t *outLen) {
   *outLen = 0;
   if (!gz || gzLen < 18 || gz[0] != 0x1F || gz[1] != 0x8B) return nullptr;
@@ -415,8 +445,7 @@ static char *sondeGunzipPsram(const uint8_t *gz, size_t gzLen, size_t *outLen) {
   if (isize == 0 || isize > 6 * 1024 * 1024) return nullptr;
   char *raw = (char *)heap_caps_malloc(isize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!raw) return nullptr;
-  const size_t n = tinfl_decompress_mem_to_mem(raw, isize, gz + off, gzLen - off,
-                    TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  const size_t n = sondeInflatePsram(raw, isize, gz + off, gzLen - off);
   if (n != isize) {
     heap_caps_free(raw);
     return nullptr;
@@ -33202,10 +33231,13 @@ void setup() {
 
     // ----- ZADANIA FreeRTOS
     if (uiTaskHandle == nullptr) {
+      // Stack 16 kB (bylo 8 kB): UI_Task wykonuje fetchSondeListenersData()
+      // i fetchRadiosondeHistory() - HTTPS + dekompresja gzip + duzy JSON.
+      // 8 kB zaciskalo sie (Stack canary watchpoint) po wejsciu w LOWCY.
       xTaskCreatePinnedToCore(
         uiTaskLoop,
         "UI_Task",
-        8192,
+        16384,
         nullptr,
         2,
         &uiTaskHandle,
