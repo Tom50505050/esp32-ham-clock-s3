@@ -31255,12 +31255,19 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
       // balon sondy - mala kolorowa ikona z internetu (Fluent 3D)
       drawRsIcon(x, y, RS_ICON_BALLOON_W, RS_ICON_BALLOON_H, RS_ICON_BALLOON, RS_ICON_BALLOON_W);
     }
-    // etykieta najblizszej sondy (serial)
+    // etykieta najblizszej sondy (serial) - przyciagnieta do obszaru mapy,
+    // by nie wystawala poza nia na krawedzi ekranu.
     if (i == 0) {
+      int lx = x + 9;
+      int ly = y + 4;
+      if (lx < PL_MAP_X0) lx = PL_MAP_X0;
+      if (ly < PL_MAP_Y0) ly = PL_MAP_Y0;
+      if (lx > PL_MAP_X0 + PL_MAP_W - 90) lx = PL_MAP_X0 + PL_MAP_W - 90;
+      if (ly > PL_MAP_Y0 + PL_MAP_H - 10) ly = PL_MAP_Y0 + PL_MAP_H - 10;
       tft.setTextSize(1);
       tft.setTextDatum(TL_DATUM);
       tft.setTextColor(textCol, outCol);
-      tft.drawString(s.serial, x + 9, y + 4, 1);
+      tft.drawString(s.serial, lx, ly, 1);
     }
   }
 }
