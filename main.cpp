@@ -2697,6 +2697,7 @@ bool rgbBlueAprsStateOn = false;
 
 #define BATTERY_MONITORING_ENABLED  // Włącz pomiar napięcia baterii
 #define BATTERY_ADC_PIN 1           // Pin ADC1_CH0 (GPIO1) - pomiar napięcia baterii (ESP32-S3)
+#define BATTERY_ADC_PIN2 7          // Pin ADC1_CH6 (GPIO7) - drugi pin dzielnika; pomiar jest uśredniany z obu
 #define BATTERY_ADC_RESOLUTION 12   // Rozdzielczość ADC (12 bit = 0-4095)
 #define BATTERY_VOLTAGE_DIVIDER 2.0f // Nominalny dzielnik napięcia 100k/100k (1:2)
 #define BATTERY_ADC_VREF 3.3f       // Napięcie referencyjne ADC (tylko awaryjny odczyt raw)
@@ -2775,13 +2776,13 @@ const char* gpsModuleName(const String &profile) {
 // potrafi sporadycznie zwrócić pojedynczy błędny kod (np. 0 albo 4095), który
 // zwykła średnia rozciąga na cały wynik. Po odrzuceniu skrajnych dostajemy
 // stabilny odczyt bez szarpania wskazaniem procentu.
-static float batteryTrimmedMeanMv(int samples, int drop) {
+static float batteryTrimmedMeanMv(int pin, int samples, int drop) {
   if (samples < 1) return 0.0f;
   uint32_t mv[24];
   if (samples > 24) samples = 24;
   if (drop * 2 >= samples) drop = 0;
   for (int i = 0; i < samples; i++) {
-    mv[i] = analogReadMilliVolts(BATTERY_ADC_PIN);
+    mv[i] = analogReadMilliVolts(pin);
     delayMicroseconds(200);
   }
   // Sortowanie bąbelkowe (mało próbek - koszt pomijalny).
@@ -2805,12 +2806,22 @@ static float batteryTrimmedMeanMv(int samples, int drop) {
 }
 
 // Funkcja odczytu napięcia baterii z ADC (kalibracja eFuse + korekcja dzielnika)
-float readBatteryVoltage() {
+// Pomiar z pojedynczego pinu ADC (przeliczenie na napiecie baterii).
+static float batteryVoltageFromPin(int pin) {
   // 12 próbek, odrzucamy po 2 skrajne z każdej strony (średnia z 8 środkowych).
-  float pinMv = batteryTrimmedMeanMv(12, 2);
-  float vbat = (pinMv / 1000.0f) * BATTERY_VOLTAGE_DIVIDER * batteryDividerCal
-               + batteryVoltOffset;
-  return vbat;
+  float pinMv = batteryTrimmedMeanMv(pin, 12, 2);
+  return (pinMv / 1000.0f) * BATTERY_VOLTAGE_DIVIDER * batteryDividerCal
+         + batteryVoltOffset;
+}
+
+// Dzielnik moze byc podpiety pod GPIO1 (oryginalny projekt na GitHubie) albo
+// GPIO7 (wersje uzytkownikow, gdzie GPIO1 jest zajety). Zawsze zbieramy OBA
+// odczyty i uzywamy wiekszego: niepodlaczony/wiszacy pin daje ~0 V, wiec zwy-
+// cieza ten, do ktorego faktycznie podpiety jest dzielnik. Bez sredniej.
+float readBatteryVoltage() {
+  float v1 = batteryVoltageFromPin(BATTERY_ADC_PIN);
+  float v2 = batteryVoltageFromPin(BATTERY_ADC_PIN2);
+  return (v1 > v2) ? v1 : v2;
 }
 
 // Charakterystyka rozładowania akumulatora Li-ion (SONY GB/T-18287) w skali
@@ -2965,7 +2976,8 @@ static uint16_t getDxColor(float distance);
 bool pskFetchAllowed(unsigned long now);
 void drawIssPassTracking();
 static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bdrCol,
-                                  uint16_t textCol, uint16_t qthCol, uint16_t accent);
+                                  uint16_t textCol, uint16_t qthCol, uint16_t accent,
+                                  bool restoreMap = false);
 void drawRadiosondyScreen();
 
 // ========== INICJALIZACJA TFT (ESP32-S3 N16R8 + ILI9488) ==========
@@ -24999,13 +25011,14 @@ void setupWebServer() {
 
     html += "<h3>Pomiar napięcia baterii (dzielnik)</h3>";
     html += "<pre>";
-    html += "Bateria 18650 (+) ----+--- [R1 100k] ---+---> GPIO 1 (ADC1_CH0)\n";
-    html += "                      |                 |\n";
+    html += "Bateria 18650 (+) ----+--- [R1 100k] ---+---> GPIO 1 (ADC1_CH0) - standard\n";
+    html += "                      |                 |---> GPIO 7 (ADC1_CH6) - alternatywnie\n";
+    html += "                      |                 |      (np. gdy GPIO1 jest zajety)\n";
     html += "                     GND             [R2 100k] ---+--- GND\n";
     html += "                                                   |\n";
     html += "                                             Kondensator 100nF\n";
     html += "</pre>";
-    html += "<div class='note'><strong>Formuła:</strong> Vbat = Vadc x 2 (przy R1 = R2 = 100k). Pomiar korzysta z kalibracji eFuse (analogReadMilliVolts), a tolerancję rezystorów koryguje mnożnik <em>bat_div_cal</em> (zakładka System -> Kalibracja baterii).</div>";
+    html += "<div class='note'><strong>Formuła:</strong> Vbat = Vadc x 2 (przy R1 = R2 = 100k). Pomiar korzysta z kalibracji eFuse (analogReadMilliVolts), a tolerancję rezystorów koryguje mnożnik <em>bat_div_cal</em> (zakładka System -> Kalibracja baterii). Firmware mierzy GPIO1 i GPIO7 jednocześnie i przyjmuje większy odczyt, więc dzielnik możesz podpiąć pod którykolwiek z tych pinów.</div>";
 
     html += "<h3>Podłączenie dotyku XPT2046 (opcjonalnie)</h3>";
     html += "<pre>";
@@ -28160,7 +28173,8 @@ void uiTaskLoop(void *parameter) {
                                 mCl ? 0x8410 : 0x298A,
                                 mCl ? TFT_BLACK : UI_COL_TEXT,
                                 TFT_RED,
-                                mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT);
+                                mCl ? TFT_RADIO_ORANGE : UI_COL_ACCENT,
+                                true);  // restoreMap - casuje stare znaczniki z bufora
           lastSondeFetchMs = millis();
         }
       }
@@ -30860,6 +30874,10 @@ static void issDrawFrameFromState() {
 #define PL_IMG_X  PL_MAP_X0
 #define PL_IMG_Y  PL_MAP_Y0
 #define PL_MAP_JPG "/map_tft.jpg"
+// Bufor mapy w PSRAM (480x244 px, RGB565 = ~234 KB). Mapa rysowana jest tylko
+// przy wejsciu na ekran; odswiezanie co 60 s przywraca ja z tego bufora
+// (pushRect) i rysuje na nowo tylko markery/l linie - bez przerysowywania JPG.
+static uint16_t *g_rsMapBuf = nullptr;
 
 // Wspolrzedna QTH do rysowania (GPS > reczna > domyslna Warszawa).
 static void sondeGetQth(double &lat, double &lon) {
@@ -31051,9 +31069,21 @@ static bool fetchRadiosondeData() {
 }
 
 // Callback TJpgDec: bloki MCU przychodza w juz bezwzglednych wspolrzednych
-// ekranu - wstawiamy prosto do TFT.
+// ekranu - wstawiamy prosto do TFT i kopiujemy do bufora PSRAM (warstwa mapy).
 static bool tjpgMapOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
   tft.pushImage(x, y, w, h, bitmap);
+  if (g_rsMapBuf && x >= PL_MAP_X0 && y >= PL_MAP_Y0) {
+    int bx = x - PL_MAP_X0, by = y - PL_MAP_Y0;
+    uint16_t ow = w;  // oryginalna szerokosc bloku MCU
+    if (bx + w > PL_MAP_W) w = (uint16_t)(PL_MAP_W - bx);
+    if (by + h > PL_MAP_H) h = (uint16_t)(PL_MAP_H - by);
+    if (w > 0 && h > 0) {
+      for (int r = 0; r < h; r++) {
+        uint16_t srcOffset = (uint16_t)r * ow + (uint16_t)(bx - (x - PL_MAP_X0));
+        memcpy(&g_rsMapBuf[(by + r) * PL_MAP_W + bx], &bitmap[srcOffset], (size_t)w * 2);
+      }
+    }
+  }
   return true;
 }
 
@@ -31072,7 +31102,18 @@ static bool drawRadiosondeMapJpg() {
 // poland_mask.h. Surowe drawPixel (480*285=137k px) trwaloby na SPI ~2 s -
 // maska sklada biegnace serie w drawFastHLine (kilkaset transakcji).
 static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
+  // Zainicjuj bufor PSRAM (jednorazowo) - warstwa mapy do czystych markerow.
+  if (!g_rsMapBuf) {
+    g_rsMapBuf = (uint16_t *)ps_malloc((size_t)PL_MAP_W * PL_MAP_H * 2);
+    if (g_rsMapBuf) memset(g_rsMapBuf, 0, (size_t)PL_MAP_W * PL_MAP_H * 2);
+  }
   tft.fillRect(PL_MAP_X0, PL_MAP_Y0, PL_MAP_W, PL_MAP_H, out);
+  if (g_rsMapBuf) {
+    uint16_t *dst = g_rsMapBuf;
+    for (int j = 0; j < PL_MAP_H; j++) {
+      for (int i = 0; i < PL_MAP_W; i++) *dst++ = out;
+    }
+  }
   if (drawRadiosondeMapJpg()) {
     tft.drawRect(PL_MAP_X0, PL_MAP_Y0, PL_MAP_W, PL_MAP_H, border);
     return;
@@ -31091,12 +31132,20 @@ static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
       } else if (bit != runLand) {
         tft.drawFastHLine(PL_MAP_X0 + runStart, PL_MAP_Y0 + j,
                           (uint32_t)(i - runStart), runLand ? land : out);
+        if (g_rsMapBuf) {
+          uint16_t *d = &g_rsMapBuf[j * PL_MAP_W + runStart];
+          for (int k = 0; k < (i - runStart); k++) d[k] = runLand ? land : out;
+        }
         runStart = i;
         runLand = bit;
       }
     }
     tft.drawFastHLine(PL_MAP_X0 + runStart, PL_MAP_Y0 + j,
                       (uint32_t)(PL_MAP_W - runStart), runLand ? land : out);
+    if (g_rsMapBuf) {
+      uint16_t *d = &g_rsMapBuf[j * PL_MAP_W + runStart];
+      for (int k = 0; k < (PL_MAP_W - runStart); k++) d[k] = runLand ? land : out;
+    }
   }
   tft.drawRect(PL_MAP_X0, PL_MAP_Y0, PL_MAP_W, PL_MAP_H, border);
 }
@@ -31104,7 +31153,7 @@ static void drawRadiosondeMap(uint16_t land, uint16_t out, uint16_t border) {
 // Rysuje mala kolorowa ikone RGB565 wycentrowana na (x,y); piksel 0xF81F
 // (sentinel) jest przezroczysty - nie nadpisuje mapy pod spodem.
 static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int stride) {
-  const int z = 3;  // 3x powiekszenie ikony 16x16 -> 48x48 px (dobra widocznosc, nie dominuje mapy)
+  const int z = 2;  // 2x powiekszenie ikony 16x16 -> 32x32 px (kompaktowe, nie zaslaniaja mapy)
   const int zw = w * z, zh = h * z;
   const int x0 = x - zw / 2;
   const int y0 = y - zh / 2;
@@ -31125,12 +31174,16 @@ static void drawRsIcon(int x, int y, int w, int h, const uint16_t *icon, int str
   tft.drawRect(x0, y0, zw, zh, 0xFFE0);
 }
 
-// Rysuje WARSTWE ZNACZNIKOW ekranu RADIOSONDY: mape, QTH (czerwony celownik),
-// linie QTH->sonda i ikony balonow/aut lowcow. Bez headera i dolnego paska -
-// dzieki temu odswiezanie co 60 s dotyka tylko tej warstwy (nie miga caly ekran).
+// Rysuje WARSTWE ZNACZNIKOW ekranu RADIOSONDY: QTH (czerwony celownik),
+// linie QTH->sonda i ikony balonow/aut lowcow. Bez headera, mapy i dolnego
+// paska. Gdy restoreMap=true, najpierw przywraca czysta mape z bufora PSRAM
+// (kasuje stare markery), potem rysuje nowe - bez przerysowywania calej mapy.
 static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bdrCol,
-                                  uint16_t textCol, uint16_t qthCol, uint16_t accent) {
-  drawRadiosondeMap(landCol, outCol, bdrCol);
+                                  uint16_t textCol, uint16_t qthCol, uint16_t accent,
+                                  bool restoreMap) {
+  if (restoreMap && g_rsMapBuf) {
+    tft.pushRect(PL_MAP_X0, PL_MAP_Y0, PL_MAP_W, PL_MAP_H, g_rsMapBuf);
+  }
 
   const bool hunters = (radiosondeMode == "hunters");
 
@@ -31149,15 +31202,21 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
     }
   }
 
-  // Linia QTH -> najblizsza sonda (radiosondeShowPath).
+  // Linie QTH -> sondy (radiosondeShowPath). Grubsza (3 px) i z konturem,
+  // zeby byla czytelna na mapie.
   if (radiosondeShowPath && sondeCount > 0) {
     int qx, qy;
     if (sondeProject((float)qlat, (float)qlon, qx, qy)) {
-      const SondeSpot &n = sondeSpots[0];
-      int nx, ny;
-      if (sondeProject(n.lat, n.lon, nx, ny)) {
-        tft.drawLine(qx, qy, nx, ny, bdrCol);
-        tft.drawLine(qx + 1, qy, nx + 1, ny, accent);
+      for (int li = 0; li < sondeCount && li < SONDE_MAX_ENTRIES; li++) {
+        const SondeSpot &ls = sondeSpots[li];
+        int lx, ly;
+        if (!sondeProject(ls.lat, ls.lon, lx, ly)) continue;
+        // Kontur (ciemny) - linia widoczna na jasnym i ciemnym tle mapy.
+        tft.drawLine(qx - 1, qy - 1, lx - 1, ly - 1, bdrCol);
+        tft.drawLine(qx, qy, lx, ly, bdrCol);
+        tft.drawLine(qx + 1, qy + 1, lx + 1, ly + 1, bdrCol);
+        // Srodek - kolor akcentu.
+        tft.drawLine(qx, qy, lx, ly, accent);
       }
     }
   }
@@ -31969,6 +32028,7 @@ void setup() {
   // Inicjalizacja pomiaru napiÄ™cia baterii (TP4056 + 18650)
 #ifdef BATTERY_MONITORING_ENABLED
   pinMode(BATTERY_ADC_PIN, INPUT);
+  pinMode(BATTERY_ADC_PIN2, INPUT);  // GPIO7 - drugi pin dzielnika (opcjonalny)
   #if CONFIG_IDF_TARGET_ESP32
     analogSetAttenuation(ADC_11db);  // ESP32: pelny zakres 0-3.3V
   #else
