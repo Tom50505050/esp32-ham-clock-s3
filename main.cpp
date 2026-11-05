@@ -11318,7 +11318,7 @@ bool fetchPropagationData() {
     return false;
   }
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
 
   client.setInsecure();
 
@@ -11805,7 +11805,7 @@ bool fetchWeatherData() {
     // fetchWeatherForecast()/fetchAirPollutionData() poniĹĽej.
     // WiFiClientSecure jest static - reuse zamiast nowy za kazdym razem,
     // zeby nie wyczerpywac pamieci ESP32 TLS kontekstami (~20KB kazdy).
-    static WiFiClientSecure client;
+    WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
     client.setInsecure();
 
     String langParam = tftLangToCode(tftLanguage);
@@ -11912,7 +11912,7 @@ bool fetchWeatherForecast(double lat, double lon) {
     return false;
   }
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
 
   String langParam = tftLangToCode(tftLanguage);
@@ -12150,7 +12150,7 @@ bool fetchAirPollutionData(double lat, double lon) {
     return false;
   }
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
 
   String url = "https://api.openweathermap.org/data/2.5/air_pollution?lat=" +
@@ -15623,7 +15623,7 @@ bool fetchOpenMeteoAlerts() {
     return false;
   }
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
 
   String base = openMeteoUrl.length() ? openMeteoUrl : String(DEFAULT_OPENMETEO_URL);
@@ -24585,7 +24585,7 @@ static String loggerUploadToQrzLogbook() {
   String adif = loggerBuildAdifForUpload(false);
   if (adif.length() == 0) return "ERR: brak danych do wyslania";
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
   HTTPClient http;
   if (!http.begin(client, "https://logbook.qrz.com/api")) return "ERR: HTTP begin";
@@ -24618,7 +24618,7 @@ static String loggerUploadToEqsl() {
   String adif = loggerBuildAdifForUpload(true);
   if (adif.length() == 0) return "ERR: brak danych do wyslania";
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
   HTTPClient http;
   if (!http.begin(client, "https://www.eqsl.cc/qslcard/ImportADIF.cfm")) return "ERR: HTTP begin";
@@ -24655,7 +24655,7 @@ static String loggerUploadToHrdLog() {
   if (logbook == nullptr || logbookCount == 0)
     return "ERR: brak QSO w logu (HRDLog wysyla po jednym rekordzie)";
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
   int ok = 0, fail = 0;
   for (int i = 0; i < logbookCount; i++) {
@@ -24694,7 +24694,7 @@ static String loggerUploadToHamQth() {
   if (logbook == nullptr || logbookCount == 0)
     return "ERR: brak QSO w logu (HamQTH wysyla po jednym rekordzie)";
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
   int ok = 0, fail = 0;
   for (int i = 0; i < logbookCount; i++) {
@@ -24735,7 +24735,7 @@ static String loggerUploadToHamLog() {
   if (logbook == nullptr || logbookCount == 0)
     return "ERR: brak QSO w logu (HAMLOG wysyla po jednym rekordzie)";
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
   int ok = 0, fail = 0;
   for (int i = 0; i < logbookCount; i++) {
@@ -24797,7 +24797,7 @@ static String loggerUploadAdif(const String &service) {
 static String loggerTestConnection(const String &service) {
   String s = service; s.trim(); s.toLowerCase();
   if (!wifiConnected || WiFi.status() != WL_CONNECTED) return "ERR: brak WiFi";
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
 
   if (s == "qrz") {
@@ -24919,7 +24919,7 @@ static String loggerUploadToClubLog() {
   if (logbook == nullptr || logbookCount == 0)
     return "ERR: brak QSO w logu (Club Log wysyla po jednym rekordzie)";
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
   int ok = 0, fail = 0, lastCode = 0;
   for (int i = 0; i < logbookCount; i++) {
@@ -30113,7 +30113,7 @@ static void fetchIssVisualPassesFromN2yo() {
   double userLatLocal = userLatLonValid ? userLat : 52.40;
   double userLonLocal = userLatLonValid ? userLon : 16.92;
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
   HTTPClient http;
   String url = "https://api.n2yo.com/rest/v1/satellite/visualpasses/25544/" +
@@ -30188,7 +30188,7 @@ bool fetchIssNextPassFromN2yo() {
   double userLatLocal = userLatLonValid ? userLat : 52.40;
   double userLonLocal = userLatLonValid ? userLon : 16.92;
 
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
   HTTPClient http;
   // radiopasses (nie visualpasses) - nie wymaga, ĹĽeby ISS byĹ‚ oĹ›wietlony
@@ -30569,7 +30569,7 @@ String lookupIssCountryFromCoords(double lat, double lng) {
   // geocoding API is free, needs no key, and is fine with this kind of use
   // as long as we stay around ~1 request/second and identify ourselves via
   // User-Agent - both easily satisfied here (one lookup every 15s).
-  static WiFiClientSecure client;
+  WiFiClientSecure client;   // lokalny: zwalnia bufor TLS (DRAM)
   client.setInsecure();
 
   HTTPClient http;
