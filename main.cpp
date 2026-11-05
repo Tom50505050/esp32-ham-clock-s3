@@ -31341,7 +31341,8 @@ static bool fetchSondeListenersData() {
   if (lastSondeHuntFetchMs != 0 && (nowMs - lastSondeHuntFetchMs) < SONDE_FETCH_MIN_INTERVAL_MS) {
     return sondeHunterCount > 0;
   }
-  lastSondeHuntFetchMs = nowMs;
+  // lastSondeHuntFetchMs aktualizujemy dopiero po SUKCESIE (na koncu funkcji),
+  // wiec nieudana proba nie blokuje retry przez SONDE_HUNT_REFRESH_MS.
   sondeFetchError = false;
   sondeFetchErrMsg = "";
   if (!wifiConnected) {
@@ -31668,10 +31669,12 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
   // Rysowane niezaleznie od limitow sond, by SQ9CIN i inni byli widoczni.
   // (Ikona auta jest tu TYLKO jako znacznik lowcy; balon narysuje pętla nizej.)
   if (hunters) {
-    // Rysuj etykiety callsignu TYLKO dla kilku najblizszych lowcow, zeby nie
-    // zasmiécic mapy przy ~100+ aktywnych stacjach. Po posortowaniu wg
-    // odleglosci pierwsze wpisy to najblizsi.
+    // Rysuj etykiety callsignu tylko dla kilku najblizszych lowcow i TYLKO
+    // tych, ktore nie nachodza na siebie (mapa gromadzi lowcow w klastrach,
+    // np. Warszawa ma kilku w promieniu 1 km). Po posortowaniu wg odleglosci
+    // pierwsze wpisy to najblizsi.
     const int labelMax = 8;
+    int labX[8], labY[8], labN = 0;
     for (int hi = 0; hi < sondeHunterCount; hi++) {
       const SondeHunter &h = sondeHunters[hi];
       // Lowca z uploader_position 0,0 jest podejrzany - nie rysuj go poza mapa.
@@ -31689,10 +31692,18 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
         if (ly < PL_MAP_Y0) ly = PL_MAP_Y0;
         if (lx > PL_MAP_X0 + PL_MAP_W - 60) lx = PL_MAP_X0 + PL_MAP_W - 60;
         if (ly > PL_MAP_Y0 + PL_MAP_H - 10) ly = PL_MAP_Y0 + PL_MAP_H - 10;
+        // Kolizja z wczesniejsza etykieta (pole ~6px/znak x 8px wys.).
+        int wT = 6 * (int)strlen(h.callsign) + 4;
+        bool clash = false;
+        for (int li = 0; li < labN; li++) {
+          if (abs(labX[li] - lx) < wT && abs(labY[li] - ly) < 9) { clash = true; break; }
+        }
+        if (clash) continue;
         tft.setTextSize(1);
         tft.setTextDatum(TL_DATUM);
         tft.setTextColor(textCol, outCol);
         tft.drawString(String(h.callsign), lx, ly, 1);
+        if (labN < (int)(sizeof(labX) / sizeof(labX[0]))) { labX[labN] = lx; labY[labN] = ly; labN++; }
       }
     }
   }
