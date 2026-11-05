@@ -31126,14 +31126,20 @@ static bool fetchRadiosondeHistory() {
   }
   size_t gzLen = 0;
   WiFiClient *stream = http.getStreamPtr();
-  while (stream && (stream->available() || stream->connected())) {
-    const int b = stream->read();
-    if (b < 0) {
-      // read() <0 tylko gdy chwilowo brak / blad; daj szanse na reszte.
+  // Pobieramy cialo TYLKO gdy sa dane, z timeoutem: po 15 s bez bajtow
+  // (nawet gdy keep-alive utrzymuje TCP w stanie connected) wychodzimy -
+  // w innym razie read()<0 + connected()==true zapetlaloby sie bez konca
+  // i wieszalo UI task.
+  unsigned long lastGzData = millis();
+  while (stream && (millis() - lastGzData) < 15000UL) {
+    if (!stream->available()) {
       if (!stream->connected()) break;
-      delay(2);
+      delay(5);
       continue;
     }
+    const int b = stream->read();
+    if (b < 0) break;
+    lastGzData = millis();
     if (gzLen + 1 > cap) {
       cap += 512 * 1024;
       uint8_t *ng = (uint8_t *)heap_caps_realloc(gz, cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -31528,13 +31534,18 @@ static bool fetchSondeListenersData() {
   }
   size_t gzLen = 0;
   WiFiClient *stream = http.getStreamPtr();
-  while (stream && (stream->available() || stream->connected())) {
-    const int b = stream->read();
-    if (b < 0) {
+  // Po 15 s bez bajtow wychodzimy (keep-alive moze utrzymywac connected()==true
+  // po zakonczeniu body - inaczej pusta petla wieszalaby UI task).
+  unsigned long lastGzData = millis();
+  while (stream && (millis() - lastGzData) < 15000UL) {
+    if (!stream->available()) {
       if (!stream->connected()) break;
-      delay(2);
+      delay(5);
       continue;
     }
+    const int b = stream->read();
+    if (b < 0) break;
+    lastGzData = millis();
     if (gzLen + 1 > cap) {
       cap += 256 * 1024;
       uint8_t *ng = (uint8_t *)heap_caps_realloc(gz, cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
