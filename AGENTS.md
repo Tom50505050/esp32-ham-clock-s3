@@ -130,6 +130,18 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
 - DIAGNOZA dla przyszłości: patrzyć na log `[TFT] rozjasnienie panelu` —
   jeżeli "ON" przy skardze "szare litery", to boost gamma (nie PWM backlight).
 
+## TEST DC HIGH NA GPIO21 (08.11.2026, commit f0203e2) — decydujący soft/sprzęt
+- Pomiary usera: pin LED 3,1V→0,78V (≈25% duty) ORAZ **GPIO21 3,1V→1,08V**
+  przy firmware ustawiającym duty=255 (100% PWM). ESP32-S3 nie działa przy
+  VDD<~3,0V — a działa (WiFi, logi), więc to NIE zapad szyny 3,3V.
+- Wniosek: 1,08V na GPIO21 = zewnętrzny węzeł ściągany przez tor LED
+  (tranzystor, kabel flex, sam moduł backlight) — podejrzenie uszkodzenia HW.
+- Test: BACKLIGHT_FORCE_DC_HIGH=1 → GPIO21 trzymany na STAŁYM HIGH
+  (digitalWrite, bez LEDC/PWM). User mierzy ponownie:
+  * pin trzyma 3,1V  → winne PWM/soft, wracamy do PWM z debugiem
+  * nadal spada     → uszkodzony tor sprzętowy podświetlenia (naprawa lutownicza)
+- Powrót do normalnego PWM: BACKLIGHT_FORCE_DC_HIGH=0 + rebuild.
+
 ## POMIAR NAPIĘCIA — 3,1V→0,78V na pinie LED ~25% duty (08.11.2026, commit c54a36d)
 - User zmierzył na pinie LED spadek 3,1V → 0,78V. 0,78/3,1 ≈ 25% wypełnienia
   PWM. Backlight: pin 21, kanał 0, 5 kHz, 8 bit, TFT_BL_INVERTED=0 — identyczne
