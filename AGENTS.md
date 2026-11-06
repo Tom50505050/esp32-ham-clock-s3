@@ -130,17 +130,19 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
 - DIAGNOZA dla przyszłości: patrzyć na log `[TFT] rozjasnienie panelu` —
   jeżeli "ON" przy skardze "szare litery", to boost gamma (nie PWM backlight).
 
-## TEST DC HIGH NA GPIO21 (08.11.2026, commit f0203e2) — decydujący soft/sprzęt
-- Pomiary usera: pin LED 3,1V→0,78V (≈25% duty) ORAZ **GPIO21 3,1V→1,08V**
-  przy firmware ustawiającym duty=255 (100% PWM). ESP32-S3 nie działa przy
-  VDD<~3,0V — a działa (WiFi, logi), więc to NIE zapad szyny 3,3V.
-- Wniosek: 1,08V na GPIO21 = zewnętrzny węzeł ściągany przez tor LED
-  (tranzystor, kabel flex, sam moduł backlight) — podejrzenie uszkodzenia HW.
-- Test: BACKLIGHT_FORCE_DC_HIGH=1 → GPIO21 trzymany na STAŁYM HIGH
-  (digitalWrite, bez LEDC/PWM). User mierzy ponownie:
-  * pin trzyma 3,1V  → winne PWM/soft, wracamy do PWM z debugiem
-  * nadal spada     → uszkodzony tor sprzętowy podświetlenia (naprawa lutownicza)
-- Powrót do normalnego PWM: BACKLIGHT_FORCE_DC_HIGH=0 + rebuild.
+## ROZWIĄZANE: backlight DC HIGH zamiast PWM (08.11.2026, commit 0914116)
+- Rozstrzygający pomiar usera (DC test, commit f0203e2): GPIO21
+  * PWM LEDC duty=255 (100%) → **1,08V** (ekran szary)
+  * digitalWrite(HIGH) bez PWM  → **3,16V stabilnie** (ekran biały)
+- Wniosek: w tym projekcie LEDC/ledcWrite NIE napędza GPIO21 (pin „wisi",
+  zewnętrzny tor LED ściąga go do ~1,1V). PWM było od zawsze zepsute dla
+  tego pinu — objaw „szarych liter". digitalWrite działa idealnie.
+- FIX STAŁY (0914116): `writeBacklightDuty(duty)` → `duty>0 ? digitalWrite(HIGH)
+  : digitalWrite(LOW)`. Zero LEDC na backlight. Usypianie ekranu działa
+  (duty==0 gasi). Regulacja jasności suwakiem zostaje w ustawieniach/logach,
+  ale fizycznie ekran zawsze pełny (użytkownik chce śnieżnobiałej bieli).
+- Komentarze: NIE używać ledcAttach/ledcWrite na TFT_BL_PIN! Backlight jest
+  cyfrowy. Buzzer (PIN 2, LEDC_CHANNEL 1) działa niezależnie.
 
 ## POMIAR NAPIĘCIA — 3,1V→0,78V na pinie LED ~25% duty (08.11.2026, commit c54a36d)
 - User zmierzył na pinie LED spadek 3,1V → 0,78V. 0,78/3,1 ≈ 25% wypełnienia
