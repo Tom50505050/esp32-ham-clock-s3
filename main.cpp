@@ -5007,7 +5007,7 @@ static const uint16_t HC_PANEL     = 0x10A2;  // ciemny grafit
 static const uint16_t HC_CYAN      = 0x07FF;  // blekit
 static const uint16_t HC_YELLOW    = 0xFFE0;  // zolty
 static const uint16_t HC_WHITE     = 0xFFFF;  // bialy
-static const uint16_t HC_TEXT      = 0xE73C;  // jasnoszary
+static const uint16_t HC_TEXT      = 0xFFFF;  // czysta biel (08.11.2026: bylo 0xE73C jasnoszary)
 static const uint16_t HC_BEZEL_LT  = 0x39E7;
 static const uint16_t HC_BEZEL_DK  = 0x18E3;
 static const uint16_t HC_GOLD      = 0xFEA0;
@@ -5811,7 +5811,7 @@ void drawHamClockIp() {
   tft.setTextSize(2);
   if (connected) {
     String ipStr = ip.toString();
-    tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+    tft.setTextColor(HC_WHITE, TFT_BLACK);
     tft.setCursor((screenW - tft.textWidth(ipStr)) / 2, 280);
     tft.print(ipStr);
   } else {
