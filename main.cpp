@@ -3220,58 +3220,82 @@ void drawRadiosondyScreen();
 //   [BL][DBG] ledcRead(ch=0) = 255, ledcReadFreq = 5000, res=8
 // Dzieki temu jednoznacznie okreslimy, czy software pisze 255 (a sprzet nie
 // napędza), czy ktoras sciezka zapisuje za male duty (np. 25%).
-void setupBacklightPwm() {
-#if (TFT_BL_PIN >= 0)
-  pinMode(TFT_BL_PIN, OUTPUT);
-  digitalWrite(TFT_BL_PIN, TFT_BL_INVERTED ? LOW : HIGH);
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-  Serial.printf("[BL] setupBacklightPwm: ledcAttach(pin=%d, %dHz, %dbit)\n",
-                TFT_BL_PIN, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS);
-  if (ledcAttach(TFT_BL_PIN, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS)) {
-    Serial.println("[BL] setupBacklightPwm: ledcAttach OK");
-  } else {
-    Serial.println("[BL] setupBacklightPwm: ledcAttach FAILED (brak timera/kanalu)");
+// (stary blok LEDC usuniety - backlight sterowany software PWM w sekcji ponizej)
+
+// STEROWANIE JASNOŚCIĄ przez SOFTWARE PWM na hw_timer (08.11.2026).
+// Diagnoza pomiarami usera:
+//   - PWM LEDC duty=255 (100%): GPIO21 = 1,08V, ekran szary (LEDC nie napędza)
+//   - digitalWrite(HIGH) bez PWM:  GPIO21 = 3,16V stabilnie, ekran biały
+// Wniosek: w tym projekcie sprzętowy LEDC nie napędza GPIO21 (pin zostaje
+// wiszący i zewnetrzny tor LED sciaga go do ~1,1V). digitalWrite działa.
+// Rozwiązanie: software PWM. hw_timer co 50us (20kHz) przełącza pin:
+//   - w pierwszej fazie okresu trzyma HIGH (przez duty_us),
+//   - w drugiej fazie LOW (przez 50us - duty_us).
+// Przy 100% pin jest NON-STOP HIGH => 3,3V, biel. Przy 0% -> LOW (gaszenie).
+// Regulacja 0-100% działa w pełnym zakresie. LEDC na backlight: WYŁĄCZONY.
+static volatile uint32_t swPwmPin  = 0xFFFFFFFF; // 0xFFFFFFFF = timer nieaktywny
+static volatile uint32_t swPwmDuty = 50;         // 0..50 (100% = 50)
+static volatile uint8_t  swPwmOn   = 1;
+
+// ISR co 50us (20kHz). Krok PWM co 1/50 cyklu => regulacja co 2% jasnosci.
+// 100% = pin non-stop HIGH, 0% = pin LOW, w pozostalych = przełączanie faz.
+static void IRAM_ATTR swPwmTimerIsr() {
+  static volatile uint32_t cnt = 0;
+  if (swPwmPin == 0xFFFFFFFF) return;
+  if (swPwmDuty == 50) {        // 100% - stale HIGH (biel)
+    digitalWrite(swPwmPin, HIGH);
+    cnt = 0;
+    return;
   }
-#else
-  Serial.printf("[BL] setupBacklightPwm: ledcSetup(ch=%d, %dHz, %dbit), ledcAttachPin(pin=%d)\n",
-                BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS, TFT_BL_PIN);
-  ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS);
-  ledcAttachPin(TFT_BL_PIN, BACKLIGHT_PWM_CHANNEL);
-#endif
+  if (swPwmDuty == 0) {         // 0% - stale LOW (gasi)
+    digitalWrite(swPwmPin, LOW);
+    cnt = 0;
+    return;
+  }
+  cnt++;
+  if (cnt >= 50) cnt = 0;
+  digitalWrite(swPwmPin, (cnt < swPwmDuty) ? HIGH : LOW);
+}
+
+static hw_timer_t *swPwmTimer = NULL;
+void setupSwBacklightPwm() {
+#if (TFT_BL_PIN >= 0)
+  swPwmPin = TFT_BL_PIN;
+  pinMode(TFT_BL_PIN, OUTPUT);
+  digitalWrite(TFT_BL_PIN, HIGH);
+  swPwmTimer = timerBegin(0, 80, true);  // prescaler 80 => 1us na tick
+  timerAttachInterrupt(swPwmTimer, &swPwmTimerIsr, true);
+  timerAlarmWrite(swPwmTimer, 50, true); // 50us okres -> 20kHz
+  timerAlarmEnable(swPwmTimer);
+  Serial.println("[BL] Software PWM (hw_timer 20kHz) na GPIO21; pelna jasnosc 0-100%");
 #endif
 }
 
-// Zapis surowego wypelnienia podswietlenia. Z logiem diagnostycznym.
+void setSwBacklightPercent(int pct) {
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  swPwmOn = (pct > 0);
+  swPwmDuty = (pct * 50) / 100;       // 0..50 (50 = 100%)
+  if (swPwmPin != 0xFFFFFFFF) {
+    if (!swPwmOn) {
+      digitalWrite(swPwmPin, LOW);
+    } else if (swPwmDuty == 50) {
+      digitalWrite(swPwmPin, HIGH);
+    }
+  }
+}
+
+// Patrz: writeBacklightDuty - zastępczo przesyłamy do software PWM.
 static void writeBacklightDuty(uint32_t duty) {
 #if (TFT_BL_PIN >= 0)
-  uint32_t dutyMax = (1U << BACKLIGHT_PWM_RES_BITS) - 1U;
-  if (duty > dutyMax) duty = dutyMax;
-  if (TFT_BL_INVERTED) {
-    duty = dutyMax - duty;
-  }
-  static uint32_t lastLoggedDuty = 0xFFFFFFFF;
-  if (duty != lastLoggedDuty) {
-    lastLoggedDuty = duty;
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-    Serial.printf("[BL][DBG] duty=%u/%u -> ledcWrite(pin%d), ledcRead=%u, freq=%u\n",
-                  (unsigned)duty, (unsigned)dutyMax, TFT_BL_PIN,
-                  (unsigned)ledcRead(TFT_BL_PIN), (unsigned)ledcReadFreq(TFT_BL_PIN));
-    ledcWrite(TFT_BL_PIN, duty);
-#else
-    Serial.printf("[BL][DBG] duty=%u/%u (ch%d) -> ledcWrite ch, ledcRead=%u, freq=%u\n",
-                  (unsigned)duty, (unsigned)dutyMax, BACKLIGHT_PWM_CHANNEL,
-                  (unsigned)ledcRead(BACKLIGHT_PWM_CHANNEL),
-                  (unsigned)ledcReadFreq(BACKLIGHT_PWM_CHANNEL));
-    ledcWrite(BACKLIGHT_PWM_CHANNEL, duty);
+  int pct = (duty * (1U << BACKLIGHT_PWM_RES_BITS)) / ((1U << BACKLIGHT_PWM_RES_BITS) - 1U);
+  setSwBacklightPercent(pct);
 #endif
-  } else {
-    // Kolejne zapisy z tym samym duty - pisz bez logu (watchdog itp.)
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-    ledcWrite(TFT_BL_PIN, duty);
-#else
-    ledcWrite(BACKLIGHT_PWM_CHANNEL, duty);
-#endif
-  }
+}
+
+void setupBacklightPwm() {
+#if (TFT_BL_PIN >= 0)
+  setupSwBacklightPwm();
 #endif
 }
 
