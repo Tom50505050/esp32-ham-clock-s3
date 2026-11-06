@@ -23694,18 +23694,15 @@ void loadPreferences() {
   // +VCOM obnizalo kontrast bialych liter/cyfr na czarnym tle (wygladaly na
   // ciemniejsze). Fabryczna krzywa daje najczystszy, najjasniejszy bialy
   // tekst. Opcja pozostaje w WWW na zyczenie uzytkownika.
+  // "Rozjasnienie panelu" (gamma/VCOM) WYŁĄCZONE NA STAŁE (08.11.2026).
+  // Podbicie gamma/VCOM obnizalo kontrast bialych liter (wygladaly szaro) -
+  // patrz komentarz przy /api/config. Nawet gdy w NVS zostalo true z wczesniej
+  // zapisanej wersji, wymuszamy false i nadpisujemy NVS przy kazdym starcie.
   tftPanelBrighten = preferences->getBool("tft_panel_br", false);
-  // Migracja v1.2d-po-poludniu: wersje z 02.11.2026 (ca6baf4/408dd8b) mialy
-  // "rozjasnienie panelu" domyslnie WLACZONE i zapisywaly tft_panel_br=true do NVS.
-  // Pozniejsza zmiana domyslnej wartosci nie czysci istniejacych urzadzen -
-  // stale true podbijalo gamme/VCOM, przez co biale litery/cyfry wygladaly
-  // CIEMNIEJ. Czyscimy ten klucz RAZ (fabryczna krzywa = najjasniejszy bialy,
-  // zgodnie z v1.2c). Uzytkownik moze jawnie wrocic do opcji z WWW.
-  if (tftPanelBrighten && !preferences->getBool("tft_pbr_mig", false)) {
+  if (tftPanelBrighten) {
     tftPanelBrighten = false;
     preferences->putBool("tft_panel_br", false);
-    preferences->putBool("tft_pbr_mig", true);
-    Serial.println("[TFT] Migracja: wylaczone stale rozjasnienie panelu (gamma/VCOM) z NVS");
+    Serial.println("[TFT] Wylaczono stale rozjasnienie panelu (gamma/VCOM) - fabryczna krzywa = maksymalny kontrast bieli");
   }
   // Domyślna inwersja OFF: panel uzytkownika dzialal z OFF (log 08:07 -> 0x20),
   // a TFT_INVERSION_ON w tft_setup.h wlaczal ja po czystym flash, przez co biale
@@ -25855,15 +25852,21 @@ void setupWebServer() {
         Serial.printf("[BL] auto-sciemnianie wieczorem = %s\n", tftNightDimmingAuto ? "ON" : "OFF");
         applyEffectiveBacklight();
       }
+      // "Rozjasnienie panelu" (gamma/VCOM) JEST WYŁĄCZONE NA STAŁE (08.11.2026):
+      // podbicie gamma/VCOM (applyPanelBrightnessBoost) unosi szarosc i PSULO
+      // kontrast bialych liter - dokladnie objaw "szarych cyfr" u uzytkownika
+      // (log: [TFT] rozjasnienie panelu = ON). Zawsze fabryczna krzywa
+      // (initTFTGamma) = najjasniejsza, snieznobiała biel. Wartosc z formularza
+      // WWW jest ignorowana, a NVS sprowadzany do false.
       if (doc["tft_panel_brighten"].is<bool>()) {
-        tftPanelBrighten = doc["tft_panel_brighten"].as<bool>();
-        Serial.printf("[TFT] rozjasnienie panelu = %s\n", tftPanelBrighten ? "ON" : "OFF");
+        tftPanelBrighten = false;
+        Serial.println("[TFT] rozjasnienie panelu = OFF (boost gamma/VCOM wylaczony stale - maksymalny kontrast bieli)");
         if (tftInitialized) {
           tftLock();
-          initTFTGamma();  // przywroc domyslna gama/VCOM zanim zastosujemy nowy stan
+          initTFTGamma();
           tftUnlock();
-          if (tftPanelBrighten) applyPanelBrightnessBoost();
         }
+        preferences->putBool("tft_panel_br", false);
       }
       if (doc["tft_invert"].is<bool>()) {
         bool receivedValue = doc["tft_invert"].as<bool>();
