@@ -99,6 +99,21 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
   Uwaga: pio 6.2 czyści katalog build drugiego env przy run drugiego env —
   scalaj obrazy natychmiast po buildzie danego env, zanim zbudujesz drugi.
 
+## MIGRACJA tft_ndim_mig (06.11.2026, commit 571fbb0) — czyszczenie zaległego nocnego ściemniania
+- v1.2d zapisywał `tft_night_dim>0` bez oddzielnego "auto"; ściemnianie działało
+  zawsze po lokalnym zmierzchu (godzina >=18/<6 lub ikona OWM "n") i dawało efekt
+  "szarych liter" mimo PWM 100% (przygaszony bleeding przez mniejsze wypełnienie).
+- loadPreferences(): jeśli `tft_night_dim>0` i brak klucza migracji `tft_ndim_mig`,
+  to zerowanie `tft_night_dim=0`, `tft_dim_auto=false`, zapis klucza migracji.
+  Dzięki temu po aktualizacji ekran NIE ściemnia dopóki user świadomie nie włączy
+  "Auto noc" w menu jasności. Log: `[BL] Migracja: nocne sciemnianie wyczyszczone`.
+- 3 poprawki 06.11 (commity 1fade1f + 571fbb0): (1) tftIsNightTime() odrzuca
+  czas sprzed NTP (`tm_year<125` = nieustawiony), (2) `/api/config` tft_backlight
+  od razu czyści force + applyEffectiveBacklight, (3) migracja tft_ndim_mig.
+- Diagnostyka u usera: prosić o linie "[BL]" z serial (baza%, nocne%, auto=0/1,
+  night=0/1). Jeżeli auto=0, night=0 i PWM=100% a ekran wciąż ciemny → to nie
+  firmware (panel/sprzęt); jeśli auto=1 → user świadomie włączył "Auto noc".
+
 ## DIAGNOZA „szarzenia" v1.2d (05.11.2026) — przyczyna i eliminacja w v1.2e-beta
 Objaw: „po chwili wczytywania napisy szarzeją jakby ekran świecił słabiej,
 napięcie nie spada". Przyczyna **(potwierdzona w tagu v1.2d, `git show v1.2d:main.cpp`)**:
