@@ -130,7 +130,30 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
 - DIAGNOZA dla przyszłości: patrzyć na log `[TFT] rozjasnienie panelu` —
   jeżeli "ON" przy skardze "szare litery", to boost gamma (nie PWM backlight).
 
-## DIAGNOZA „szarzenia" v1.2d (05.11.2026) — przyczyna i eliminacja w v1.2e-beta
+## RUNDA 08.11.2026 — user: szarzeje JUŻ przy boot (nie dopiero zegar) — commit 8a18ccb
+- User: "nie dopiero na zegarze tylko wcześniej przy ladowaniu bootu".
+  PWM stabilnie 100% (log: baza=100, night=1, efekt=100), gamma fabryczna
+  (po fixie a36079f boost gamma wylaczony). Boot rysuje TFT_WHITE (0xFFFF)
+  i user widzi NAJPIERW czysta biel, potem szarzenie w trakcie rozruchu.
+- Dzialania: (1) initTFTGamma() -> czysty no-op (bez zapisu E0/E1/C5) —
+  test eliminacyjny: panel zostaje z tabela tft.begin() (tak jak v1.1,
+  ktory nie pisywal rejestrow gamma/VCOM ręcznie); TLWO potwierdza ze
+  TFT_eSPI ILI9488_Init.h ustawia 0x78/0x4C/VCOM 0x12, czyli v1.1 i HEAD
+  wolaja ten sam stan — roznica tylko w tym, ze HEAD pisal go ponownie.
+  (2) loadPreferences + WWW /api/config wymuszaja clock_color/callsign_color
+  =0xFFFF i clock_font=0 (nie-bialy kolor w NVS albo VLW antyaliasing moga
+  wygladac "szaro").
+- OTWARTE: jesli nadal szare przy 100% PWM + no-op gamma + bialych kolorach —
+  to NIE firmware, tylko sprzet/podswietlenie/zasilanie 3.3V (zmierzyc
+  VDD panelu w trakcie bootu; WiFi/odczyt LittleFS podnosi pobor -> spadek
+  3.3V -> slabnie kontrast/backlight). Prosimy uzytkownika o zdjecia faz
+  rozruchu (boot -> splash -> zegar) i pomiar 3.3V.
+- Ikony pogodowe (drawWeatherIcon / /icon50/*.bmp) NIE sa rysowane na
+  ekranie HAM CLOCK nowoczesnym — user podejrzewal je, ale nie wystepuja
+  tam (tylko UIHeader/Weather). Splash.bmp = ciemnoniebieski z bialym
+  tekstem (sprawdzone PIL-em), nie wplywa.
+
+## PRAWDZIWA PRZYCZYNA „szarych liter" — boost gamma/VCOM (08.11.2026, commit a36079f)
 Objaw: „po chwili wczytywania napisy szarzeją jakby ekran świecił słabiej,
 napięcie nie spada". Przyczyna **(potwierdzona w tagu v1.2d, `git show v1.2d:main.cpp`)**:
 - v1.2d `effectiveBacklightPercent()` (ok. linii 2726): `if (tftNightDimmingPercent > 0
