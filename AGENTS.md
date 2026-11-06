@@ -114,6 +114,22 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
   night=0/1). Jeżeli auto=0, night=0 i PWM=100% a ekran wciąż ciemny → to nie
   firmware (panel/sprzęt); jeśli auto=1 → user świadomie włączył "Auto noc".
 
+## PRAWDZIWA PRZYCZYNA „szarych liter" — boost gamma/VCOM (08.11.2026, commit a36079f)
+- User przysłał log serial. PWM = 100% (`baza=100%, nocne=0%, auto=0, night=1`),
+  więc NIE jest to ściemnianie. Ale log pokazał:
+  `[TFT] rozjasnienie panelu = ON` i `[TFT] Rozjasnienie panelu (gamma/VCOM) wlaczone`
+  — boost gamma/VCOM (applyPanelBrightnessBoost) był AKTYWNY.
+- Kod w initTFTGamma mówi wprost: podbicie rejestrów gamma mid/high (E0/E1)
+  podbija "szarość" i PSUJE kontrast białych liter — przez co biel wygląda szaro.
+  To jest sedno "szarzenia", NIE PWM.
+- Naprawa: `applyPanelBrightnessBoost()` nieużywany na stałe.
+  loadPreferences wymusza `tft_panel_br=false` i nadpisuje NVS przy każdym
+  starcie; WWW /api/config ignoruje wartość `tft_panel_brighten` z JSON
+  i zawsze przywraca fabryczną krzywą (initTFTGamma). setup już wołał
+  initTFTGamma(). HC_TEXT=0xFFFF (biała biel) — patrz commit 3eed6ba.
+- DIAGNOZA dla przyszłości: patrzyć na log `[TFT] rozjasnienie panelu` —
+  jeżeli "ON" przy skardze "szare litery", to boost gamma (nie PWM backlight).
+
 ## DIAGNOZA „szarzenia" v1.2d (05.11.2026) — przyczyna i eliminacja w v1.2e-beta
 Objaw: „po chwili wczytywania napisy szarzeją jakby ekran świecił słabiej,
 napięcie nie spada". Przyczyna **(potwierdzona w tagu v1.2d, `git show v1.2d:main.cpp`)**:
