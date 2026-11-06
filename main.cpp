@@ -3210,33 +3210,67 @@ void drawRadiosondyScreen();
 
 // ========== INICJALIZACJA TFT (ESP32-S3 N16R8 + ILI9488) ==========
 #ifdef ENABLE_TFT_DISPLAY
-// ROZWIAZANIE STALE (08.11.2026): sterowanie CYFROWE podswietleniem (bez PWM).
+// STEROWANIE PWM z diagnostyka (08.11.2026).
 // Diagnoza pomiarami usera:
 //   - PWM LEDC duty=255 (100%): GPIO21 = 1,08V, ekran szary
 //   - digitalWrite(HIGH) bez PWM:  GPIO21 = 3,16V stabilnie, ekran bialy
-// Wniosek: LEDC PWM w tym rdzeniu NIE napędza GPIO21 (pin zostaje wiszacy i
-// zewnetrzny tor LED sciaga go do ~1,1V). Sterowanie cyfrowe dziala wzorowo.
-// Dlatego backlight jest teraz sterowany wylacznie cyfrowo:
-//   duty > 0  -> pin HIGH  (pelna jasnosc, snieznobiała)
-//   duty == 0 -> pin LOW   (usypianie ekranu / wygaszenie)
-// Regulacja jasnosci (suwak) pozostaje w logach/ustawieniach, ale fizycznie
-// ekran jest zawsze pelny - tak chce user (sniezna biel).
+// Uzytkownik chce regulacji jasnosci, wiec PWM musi dzialac. Ta wersja loguje
+// dokladnie:
+//   [BL][DBG] duty=255/255 -> ledcWrite(ch=0, 255)
+//   [BL][DBG] ledcRead(ch=0) = 255, ledcReadFreq = 5000, res=8
+// Dzieki temu jednoznacznie okreslimy, czy software pisze 255 (a sprzet nie
+// napędza), czy ktoras sciezka zapisuje za male duty (np. 25%).
 void setupBacklightPwm() {
 #if (TFT_BL_PIN >= 0)
   pinMode(TFT_BL_PIN, OUTPUT);
-  digitalWrite(TFT_BL_PIN, HIGH);
-  Serial.println("[BL] Sterowanie cyfrowe (DC HIGH) - bez PWM, pelna jasnosc");
+  digitalWrite(TFT_BL_PIN, TFT_BL_INVERTED ? LOW : HIGH);
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+  Serial.printf("[BL] setupBacklightPwm: ledcAttach(pin=%d, %dHz, %dbit)\n",
+                TFT_BL_PIN, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS);
+  if (ledcAttach(TFT_BL_PIN, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS)) {
+    Serial.println("[BL] setupBacklightPwm: ledcAttach OK");
+  } else {
+    Serial.println("[BL] setupBacklightPwm: ledcAttach FAILED (brak timera/kanalu)");
+  }
+#else
+  Serial.printf("[BL] setupBacklightPwm: ledcSetup(ch=%d, %dHz, %dbit), ledcAttachPin(pin=%d)\n",
+                BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS, TFT_BL_PIN);
+  ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS);
+  ledcAttachPin(TFT_BL_PIN, BACKLIGHT_PWM_CHANNEL);
+#endif
 #endif
 }
 
-// Zapis surowego wypelnienia podswietlenia. Poniewaz LEDC nie napędza pinu,
-// mapujemy duty na cyfrowe HIGH/LOW (duty>0 -> ON, duty==0 -> OFF).
+// Zapis surowego wypelnienia podswietlenia. Z logiem diagnostycznym.
 static void writeBacklightDuty(uint32_t duty) {
 #if (TFT_BL_PIN >= 0)
-  if (duty > 0) {
-    digitalWrite(TFT_BL_PIN, HIGH);
+  uint32_t dutyMax = (1U << BACKLIGHT_PWM_RES_BITS) - 1U;
+  if (duty > dutyMax) duty = dutyMax;
+  if (TFT_BL_INVERTED) {
+    duty = dutyMax - duty;
+  }
+  static uint32_t lastLoggedDuty = 0xFFFFFFFF;
+  if (duty != lastLoggedDuty) {
+    lastLoggedDuty = duty;
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+    Serial.printf("[BL][DBG] duty=%u/%u -> ledcWrite(pin%d), ledcRead=%u, freq=%u\n",
+                  (unsigned)duty, (unsigned)dutyMax, TFT_BL_PIN,
+                  (unsigned)ledcRead(TFT_BL_PIN), (unsigned)ledcReadFreq(TFT_BL_PIN));
+    ledcWrite(TFT_BL_PIN, duty);
+#else
+    Serial.printf("[BL][DBG] duty=%u/%u (ch%d) -> ledcWrite ch, ledcRead=%u, freq=%u\n",
+                  (unsigned)duty, (unsigned)dutyMax, BACKLIGHT_PWM_CHANNEL,
+                  (unsigned)ledcRead(BACKLIGHT_PWM_CHANNEL),
+                  (unsigned)ledcReadFreq(BACKLIGHT_PWM_CHANNEL));
+    ledcWrite(BACKLIGHT_PWM_CHANNEL, duty);
+#endif
   } else {
-    digitalWrite(TFT_BL_PIN, LOW);
+    // Kolejne zapisy z tym samym duty - pisz bez logu (watchdog itp.)
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+    ledcWrite(TFT_BL_PIN, duty);
+#else
+    ledcWrite(BACKLIGHT_PWM_CHANNEL, duty);
+#endif
   }
 #endif
 }
