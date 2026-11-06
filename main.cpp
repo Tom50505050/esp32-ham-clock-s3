@@ -23675,6 +23675,21 @@ void loadPreferences() {
   // Klucz NVS musi miec <=15 znakow (inaczej nvs_set fails KEY_TOO_LONG).
   // "tft_night_dim_auto" (17) nie zapisywal sie - zmieniono na "tft_dim_auto".
   tftNightDimmingAuto = preferences->getBool("tft_dim_auto", false);
+  // Migracja nocnego sciemniania (06.11.2026): starsze wersje (v1.2d) zapisywaly
+  // suwak "tft_night_dim" > 0 BEZ oddzielnego "auto" - sciemnianie dzialalo wtedy
+  // ZAWSZE po lokalnym zmierzchu, niezaleznie od wiedzy uzytkownika. Po aktualizacji
+  // jednorazowo czyscimy ta wartosc (klucz migracji tft_ndim_mig), zeby ekran nigdy
+  // nie sciemniał sam z siebie po starcie, dopoki uzytkownik swiadomie nie wlaczy
+  // "Auto noc" w menu jasnosci. Informacje o stanie nocnego sciemniania daje
+  // log [BL] (baza/nocne/auto/night).
+  if (tftNightDimmingPercent > 0 && !preferences->getBool("tft_ndim_mig", false)) {
+    tftNightDimmingPercent = 0;
+    tftNightDimmingAuto = false;
+    preferences->putInt("tft_night_dim", 0);
+    preferences->putBool("tft_dim_auto", false);
+    preferences->putBool("tft_ndim_mig", true);
+    Serial.println("[BL] Migracja: nocne sciemnianie wyczyszczone (wlaczenie swiadome w menu jasnosci)");
+  }
   // Rozjasnienie panelu (gamma/VCOM) - domyslnie WYLACZONE. Podbicie gamma
   // +VCOM obnizalo kontrast bialych liter/cyfr na czarnym tle (wygladaly na
   // ciemniejsze). Fabryczna krzywa daje najczystszy, najjasniejszy bialy
