@@ -130,21 +130,34 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
 - DIAGNOZA dla przyszłości: patrzyć na log `[TFT] rozjasnienie panelu` —
   jeżeli "ON" przy skardze "szare litery", to boost gamma (nie PWM backlight).
 
-## ROZWIĄZANE: backlight DC HIGH zamiast PWM (08.11.2026, commit 0914116)
-- Rozstrzygający pomiar usera (DC test, commit f0203e2): GPIO21
-  * PWM LEDC duty=255 (100%) → **1,08V** (ekran szary)
-  * digitalWrite(HIGH) bez PWM  → **3,16V stabilnie** (ekran biały)
-- User chce REGULACJI JASNOŚCI, więc PWM musi wrócić. Build 9761354 = PWM+
-  debug (ledcRead/ledcSetup log przy każdej zmianie duty). Wynik logu wskaże
-  czy: (A) ledcWrite(255) realnie daje 255 na kanale (=> sprzęt nie napędza,
-  zostaje DC HIGH + software PWM przez digitalWrite), czy (B) kanał 0 pracuje
-  z inną rozdzielczością (255/1023=25% -> dokładnie 0,78V na LED!), czyli
-  ktoś nadpisuje kanał 0 / rozdzielczość 8-bit.
-- HISTORYCZNE (0914116): LEDC/ledcWrite NIE napędzał GPIO21 (pin „wisi",
-  zewnętrzny tor LED ściąga go do ~1,1V) — objaw „szarych liter".
-  `writeBacklightDuty(duty)` wówczas mapował `duty>0 ? digitalWrite(HIGH)
-  : digitalWrite(LOW)`. Usypianie ekranu działa (duty==0 gasi).
-- Komentarze: buzzer (PIN 2, LEDC_CHANNEL 1) działa niezależnie.
+## ROZWIĄZANIE FINALNE: software PWM na hw_timer zamiast LEDC (commity 74fdade)
+
+### Diagnoza (pomiary użytkownika)
+- PWM LEDC duty=255 (100%) → GPIO21 = **1,08V** (ekran szary)
+- `digitalWrite(HIGH)` bez PWM → GPIO21 = **3,16V** (ekran biały)
+- Napięcie baterii 4,93–4,95V przez cały czas (brak zaniku zasilania)
+- Wniosek: **sprzętowy LEDC nie napędza GPIO21** w tej konstrukcji (pin
+  zostaje „wiszący", tor LED ściąga go do ~1,1V). `digitalWrite` działa OK.
+
+### Rozwiązanie (74fdade)
+- **Software PWM na `hw_timer`** (timer 0, prescaler 80 → 1 µs, ISR co 50 µs
+  = 20 kHz). ISR przełącza GPIO21: duty 0..50 → faza HIGH/LOW. Przy duty=50
+  pin jest non-stop HIGH (pełna biel), przy 0 → LOW (usypianie ekranu).
+- API: `setupSwBacklightPwm()`, `setSwBacklightPercent(0..100)`,
+  `writeBacklightDuty(duty)` przelicza duty 0..255 → %.
+- `setBacklightPercent`/`setBacklightPercentRaw`/`writeBacklightDuty`
+  nadal działają (watchdog jasności, nocne ściemnianie, fade).
+- **LEDC na backlight całkowicie wyłączony** (usunięty kod `ledcAttach/
+  ledcSetup/ledcWrite` dla TFT_BL). Buzzer (PIN2, kanał LEDC 1) działa jak
+  wcześniej — bez konfliktu, bo backlight nie używa już LEDC.
+- Uwaga dla przyszłości: **NIE wracać do ledc* na TFT_BL_PIN (21)** w tym
+  projekcie — sprzętowo nie napędza pinu.
+- Build: oba env SUCCESS. ZIP `5c9a18db…` wgrany na work-1/work-2.
+
+### Historia
+- `9761354` PWM+debug (ledcRead) — niepobrany przez usera, zastąpiony 74fdade.
+- `0914116` DC HIGH (digitalWrite) — biały ekran, ale bez regulacji jasności.
+- `f0203e2` test DC vs PWM — rozstrzygający.
 
 ## POMIAR NAPIĘCIA — 3,1V→0,78V na pinie LED ~25% duty (08.11.2026, commit c54a36d)
 - User zmierzył na pinie LED spadek 3,1V → 0,78V. 0,78/3,1 ≈ 25% wypełnienia
