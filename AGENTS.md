@@ -134,15 +134,17 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
 - Rozstrzygający pomiar usera (DC test, commit f0203e2): GPIO21
   * PWM LEDC duty=255 (100%) → **1,08V** (ekran szary)
   * digitalWrite(HIGH) bez PWM  → **3,16V stabilnie** (ekran biały)
-- Wniosek: w tym projekcie LEDC/ledcWrite NIE napędza GPIO21 (pin „wisi",
-  zewnętrzny tor LED ściąga go do ~1,1V). PWM było od zawsze zepsute dla
-  tego pinu — objaw „szarych liter". digitalWrite działa idealnie.
-- FIX STAŁY (0914116): `writeBacklightDuty(duty)` → `duty>0 ? digitalWrite(HIGH)
-  : digitalWrite(LOW)`. Zero LEDC na backlight. Usypianie ekranu działa
-  (duty==0 gasi). Regulacja jasności suwakiem zostaje w ustawieniach/logach,
-  ale fizycznie ekran zawsze pełny (użytkownik chce śnieżnobiałej bieli).
-- Komentarze: NIE używać ledcAttach/ledcWrite na TFT_BL_PIN! Backlight jest
-  cyfrowy. Buzzer (PIN 2, LEDC_CHANNEL 1) działa niezależnie.
+- User chce REGULACJI JASNOŚCI, więc PWM musi wrócić. Build 9761354 = PWM+
+  debug (ledcRead/ledcSetup log przy każdej zmianie duty). Wynik logu wskaże
+  czy: (A) ledcWrite(255) realnie daje 255 na kanale (=> sprzęt nie napędza,
+  zostaje DC HIGH + software PWM przez digitalWrite), czy (B) kanał 0 pracuje
+  z inną rozdzielczością (255/1023=25% -> dokładnie 0,78V na LED!), czyli
+  ktoś nadpisuje kanał 0 / rozdzielczość 8-bit.
+- HISTORYCZNE (0914116): LEDC/ledcWrite NIE napędzał GPIO21 (pin „wisi",
+  zewnętrzny tor LED ściąga go do ~1,1V) — objaw „szarych liter".
+  `writeBacklightDuty(duty)` wówczas mapował `duty>0 ? digitalWrite(HIGH)
+  : digitalWrite(LOW)`. Usypianie ekranu działa (duty==0 gasi).
+- Komentarze: buzzer (PIN 2, LEDC_CHANNEL 1) działa niezależnie.
 
 ## POMIAR NAPIĘCIA — 3,1V→0,78V na pinie LED ~25% duty (08.11.2026, commit c54a36d)
 - User zmierzył na pinie LED spadek 3,1V → 0,78V. 0,78/3,1 ≈ 25% wypełnienia
