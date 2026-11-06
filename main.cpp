@@ -36,7 +36,7 @@ void normalizePolish(String &text);
 #endif
 
 // Wersja firmware
-#define FIRMWARE_VERSION "1.2d"
+#define FIRMWARE_VERSION "1.2e"
 
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -3639,7 +3639,7 @@ void drawWelcomeScreenYellow() {
 
   tft.fillScreen(TFT_BLACK);
 
-  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2d").
+  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2e").
   // Polskie znaki - wymaga UTF-8 w zrodle (--utf8-source).
   String lines[5];
   lines[0] = "ESP32-HAM-CLOCK v" FIRMWARE_VERSION;
@@ -23719,7 +23719,7 @@ void loadPreferences() {
   // Klucz NVS musi miec <=15 znakow (inaczej nvs_set fails KEY_TOO_LONG).
   // "tft_night_dim_auto" (17) nie zapisywal sie - zmieniono na "tft_dim_auto".
   tftNightDimmingAuto = preferences->getBool("tft_dim_auto", false);
-  // Migracja nocnego sciemniania (06.11.2026): starsze wersje (v1.2d) zapisywaly
+  // Migracja nocnego sciemniania (06.11.2026): starsze wersje (v1.2e) zapisywaly
   // suwak "tft_night_dim" > 0 BEZ oddzielnego "auto" - sciemnianie dzialalo wtedy
   // ZAWSZE po lokalnym zmierzchu, niezaleznie od wiedzy uzytkownika. Po aktualizacji
   // jednorazowo czyscimy ta wartosc (klucz migracji tft_ndim_mig), zeby ekran nigdy
@@ -24330,7 +24330,7 @@ static bool streamStaticAsset(const char *path, const char *contentType, int max
 
 String getManualPL() {
   return String(
-    "ESP32-HAM-CLOCK v1.2d (23.10.2026)\n"
+    "ESP32-HAM-CLOCK v1.2e BETA (23.10.2026)\n"
     "Autor oprogramowania: Tomasz SP9TNV\n"
     "Na podstawie projektu: Konrad Wisniewski SP3KON (z uĹĽyciem AI)\n"
     "Kontakt: SP9TNV@gmail.com\n\n"
@@ -25400,7 +25400,7 @@ void setupWebServer() {
     // Stopka
     html += "<hr style='margin:40px 0;'>";
     html += "<p style='text-align:center;color:#666;'>";
-    html += "<strong>ESP32-HAM-CLOCK v1.2d</strong> | Autor oprogramowania: Tomasz SP9TNV<br>";
+    html += "<strong>ESP32-HAM-CLOCK v1.2e BETA</strong> | Autor oprogramowania: Tomasz SP9TNV<br>";
     html += "Na podstawie projektu Konrad WiĹ›niewski SP3KON | Licencja: MIT<br>";
     html += "<a href='mailto:SP9TNV@gmail.com'>SP9TNV@gmail.com</a>";
     html += "</p>";

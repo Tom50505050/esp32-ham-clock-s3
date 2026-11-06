@@ -106,7 +106,7 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
-| **v1.2d** | 23.10.2026 | **Naprawa migotania cyfr zegara** (wszystkie 15 czcionek): rysowanie tylko **zmienionych komórek** (dirty cells, ~67% mniej pikseli na SPI), **stały pionowy offset atramentu** (`clockTimeInkOffset()`, koniec drgania 1 px), guard przerysowania w klasycznym zegarze |
+| **v1.2e BETA** | 06.11.2026 | **Naprawa migotania cyfr zegara** (wszystkie 15 czcionek): rysowanie tylko **zmienionych komórek** (dirty cells, ~67% mniej pikseli na SPI), **stały pionowy offset atramentu** (`clockTimeInkOffset()`, koniec drgania 1 px), guard przerysowania w klasycznym zegarze |
 | **v1.2c** | 18.10.2026 | **Naprawa PSK MQTT**: zmiana pasma/trybu nie ściągała spotów (filtr subskrypcji 6-segmentowy → `.../<pasmo>/<tryb>/#`) · mapowanie pasm **160/30/17/12 m** (HTTP i MQTT) · poprawka indeksu odbiorcy (5→6) · czyszczenie spotów po zapisie filtra · **ikona baterii 12 px w lewo** na wszystkich ekranach · synchronizacja `tools/render_header_preview.py` |
 | **v1.2b** | 17.10.2026 | **Nagłówek**: ikona **GPS po lewej** stronie (za godziną) · ikona **baterii na wszystkich ekranach** · wspólny `drawHeaderTime()` · Nowe ekrany: **STACJA** (15.) i **ESP32 HAM LOGGER** (16., dziennik ADIF: formularz QSO, klawiatura, tabela ostatnich łączności, SAVE QSO/CLEAR/EXPORT ADIF/SETTINGS, log w **PSRAM** + zapis **plik tymczasowy + rename**, autouzupełnianie NAME/QTH z **QRZ.com → HamDB → callook**, eksport **`/qso.adi`**, endpoint **`/api/qrz_upload`**) · STACJA: wyszukiwanie znaku w **QRZ.com → HamDB → callook.info**, dwa transceivery, dystans + kierunek geograficzny · podglądy 1:1 `tools/render_station_preview.py`, `render_logger_preview.py` |
 | **v1.2a** | 16.10.2026 | Poprawki ekranu **PSK MAP**: **kumulacja spotów** (dedup znak+pasmo+tryb, limit 200) · **auto-RESET** po 200 spotach · **panel informacyjny po prawej** (licznik + lista najnowszych, zwężona ramka) · **odświeżanie tylko spotów** (bez przerysowywania nagłówka, paska, ikony baterii i napisów) · **MQTT domyślnie włączone** (start bez HTTP) · eksport rozmów do Markdown |
@@ -116,9 +116,13 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 ---
 
-## Zmiany między v1.2c a v1.2d
+## Zmiany między v1.1 a v1.2e BETA
 
-Wydanie **v1.2d** (23.10.2026) to wydanie poprawkowe: **migotanie cyfr zegara**
+Pełna lista zmian: **RELEASE_NOTES.md** (sekcja „v1.2e BETA").
+
+§ Sekcja poniżej opisuje podzbiór zmian (v1.2c → v1.2e):
+
+Wydanie **v1.2e BETA** (06.11.2026) to wydanie zbiorcze poprawkowe: **migotanie cyfr zegara**
 dla wszystkich czcionek.
 
 ### Naprawa: migotanie cyfr zegara (wszystkie czcionki)
@@ -138,7 +142,7 @@ Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczy
 - Podgląd QA: `tools/render_clock_flicker_preview.py`.
 
 ### Wersja
-- `FIRMWARE_VERSION`: `1.2c` → **`1.2d`**. Zaktualizowane też `data/index*.html`
+- `FIRMWARE_VERSION`: `1.2c` → **`1.2e`**. Zaktualizowane też `data/index*.html`
   (PL/EN/DE/FR/ES/RU), `tools/lang_pages.json` i `platformio.ini`.
 
 ---

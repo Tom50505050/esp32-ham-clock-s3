@@ -67,7 +67,7 @@ Zgłoszenie: „nie pokazuje na mapie sond", „przycisk z prawej przesuń na le
 Zgłoszenia „ściemnienie czcionki przy wgrywaniu w okolicy LittleFS" oraz
 „czcionka jak na samym początku na wszystkich ekranach".
 - **Nie wołaj `setBacklightPercent(backlightPercent)` / `applyEffectiveBacklight()`
-  w środku bootu (przed końcem `bootSequenceActive`).** W v1.2d-hotfix ta para
+  w środku bootu (przed końcem `bootSequenceActive`).** W v1.2e-hotfix ta para
   po `loadPreferences()` ustawiała NVS-ową jasność (np. 70%), a `setBacklightPercentRaw(100)`
   zaraz potem wracała do 100% → widoczne „mignięcie" w okolicy ładowania
   konfiguracji. Boot przechodzi w 100% od `initTFT()` do `bootSequenceActive=false`.
@@ -100,7 +100,7 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
   scalaj obrazy natychmiast po buildzie danego env, zanim zbudujesz drugi.
 
 ## MIGRACJA tft_ndim_mig (06.11.2026, commit 571fbb0) — czyszczenie zaległego nocnego ściemniania
-- v1.2d zapisywał `tft_night_dim>0` bez oddzielnego "auto"; ściemnianie działało
+- v1.2e zapisywał `tft_night_dim>0` bez oddzielnego "auto"; ściemnianie działało
   zawsze po lokalnym zmierzchu (godzina >=18/<6 lub ikona OWM "n") i dawało efekt
   "szarych liter" mimo PWM 100% (przygaszony bleeding przez mniejsze wypełnienie).
 - loadPreferences(): jeśli `tft_night_dim>0` i brak klucza migracji `tft_ndim_mig`,
@@ -212,6 +212,16 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
   fetch live (co 60 s) także przeniesiony do tła (UI_loop nadal ma swój
   synchroniczny fetch live co 60 s — nie zmieniano, nie powoduje czarnego ekranu).
 
+## WERSJA v1.2e BETA (06.11.2026)
+- Wszystkie miejsca (firmware `FIRMWARE_VERSION`, WWW, manifesty, docs): `1.2e`/`v1.2e BETA`.
+- Narzędzia: `tools/make_flash_page.py` (VERSION = "1.2e BETA"), `tools/make_qsl_splash.py`
+  (return "1.2e BETA"). `flash/` i `download/flash/` są **generowane** przez
+  `make_flash_page.py` — nie edytuj ręcznie manifestów (przegenerowanie nadpisze).
+- `data/index*.html` (6 języków): wszystkie wystąpienia „v1.2e BETA" (7 na plik).
+- Zmiany względem wcześniejszych wersji — opis w `RELEASE_NOTES.md`
+  (sekcja „v1.2e BETA — wydanie zbiorcze od v1.1").
+- Branch release: `ported-1.2e-beta`, tag: `v1.2e-beta`.
+
 ## POMIAR NAPIĘCIA — 3,1V→0,78V na pinie LED ~25% duty (08.11.2026, commit c54a36d)
 - User zmierzył na pinie LED spadek 3,1V → 0,78V. 0,78/3,1 ≈ 25% wypełnienia
   PWM. Backlight: pin 21, kanał 0, 5 kHz, 8 bit, TFT_BL_INVERTED=0 — identyczne
@@ -252,14 +262,14 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
 
 ## PRAWDZIWA PRZYCZYNA „szarych liter" — boost gamma/VCOM (08.11.2026, commit a36079f)
 Objaw: „po chwili wczytywania napisy szarzeją jakby ekran świecił słabiej,
-napięcie nie spada". Przyczyna **(potwierdzona w tagu v1.2d, `git show v1.2d:main.cpp`)**:
-- v1.2d `effectiveBacklightPercent()` (ok. linii 2726): `if (tftNightDimmingPercent > 0
-  && tftIsNightTime()) p-=p*dim/100` — **bez** `tftNightDimmingAuto` (ten flag w v1.2d
+napięcie nie spada". Przyczyna **(potwierdzona w tagu v1.2e, `git show v1.2e:main.cpp`)**:
+- v1.2e `effectiveBacklightPercent()` (ok. linii 2726): `if (tftNightDimmingPercent > 0
+  && tftIsNightTime()) p-=p*dim/100` — **bez** `tftNightDimmingAuto` (ten flag w v1.2e
   w ogóle nie istniał). Ustawienie suwaka „nocne obniżenie" >0 = stałe ściemnianie
   przy `tftIsNightTime()` — czyli gdy ikona OWM jest "n" albo godzina lokalna ≥18/<6
   (dokładnie tak jak o 18:50 użytkownika). Efekt: PWM 100%→70%, litery szare,
   napięcie stabilne (to NIE jest spadek zasilania, tylko mniejsze wypełnienie PWM).
-- v1.2d `loop()` co wykrycie zmiany pory wołało `applyEffectiveBacklight()` → stąd
+- v1.2e `loop()` co wykrycie zmiany pory wołało `applyEffectiveBacklight()` → stąd
   „po chwili wczytywania" (boot świeci 100%, potem przy pierwszym policzeniu pory siada).
 - WERSJA POPRAWIONA (v1.2e-beta): dimming TYLKO `tftNightDimmingPercent>0 &&
   tftNightDimmingAuto && tftIsNightTime()`; `tftNightDimmingAuto` domyślnie false i
@@ -836,8 +846,8 @@ dla `/mapa_swiat.bmp` i podglądu splash.
   „Saved. Touch to close". Wcześniej kalibracja nic nie zapisywała
   (był tylko podgląd surowych wartości + podpowiedź „Use WWW panel").
 
-## v1.2d — czcionki zegara, alert pogodowy, migotanie (23.10.2026)
-Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.2d**):
+## v1.2e — czcionki zegara, alert pogodowy, migotanie (23.10.2026)
+Wydanie zbiorcze (wcześniej planowane jako v1.2e + v1.2e, scalone w jedno **v1.2e**):
 - **Wybór czcionki znaku i zegara** — 14 krojów VLW + wbudowana, menu TIME MODE
   (siatka 5×3), zapis w NVS `clock_font`.
 - **Własne grafiki alertu pogodowego (burza/wiatr)** — pliki w LittleFS, ścieżki w
@@ -848,7 +858,7 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2d + v1.2e, scalone w jedno **v1.
   SPI), `clockTimeInkOffset()` (stały pionowy offset `"0123456789:"`, koniec
   drgania 1 px), guard przerysowania w `updateScreen1ClockClassic()`.
   Podgląd QA: `tools/render_clock_flicker_preview.py`.
-- **`FIRMWARE_VERSION` 1.2c → 1.2d**; `data/index*.html` (6 języków),
+- **`FIRMWARE_VERSION` 1.2c → 1.2e**; `data/index*.html` (6 języków),
   `tools/lang_pages.json`, `platformio.ini`, README/RELEASE_NOTES zaktualizowane.
 
 ## Grafiki alertu pogodowego: restart ESP32 przy wgrywaniu ikony przez WWW (30.10.2026)

@@ -1,6 +1,6 @@
 # Stan prac — ESP32-HAM-CLOCK-S3
 
-Ostatnia aktualizacja: 2026-10-27. Wersja firmware: **v1.2d**.
+Ostatnia aktualizacja: 2026-11-06. Wersja firmware: **v1.2e BETA**.
 
 ## Precyzyjny pomiar baterii — kalibracja ADC + krzywa Li-ion (27.10.2026)
 
@@ -35,7 +35,7 @@ Ostatnia aktualizacja: 2026-10-27. Wersja firmware: **v1.2d**.
   monitora; `drawWifiSignalBars(x,y,strength,bg)` czysci tlo; `drawWifiBarsQuickUpdate()`
   co 5 s w `loop()`; `RSSI==0` -> 1 kreska zamiast falszywego braku zasiegu.
 
-## v1.2d — czcionki zegara, alert pogodowy, migotanie, pin baterii (23.10.2026)
+## v1.2e BETA — czcionki zegara, alert pogodowy, migotanie, pin baterii (23.10.2026)
 
 - **Grafika alertu (burza/wiatr) na całym ekranie**: `WX_ICON_TARGET_W` 408→**480**
   (panel 408×320 → pełne 480×320), skalowanie **fit=contain → fit=cover** (pokrycie
@@ -54,7 +54,7 @@ Ostatnia aktualizacja: 2026-10-27. Wersja firmware: **v1.2d**.
   `clockDrawMonospace()` (tylko zmienione komórki, ~67% mniej pikseli na SPI),
   `clockTimeInkOffset()` (stały pionowy offset `"0123456789:"` — koniec drgania
   1 px), guard przerysowania w `updateScreen1ClockClassic()`.
-- **`FIRMWARE_VERSION` 1.2c → 1.2d**; `data/index*.html` (6 języków),
+- **`FIRMWARE_VERSION` 1.2c → 1.2e**; `data/index*.html` (6 języków),
   `tools/lang_pages.json`, `platformio.ini`, README/RELEASE_NOTES zaktualizowane.
 
 - **Ekran DX SPOTS — nazwy krajów (`dxspots.com`)**: dodano

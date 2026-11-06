@@ -1,6 +1,6 @@
 {
-  "name": "ESP32-HAM-CLOCK v1.2d (bez dotyku)",
-  "version": "1.2d",
+  "name": "ESP32-HAM-CLOCK v1.2e BETA (bez dotyku)",
+  "version": "1.2e BETA",
   "new_install_prompt_erase": true,
   "builds": [
     {

@@ -1,6 +1,6 @@
 # ESP32-HAM-CLOCK — informacje o wydaniach
 
-Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b**, **v1.2c** i **v1.2d** dla platformy
+Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b**, **v1.2c** i **v1.2e** dla platformy
 **ESP32-S3 N16R8** (16 MB flash, 8 MB PSRAM) z wyświetlaczem
 **ILI9488 na 3.5" i 4" 480×320** po SPI i panelem dotykowym XPT2046.
 
@@ -13,12 +13,51 @@ Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b**, **v1.2c** i **v1.2d** 
 
 ---
 
-# ESP32-HAM-CLOCK v1.2d (hotfix 02.11.2026) — naprawa ściemniania białych liter
+# ESP32-HAM-CLOCK **v1.2e BETA** (06.11.2026) — wydanie zbiorcze (od v1.1 do v1.2e BETA)
 
-Poprawka wydania **v1.2d** (02.11.2026) usuwająca ponowne ściemnianie białych
+> ⚠️ **Wydanie BETA.** Testy przed wgraniem na głównym zegarze zalecane.
+> Wgrywanie: **Wybierz wersję wgrywania — cały `merged-flash.bin` na offset 0x0**.
+
+To wydanie podsumowuje wszystkie zmiany, które powstały **po oficjalnym v1.1**,
+doprowadzone do stanu **v1.2e BETA**. Zawiera m.in. wcześniejsze *hotfixy* v1.2e
+(02.11, 03.11), pełne v1.2 / v1.2a / v1.2b / v1.2c / v1.2e plus **nowe poprawki**
+dodane w tym repozytorium.
+
+## Co nowego względem v1.1 (i poprzednich 1.2x)
+
+### Ekrany i funkcje
+- **Nowe ekrany:** PSK MAP, STACJA, ESP32 HAM LOGGER, radiosondy (mapa + tryb historyczny 12 h + lowcy), wszystkie zegary/ekrany z v1.2+
+- **Sterowanie jasnością** z suwaka WWW + „Auto noc" (przyciemnianie po zmroku)
+- **Tryb czytelnej czcionki** — dostępne 15 czcionek znaku i zegara
+- **Alert pogodowy** z własnymi grafikami (burza / wiatr)
+
+### Naprawy (dodane w tym repo, istotne dla użytkownika)
+- **„Szare litery"** — stałe jaśnieje, czysto białe litery/cyfry; gamma/VCOM panelu
+  nie jest już podbijane (to podbicie powodowało ściemnienie bieli)
+- **Sterowanie jasnością** przez PWM na hw_timer (dokładna regulacja, bez migotania)
+- **Brakujące ikony pogodowe** — usunięcie szkodliwych `PL_drogowa*.jpg` z `data/icon50`
+- **Czarny ekran radiosondy po wejściu** — pobieranie danych przeniesione do taska
+  w tle (`sondeFetchBgTask`); ekran od razu pokazuje mapę + „ŁADOWANIE...", a markery
+  dochodzą później. Dotyk działa w trakcie ładowania.
+
+### Pamięć / instalacja
+- **LittleFS powiększony do maksimum**: `0x250000` start, **14 286 848 B (~13,6 MB)**.
+  Zmiana układu partycji wymaga **pełnego flashowania od offsetu 0x0**.
+- Pełne flashowanie czyści stary zapchany LittleFS (komunikat „brak miejsca" zniknie).
+
+## Zmiany techniczne
+- `FIRMWARE_VERSION` = **`1.2e`**, w UI/na stronach: **`v1.2e BETA`**
+- `partitions.csv`: app0 `0x240000` (2,25 MB), littlefs `0xDA0000`, coredump `0xFF0000`
+- Flaga `sondeFetchBgReqLive` + `requestLiveFetchInBackground()` (fetch żywych sond w tle)
+
+---
+
+# ESP32-HAM-CLOCK v1.2e (hotfix 02.11.2026) — naprawa ściemniania białych liter
+
+Poprawka wydania **v1.2e** (02.11.2026) usuwająca ponowne ściemnianie białych
 liter/cyfr po aktualizacjach z dnia 02.11.2026. Objawy zgłoszone przez użytkownika:
 „dalej ściemnianie białego koloru… sprawdź czy inne kolory też się ściemniają…
-w wersji v1.2c nie było takiego czegoś i we wczesnych wersjach v1.2d".
+w wersji v1.2c nie było takiego czegoś i we wczesnych wersjach v1.2e".
 
 ## Przyczyna
 - Rankiem 02.11.2026 dodano opcję „ROZJAŚNIJ PANEL (GAMMA)" — podbicie krzywej
@@ -65,7 +104,7 @@ Użytkownik zgłosił: „po wgraniu programu brak sieci wifi esp32-ham-clock na
 
 ---
 
-# ESP32-HAM-CLOCK v1.2d (hotfix 03.11.2026) — stałe jasna czcionka na wszystkich ekranach
+# ESP32-HAM-CLOCK v1.2e (hotfix 03.11.2026) — stałe jasna czcionka na wszystkich ekranach
 
 Kolejna poprawka po zgłoszeniach: „dalej ściemnienie czcionki przy wgrywaniu
 w miejscu około ładowania LittleFS" oraz „ustaw czcionkę jak na samym początku
@@ -123,9 +162,9 @@ Przebudowane artefakty: `dist/merged-flash{,-notouch}.bin`, `download/`,
 
 ---
 
-# ESP32-HAM-CLOCK v1.2d — czcionki zegara, alert pogodowy i migotanie
+# ESP32-HAM-CLOCK v1.2e — czcionki zegara, alert pogodowy i migotanie
 
-Wydanie **v1.2d** (23.10.2026) dla platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB
+Wydanie **v1.2e** (23.10.2026) dla platformy **ESP32-S3 N16R8** (16 MB flash, 8 MB
 PSRAM) + **ILI9488 na 3.5" i 4" 480×320** + XPT2046. Zakres wydania:
 - **wybór czcionki** znaku (callsign) i dużego zegara — 14 krojów + wbudowana,
 - **własne grafiki alertu pogodowego** (burza / wiatr) wypełniające **cały ekran**
@@ -300,7 +339,7 @@ Objaw: przy każdej zmianie sekundy migały niektóre cyfry zegara. Dwie przyczy
 - **Monitor systemu** pokazuje `NN dBm N/4` z tego samego progu co ikona.
 
 ## Wersja
-- `FIRMWARE_VERSION`: `1.2c` → **`1.2d`**. Zaktualizowane też `data/index*.html`
+- `FIRMWARE_VERSION`: `1.2c` → **`1.2e`**. Zaktualizowane też `data/index*.html`
   (PL/EN/DE/FR/ES/RU), `tools/lang_pages.json` i `platformio.ini`.
 
 ---

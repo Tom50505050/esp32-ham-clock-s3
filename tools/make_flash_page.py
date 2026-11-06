@@ -20,7 +20,7 @@ import shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "dist")
 FLASH = os.path.join(ROOT, "flash")
-VERSION = "1.2d"
+VERSION = "1.2e BETA"
 
 BUILDS = [
     ("touch", "merged-flash.bin", "ESP32-HAM-CLOCK v%s (dotyk XPT2046)" % VERSION),
