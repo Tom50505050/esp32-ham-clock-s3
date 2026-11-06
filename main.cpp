@@ -3210,52 +3210,34 @@ void drawRadiosondyScreen();
 
 // ========== INICJALIZACJA TFT (ESP32-S3 N16R8 + ILI9488) ==========
 #ifdef ENABLE_TFT_DISPLAY
-// TEST DIAGNOSTYCZNY (08.11.2026): user zmierzyl na GPIO21 spadek 3,1V->1,08V
-// mimo duty=255 (100% PWM). ESP32-S3 nie dziala przy VDD<3V, a dzialal - wiec
-// to nie zapad VDD, tylko zewnetrzny wezel sciagany przez tranzystor/tor LED.
-// Aby rozdzielic soft vs HW: podswietlenie = STALE 3,3V (bez PWM). Jesli pin
-// nadal spadnie - uszkodzony tor sprzetowy (tranzystor, kabel, LED). Jesli
-// pin trzyma 3,1V - PWM/firmware winne.
-#define BACKLIGHT_FORCE_DC_HIGH 1  // 1 = zawsze staly HIGH (bez PWM), 0 = normalny PWM
-
+// ROZWIAZANIE STALE (08.11.2026): sterowanie CYFROWE podswietleniem (bez PWM).
+// Diagnoza pomiarami usera:
+//   - PWM LEDC duty=255 (100%): GPIO21 = 1,08V, ekran szary
+//   - digitalWrite(HIGH) bez PWM:  GPIO21 = 3,16V stabilnie, ekran bialy
+// Wniosek: LEDC PWM w tym rdzeniu NIE napędza GPIO21 (pin zostaje wiszacy i
+// zewnetrzny tor LED sciaga go do ~1,1V). Sterowanie cyfrowe dziala wzorowo.
+// Dlatego backlight jest teraz sterowany wylacznie cyfrowo:
+//   duty > 0  -> pin HIGH  (pelna jasnosc, snieznobiała)
+//   duty == 0 -> pin LOW   (usypianie ekranu / wygaszenie)
+// Regulacja jasnosci (suwak) pozostaje w logach/ustawieniach, ale fizycznie
+// ekran jest zawsze pelny - tak chce user (sniezna biel).
 void setupBacklightPwm() {
 #if (TFT_BL_PIN >= 0)
-#if BACKLIGHT_FORCE_DC_HIGH
   pinMode(TFT_BL_PIN, OUTPUT);
-  digitalWrite(TFT_BL_PIN, HIGH);  // stale pelne napiecie, zero PWM
-  Serial.println("[BL] TEST DIAGNOSTYCZNY: staly HIGH (DC) na GPIO21 - bez PWM");
-#else
-  pinMode(TFT_BL_PIN, OUTPUT);
-  digitalWrite(TFT_BL_PIN, TFT_BL_INVERTED ? LOW : HIGH);
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-  // Arduino ESP32 core 3.x LEDC API
-  ledcAttach(TFT_BL_PIN, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS);
-#else
-  // Arduino ESP32 core 2.x LEDC API
-  ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS);
-  ledcAttachPin(TFT_BL_PIN, BACKLIGHT_PWM_CHANNEL);
+  digitalWrite(TFT_BL_PIN, HIGH);
+  Serial.println("[BL] Sterowanie cyfrowe (DC HIGH) - bez PWM, pelna jasnosc");
 #endif
-#endif // #if BACKLIGHT_FORCE_DC_HIGH
-#endif // #if (TFT_BL_PIN >= 0)
 }
 
-// Zapis surowego wypelnienia PWM podswietlenia. Na rdzeniu 2.x ledcWrite()
-// przyjmuje KANAL (0..15), a nie numer GPIO - wywolanie ledcWrite(TFT_BL_PIN,...)
-// z pinem 21 jest po cichu ignorowane (chan >= LEDC_CHANNELS), wiec podswietlenie
-// NIE gaslo. W rdzeniu 3.x ledcWrite() przyjmuje pin. Ta funkcja izoluje obie
-// roznice, zeby zarowno jasnosc jak i usypianie ekranu dzialaly poprawnie.
+// Zapis surowego wypelnienia podswietlenia. Poniewaz LEDC nie napędza pinu,
+// mapujemy duty na cyfrowe HIGH/LOW (duty>0 -> ON, duty==0 -> OFF).
 static void writeBacklightDuty(uint32_t duty) {
 #if (TFT_BL_PIN >= 0)
-  uint32_t dutyMax = (1U << BACKLIGHT_PWM_RES_BITS) - 1U;
-  if (duty > dutyMax) duty = dutyMax;
-  if (TFT_BL_INVERTED) {
-    duty = dutyMax - duty;
+  if (duty > 0) {
+    digitalWrite(TFT_BL_PIN, HIGH);
+  } else {
+    digitalWrite(TFT_BL_PIN, LOW);
   }
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-  ledcWrite(TFT_BL_PIN, duty);
-#else
-  ledcWrite(BACKLIGHT_PWM_CHANNEL, duty);
-#endif
 #endif
 }
 
