@@ -159,6 +159,22 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
 - `0914116` DC HIGH (digitalWrite) — biały ekran, ale bez regulacji jasności.
 - `f0203e2` test DC vs PWM — rozstrzygający.
 
+## ROZWIĄZANE: brakujące ikony pogodowe — winny plik w data/icon50 (commit d7deefe)
+- Objaw: „brak niektórych ikon pogodowych" na ekranie pogody i w prognozie.
+- Diagnoza: `mklittlefs -l` rzucał asercją `lfs_bd_read: block < block_count`;
+  w obrazie LittleFS było tylko **6 z 18** ikon 50x50 BMP.
+- Przyczyna: plik **`data/icon50/PL_drogowa_750tys_95x90cm_01_10_2019.jpg`**
+  (polskie znaki w nazwie) powodował `unable to open ... / error adding file!`
+  w `mklittlefs` — buildfs przerywał pakowanie w katalogu icon50 i do obrazu
+  trafiała tylko część ikon (te przed tym plikiem + reszta plików).
+- Rozwiązanie: **usunięto ten plik JPG**. Po `buildfs` obraz zawiera **17**
+  ikon 50x50 (wszystkie właściwe ikony; usunięty był tylko obcy JPG).
+  Ikony pogody i prognozy (200..803, 800n/801n) znów działają.
+- Reguła na przyszłość: **nie wrzucać do `data/` plików z polskimi znakami
+  ani dużych przypadkowych JPG** — `mklittlefs` nie potrafi ich dodać i
+  cicho psuje cały obraz LittleFS (objaw: „brak ikon/obrazów" w firmware).
+- ZIP po fixie: `2356f3c7e5ff31f1d4700a4f59ee80946f7007b6fd1612102ac35e5522cb3cce`.
+
 ## POMIAR NAPIĘCIA — 3,1V→0,78V na pinie LED ~25% duty (08.11.2026, commit c54a36d)
 - User zmierzył na pinie LED spadek 3,1V → 0,78V. 0,78/3,1 ≈ 25% wypełnienia
   PWM. Backlight: pin 21, kanał 0, 5 kHz, 8 bit, TFT_BL_INVERTED=0 — identyczne
