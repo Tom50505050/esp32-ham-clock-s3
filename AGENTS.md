@@ -130,6 +130,21 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
 - DIAGNOZA dla przyszłości: patrzyć na log `[TFT] rozjasnienie panelu` —
   jeżeli "ON" przy skardze "szare litery", to boost gamma (nie PWM backlight).
 
+## POMIAR NAPIĘCIA — 3,1V→0,78V na pinie LED ~25% duty (08.11.2026, commit c54a36d)
+- User zmierzył na pinie LED spadek 3,1V → 0,78V. 0,78/3,1 ≈ 25% wypełnienia
+  PWM. Backlight: pin 21, kanał 0, 5 kHz, 8 bit, TFT_BL_INVERTED=0 — identyczne
+  w v1.1 i HEAD (porównane w git). Watchdog co 1 s wymusza effectiveBacklight.
+- Podejrzenie programowe: NVS `tft_backlight` z niższą wartością (suwak jasności),
+  dawna migracja `tft_bl_mig` = jednorazowa, a `fadeBacklightTo(effective,800)`
+  po bootu (setup) sciemniał PWM do tej wartości. Zmysł: logi pokazują baza=100,
+  ale pomiar jest faktem.
+- Fix c54a36d: loadPreferences() ZAWSZE ustawia backlightPercent=100 i nadpisuje
+  NVS (`tft_backlight`), dopóki user jawnie nie zmieni suwaka po starcie.
+- DO ZROBIENIA przez usera: (a) wgrać paczkę 75f448... (twarde 100%), sprawdzić
+  czy pin LED trzyma 3,1V; (b) jeśli nadal spada — to HW (driver/transistor BL,
+  LDO 3,3V, kabel flex LED). Mierzyć na GPIO21 (nądcie) a nie na anodzie LED,
+  żeby rozdzielić soft vs sprzęt.
+
 ## RUNDA 08.11.2026 — user: szarzeje JUŻ przy boot (nie dopiero zegar) — commit 8a18ccb
 - User: "nie dopiero na zegarze tylko wcześniej przy ladowaniu bootu".
   PWM stabilnie 100% (log: baza=100, night=1, efekt=100), gamma fabryczna
