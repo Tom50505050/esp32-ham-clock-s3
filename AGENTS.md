@@ -80,6 +80,25 @@ Zgłoszenia „ściemnienie czcionki przy wgrywaniu w okolicy LittleFS" oraz
 - `effectiveBacklightPercent()` obniża tylko gdy `tftNightDimmingPercent>0 &&
   tftNightDimmingAuto && tftIsNightTime()` — suwak bez auto nie sciemnia stale.
 
+## POPRAWKI 06.11.2026 (HEAD 1fade1f) — twarde domknięcie „szarzenia"
+Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane paczki:
+- **`tftIsNightTime()` + `ti.tm_year < 125`**: przed NTP (lub bez RTC) `getLocalTime`
+  daje ~1970 (godzina 0), co traktowałoby czas jako „noc". Teraz rok < 2025 =
+  czas nieustawiony → funkcja zwraca false (nie sciemnia). To domyka scenariusz
+  przy włączonym `tftNightDimmingAuto` po resecie do czasu synchronizacji czasu.
+- **`/api/config` `tft_backlight`**: po zapisie z WWW `forceFullBacklightAfterBoot=false`
+  + `applyEffectiveBacklight()` — zapis działa natychmiast (watchdog do 1 s nie
+  powoduje opoznienia; user widzi efekt od razu).
+- Przebudowane `dist/merged-flash{,-notouch}.bin` (SUCCESS obu env, pio 6.2)
+  + `esp32-ham-clock-s3.zip` (734 wpisy, 8771436 B, SHA-256
+  `48ebe215f13ce119be43a59fe70bcdf5599f862cf08b30bd23e250a76c194f46`).
+- Serwery HTTP pod /workspace/share: `bash tools/serve.sh` (12000/12001).
+  Po restarcie srodowiska sprawdzaj `ps aux | grep http.server`.
+- Build procedure odtwarzania: `pio run -e X`, potem `pio run -e X -t buildfs`
+  (bez tego brak littlefs.bin), potem esptool merge_bin (jak tools/make_release.sh).
+  Uwaga: pio 6.2 czyści katalog build drugiego env przy run drugiego env —
+  scalaj obrazy natychmiast po buildzie danego env, zanim zbudujesz drugi.
+
 ## DIAGNOZA „szarzenia" v1.2d (05.11.2026) — przyczyna i eliminacja w v1.2e-beta
 Objaw: „po chwili wczytywania napisy szarzeją jakby ekran świecił słabiej,
 napięcie nie spada". Przyczyna **(potwierdzona w tagu v1.2d, `git show v1.2d:main.cpp`)**:
