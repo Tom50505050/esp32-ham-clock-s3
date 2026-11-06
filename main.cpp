@@ -23642,18 +23642,18 @@ void loadPreferences() {
   backlightPercent = preferences->getInt("tft_backlight", TFT_BACKLIGHT);
   if (backlightPercent < MIN_BACKLIGHT_PERCENT) backlightPercent = MIN_BACKLIGHT_PERCENT;
   if (backlightPercent > 100) backlightPercent = 100;
-  // Migracja jasnosci (03.11.2026): czcionka ma byc tak jasna jak na samym
-  // poczatku bootu (100%) na WSZYSTKICH ekranach. Wczesniejsze wersje mogly
-  // zapisac nizsze tft_backlight (suwak), przez co po starcie boot log byl
-  // jasny (PWM 100%), a kazdy ekran zegara juz sciemniony (PWM np. 70-80%).
-  // Jednorazowo wracamy do 100% - uzytkownik moze jawnie obnizyc jasnosc
-  // suwakiem w menu TFT / WWW.
-  if (backlightPercent < TFT_BACKLIGHT && !preferences->getBool("tft_bl_mig", false)) {
+  // Twarde 100% po starcie (08.11.2026): pomiar usera wykazal spadek
+  // napiecia na pinie LED z 3,1V do 0,78V (~25% duty) po zakonczeniu bootu.
+  // Przyczyna zaprogramowana: w NVS (tft_backlight) mogla byc zapisana nizsza
+  // jasnosc (suwak), a dawna "migracja tft_bl_mig" dzialala TYLKO RAZ. Na
+  // koncu bootu fadeBacklightTo(efektywna) sciemniacz PWM do tej wartosci.
+  // Teraz: ZAWSZE startuj z 100% i nadpisz NVS. Uzytkownik moze jawnie
+  // zmienic jasnosc suwakiem po starcie (to wylaczy te wymuszenie).
+  if (backlightPercent != TFT_BACKLIGHT) {
     backlightPercent = TFT_BACKLIGHT;
     preferences->putInt("tft_backlight", backlightPercent);
-    preferences->putBool("tft_bl_mig", true);
-    Serial.printf("[BL] Migracja: tft_backlight przywrocone do %d%% (jasna czcionka na wszystkich ekranach)\n",
-                  TFT_BACKLIGHT);
+    Serial.printf("[BL] Wymuszenie 100%% jasnosci (tft_backlight z NVS zostal %d%%)\n",
+                  preferences->getInt("tft_backlight", TFT_BACKLIGHT));
   }
   // Ściemnianie jasności (02.11.2026): suwak = poziom (0-100%); tftNightDimmingAuto
   // decyduje, czy ma się włączać automatycznie wieczorem (true), czy działać stale
