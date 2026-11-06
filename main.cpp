@@ -3210,8 +3210,21 @@ void drawRadiosondyScreen();
 
 // ========== INICJALIZACJA TFT (ESP32-S3 N16R8 + ILI9488) ==========
 #ifdef ENABLE_TFT_DISPLAY
+// TEST DIAGNOSTYCZNY (08.11.2026): user zmierzyl na GPIO21 spadek 3,1V->1,08V
+// mimo duty=255 (100% PWM). ESP32-S3 nie dziala przy VDD<3V, a dzialal - wiec
+// to nie zapad VDD, tylko zewnetrzny wezel sciagany przez tranzystor/tor LED.
+// Aby rozdzielic soft vs HW: podswietlenie = STALE 3,3V (bez PWM). Jesli pin
+// nadal spadnie - uszkodzony tor sprzetowy (tranzystor, kabel, LED). Jesli
+// pin trzyma 3,1V - PWM/firmware winne.
+#define BACKLIGHT_FORCE_DC_HIGH 1  // 1 = zawsze staly HIGH (bez PWM), 0 = normalny PWM
+
 void setupBacklightPwm() {
 #if (TFT_BL_PIN >= 0)
+#if BACKLIGHT_FORCE_DC_HIGH
+  pinMode(TFT_BL_PIN, OUTPUT);
+  digitalWrite(TFT_BL_PIN, HIGH);  // stale pelne napiecie, zero PWM
+  Serial.println("[BL] TEST DIAGNOSTYCZNY: staly HIGH (DC) na GPIO21 - bez PWM");
+#else
   pinMode(TFT_BL_PIN, OUTPUT);
   digitalWrite(TFT_BL_PIN, TFT_BL_INVERTED ? LOW : HIGH);
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
@@ -3222,7 +3235,8 @@ void setupBacklightPwm() {
   ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RES_BITS);
   ledcAttachPin(TFT_BL_PIN, BACKLIGHT_PWM_CHANNEL);
 #endif
-#endif
+#endif // #if BACKLIGHT_FORCE_DC_HIGH
+#endif // #if (TFT_BL_PIN >= 0)
 }
 
 // Zapis surowego wypelnienia PWM podswietlenia. Na rdzeniu 2.x ledcWrite()
