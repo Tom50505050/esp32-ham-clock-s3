@@ -175,6 +175,26 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
   cicho psuje cały obraz LittleFS (objaw: „brak ikon/obrazów" w firmware).
 - ZIP po fixie: `2356f3c7e5ff31f1d4700a4f59ee80946f7007b6fd1612102ac35e5522cb3cce`.
 
+## ZWIĘKSZONA PARTYCJA LittleFS (06.11.2026, commit po 71498410)
+- Problem usera: „Błąd wysyłania: brak miejsca w LittleFS" przy wysyłce tapety
+  (upload splash <307 kB) mimo wolnego ~5 MB na świeżym FS — user miał FS
+  zapchany starymi uploadami.
+- Zmiana w `partitions.csv` (16 MB flash):
+  - app0: `0x10000, 0x3F0000` → `0x10000, 0x240000` (2,25 MB; firmware 1,9 MB, 80,6%)
+  - littlefs: `0x400000, 0xBF0000` → `0x250000, 0xD90000` (**14 221 312 B**, ~13,6 MB;
+    +1 703 936 B = +1,6 MB wobec starego 0xBF0000)
+  - coredump: bez zmian `0xFF0000, 0x10000`.
+- **Offset LittleFS w scalaniu zmieniony z `0x400000` na `0x250000`**
+  (merge_bin, README_S3.md, download/README_S3.md).
+- WAŻNE (wyrównanie): rozmiar LittleFS musi być wielokrotnością 4096 dla
+  `mklittlefs`. `0xDA0000` (14 286 336) NIE łapie się (tool generuje 14 286 848)
+  i wychodzi poza partycję → użyto `0xD90000` = 14 221 312 (dokładnie tyle samo
+  co `littlefs.bin`). Weryfikacja: `stat -c%s littlefs.bin` == rozmiar partycji.
+- Pełny flash NOWEJ paczki (merged 0x0) czyści stary zapchany LittleFS
+  — po wgraniu zniknie komunikat „brak miejsca".
+- ZIP po zmianie partycji: `714984100e9c356e0f378398b27a53a146400a6f4670cbf14d391d0234801dcf`
+  wgrany na work-1 i work-2 (zweryfikowano SHA na obu hostach).
+
 ## POMIAR NAPIĘCIA — 3,1V→0,78V na pinie LED ~25% duty (08.11.2026, commit c54a36d)
 - User zmierzył na pinie LED spadek 3,1V → 0,78V. 0,78/3,1 ≈ 25% wypełnienia
   PWM. Backlight: pin 21, kanał 0, 5 kHz, 8 bit, TFT_BL_INVERTED=0 — identyczne
