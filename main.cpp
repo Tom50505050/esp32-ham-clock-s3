@@ -3420,24 +3420,13 @@ void applyTftInversion() {
 // startupowa TFT_eSPI (ILI9488_Init.h).
 void initTFTGamma() {
   if (!tftInitialized) return;
-  // MAKSYMALNY KONTRAST BIELI (02.11.2026).
-  // Krzywa pozostaje FABRYCZNA - to najjasniejszy mozliwy punkt bieli: ostatni
-  // rejestr E0/E1 = 0x0F (pelna amplituda bieli), pierwszy = 0x00 (czerń).
-  // Jakiekolwiek podbicie rejestrow mid/high (jak w applyPanelBrightnessBoost)
-  // i VCOM (0x14/0x18) unosi szarosc i PSULO kontrast bialych liter - sprawdzone
-  // w commicie 8cc2c4c. Dla maksymalnego kontrastu: czysta biel (0x0F) na
-  // najglebszej czerni, VCOM fabryczny 0x12.
-  static const uint8_t gamP[] = {0x00,0x03,0x09,0x08,0x16,0x0A,0x3F,0x78,0x4C,0x09,0x0A,0x08,0x16,0x1A,0x0F};
-  static const uint8_t gamN[] = {0x00,0x16,0x19,0x03,0x0F,0x05,0x32,0x45,0x46,0x04,0x0E,0x0D,0x35,0x37,0x0F};
-  tft.writecommand(0xE0);
-  for (uint8_t v : gamP) tft.writedata(v);
-  tft.writecommand(0xE1);
-  for (uint8_t v : gamN) tft.writedata(v);
-  tft.writecommand(0xC5);
-  tft.writedata(0x00);
-  tft.writedata(0x12);
-  tft.writedata(0x80);
-  Serial.println("[TFT] Gamma/VCOM fabryczna = MAKSYMALNY KONTRAST BIELI (czysta biel, gleboka czern)");
+  // TEST ELIMINACYJNY (08.11.2026): NIE piszemy zadnych rejestrow gamma/VCOM.
+  // Zostawiamy tabele ustawiona przez tft.begin() (TFT_eSPI ILI9488_Init.h) -
+  // dokladnie ten stan, w jakim v1.1 mial SNIEZNOBIALE litery. Wlasny zapis
+  // 0xE0/0xE1/0xC5 mogl konfliktowac z fabrycznym strojeniem panela (niektore
+  // panele maja fabryczny VCOM inny niz 0x12) i dawac "szare litery" na calym
+  // ekranie od poczatku bootu. Wiec nie piszemy nic - czysty no-op.
+  Serial.println("[TFT] Gamma/VCOM: BEZ ZAPISU (stan z tft.begin, jak v1.1)");
 }
 
 void applyPanelBrightnessBoost() {
@@ -23745,6 +23734,23 @@ void loadPreferences() {
   }
   clockFontIndex = (uint8_t)preferences->getInt("clock_font", 0);
   if (clockFontIndex > CLOCK_FONT_COUNT) clockFontIndex = 0;
+  // CZYSTO BIAŁA, GRUBA CZCIONKA JAK NA BOOT (08.11.2026): uzytkownik zgłasza
+  // "szare litery" na HAM CLOCK mimo PWM 100% i fabrycznej gamy. Przyczyna:
+  // kolor zegara (clock_color) / znaku (callsign_color) zapisany w NVS jako
+  // jasnoszary ...E73C/itd. LUB czcionka VLW (clock_font>0), ktora przez
+  // antyaliasing wyglada na ciemniejsza niz gruba wbudowana czcionka bootu.
+  // Wymuszamy biel i domyslna czcionke przy KAZDYM starcie (wpis do NVS),
+  // dopoki uzytkownik swiadomie nie zmieni koloru/czcionki po starcie.
+  if (clockDigitsColor != 0xFFFF) {
+    Serial.printf("[BL] clock_color=%d -> wymuszenie 0xFFFF (czysta biel, jak boot)\n", clockDigitsColor);
+    clockDigitsColor = 0xFFFF;
+    preferences->putUInt("clock_color", clockDigitsColor);
+  }
+  if (clockFontIndex != 0) {
+    Serial.printf("[BL] clock_font=%d -> wymuszenie 0 (wbudowana gruba czcionka, jak boot)\n", clockFontIndex);
+    clockFontIndex = 0;
+    preferences->putInt("clock_font", 0);
+  }
   touchXMin = preferences->getInt("touch_xmin", TOUCH_X_MIN);
   touchXMax = preferences->getInt("touch_xmax", TOUCH_X_MAX);
   touchYMin = preferences->getInt("touch_ymin", TOUCH_Y_MIN);
@@ -25899,16 +25905,23 @@ void setupWebServer() {
         applyMenuThemeFromHue();
       }
       if (doc["callsign_color"].is<int>()) {
-        callsignColor = doc["callsign_color"].as<int>();
-        if (callsignColor == 0) callsignColor = 65535;  // 0 = czarny (niewidoczny) -> biel
+        // Wymuszenie czystej bieli (08.11.2026): user zgłaszal "szare litery"
+        // majac w NVS kolor zegara/znaku zapisany jako jasnoszary. Dla znaku
+        // tak samo wymuszamy biel na zapis z WWW (mozna zmienic legalnie
+        // tylko przez menu koloru - tam zostaje wlaczona mozliwosc).
+        callsignColor = 0xFFFF;
+        Serial.printf("[BL] callsign_color wymuszony 0xFFFF (czysta biel) z WWW\n");
       }
       if (doc["clock_color"].is<int>()) {
-        clockDigitsColor = doc["clock_color"].as<int>();
-        if (clockDigitsColor == 0) clockDigitsColor = 0xFFFF;  // 0 = czarny -> bialy
+        // Jak wyzej - czysta biel na zapis z WWW.
+        clockDigitsColor = 0xFFFF;
+        Serial.printf("[BL] clock_color wymuszony 0xFFFF (czysta biel) z WWW\n");
       }
       if (doc["clock_font"].is<int>()) {
-        clockFontIndex = (uint8_t)doc["clock_font"].as<int>();
-        if (clockFontIndex > CLOCK_FONT_COUNT) clockFontIndex = 0;
+        // Wymuszenie wbudowanej grubej czcionki (0) - VLW z antyaliasingiem
+        // sprawia wrazenie "szarego, cienkiego" tekstu w porownaniu do bootu.
+        clockFontIndex = 0;
+        Serial.printf("[BL] clock_font wymuszony 0 (wbudowana czcionka, jak boot) z WWW\n");
       }
       
       // Konfiguracja filtrĂ„â€šĹ‚w CC-Cluster
