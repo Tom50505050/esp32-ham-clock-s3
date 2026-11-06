@@ -3286,8 +3286,13 @@ bool tftIsNightTime() {
   if (weatherData.iconCode.endsWith("n")) return true;
   if (weatherData.iconCode.endsWith("d")) return false;
   struct tm ti;
-  if (getLocalTime(&ti, 1)) return (ti.tm_hour < 6 || ti.tm_hour >= 18);
-  return false;
+  // Przed synchronizacja NTP (lub przy braku RTC) getLocalTime zwraca czas od
+  // startu ~1970-01-01 (godzina 0 -> "noc"). Taki czas NIE jest podstawa do
+  // wlaczenia nocnego obnizenia jasnosci - inaczej po resecie ekran przygasal
+  // do czasu synchronizacji. Rok < 2025 (tm_year < 125) = czas nieustawiony.
+  if (!getLocalTime(&ti, 1)) return false;
+  if (ti.tm_year < 125) return false;
+  return (ti.tm_hour < 6 || ti.tm_hour >= 18);
 }
 
 int effectiveBacklightPercent() {
@@ -25770,6 +25775,11 @@ void setupWebServer() {
         backlightPercent = doc["tft_backlight"].as<int>();
         if (backlightPercent < MIN_BACKLIGHT_PERCENT) backlightPercent = MIN_BACKLIGHT_PERCENT;
         if (backlightPercent > 100) backlightPercent = 100;
+        // Zapis z WWW to jawna zmiana jasnosci przez uzytkownika: koniec
+        // wymuszania 100% po starcie i natychmiastowa aktualizacja PWM, zeby
+        // nowa wartosc nie czekala na watchdog (do 1 s) ani restart.
+        forceFullBacklightAfterBoot = false;
+        applyEffectiveBacklight();
       }
       // Kalibracja pomiaru baterii. Najpierw stosujemy wartosci podane wprost
       // (bat_div_cal/bat_off), a dopiero na koncu jednopunktowa korekte z
