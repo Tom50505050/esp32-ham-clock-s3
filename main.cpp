@@ -3207,6 +3207,7 @@ static void drawRadiosondeMarkers(uint16_t landCol, uint16_t outCol, uint16_t bd
                                   uint16_t textCol, uint16_t qthCol, uint16_t accent,
                                   bool restoreMap = false);
 void drawRadiosondyScreen();
+static void requestLiveFetchInBackground();
 
 // ========== INICJALIZACJA TFT (ESP32-S3 N16R8 + ILI9488) ==========
 #ifdef ENABLE_TFT_DISPLAY
@@ -32200,6 +32201,16 @@ static void drawRadiosondeHistoryStatus() {
   tft.setTextDatum(TL_DATUM);
 }
 
+// Zleca pobranie zywych sond w tle (nie blokuje renderu). Gdy task tla
+// nie istnieje (fallback), pobiera synchroniznie.
+static void requestLiveFetchInBackground() {
+  if (sondeFetchTaskHandle != nullptr && !sondeFetchBgBusy) {
+    sondeFetchBgReqLive = true;
+  } else {
+    fetchRadiosondeData();
+  }
+}
+
 void drawRadiosondyScreen() {
   if (!tftInitialized) return;
   const bool classic = uiStyleClassic();
@@ -32219,9 +32230,9 @@ void drawRadiosondyScreen() {
       }
     }
   } else if (!sondeFetchedOnce || lastSondeFetchMs == 0) {
-    if (radiosondeEnabled) fetchRadiosondeData();
+    if (radiosondeEnabled) requestLiveFetchInBackground();
   } else if ((millis() - lastSondeFetchMs) >= SONDE_SCREEN_REFRESH_MS) {
-    if (radiosondeEnabled) fetchRadiosondeData();
+    if (radiosondeEnabled) requestLiveFetchInBackground();
   }
 
   // TrL OW C Y: dodatkowo pobierz pelna liste lowcow (dedykowane zrodlo

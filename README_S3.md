@@ -231,7 +231,9 @@ Fonty VLW: firmware szuka ich pod `/fonts/Inter-RegularNN.vlw`. Pliki `data/font
 są wgrywane razem z LittleFS przez `-t uploadfs` — albo od razu przez `dist/merged-flash.bin`.
 
 Adres startowy partycji LittleFS w tej tablicy to `0x250000` (patrz `partitions.csv`) —
-przy ręcznym wgrywaniu `.bin` używaj tego offsetu.
+przy ręcznym wgrywaniu `.bin` używaj tego offsetu. Partycja ma **14 286 848 B
+(~13,6 MB)** — rozmiar jest wielokrotnością 4096 (wymaganie `mklittlefs`);
+`0x250000 + 0xDA0000` kończy się dokładnie przed coredumpem (`0xFF0000`).
 
 ## 7. Gotowe obrazy (katalog `dist/`)
 

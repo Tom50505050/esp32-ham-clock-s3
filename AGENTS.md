@@ -181,19 +181,36 @@ Po analizie (patrz niżej) wprowadzone 2 poprawki w main.cpp i przebudowane pacz
   zapchany starymi uploadami.
 - Zmiana w `partitions.csv` (16 MB flash):
   - app0: `0x10000, 0x3F0000` → `0x10000, 0x240000` (2,25 MB; firmware 1,9 MB, 80,6%)
-  - littlefs: `0x400000, 0xBF0000` → `0x250000, 0xD90000` (**14 221 312 B**, ~13,6 MB;
-    +1 703 936 B = +1,6 MB wobec starego 0xBF0000)
+  - littlefs: `0x400000, 0xBF0000` → `0x250000, 0xDA0000` (**14 286 848 B**,
+    ~13,625 MB; +1 768 448 B = +1,69 MB wobec starego 0xBF0000)
   - coredump: bez zmian `0xFF0000, 0x10000`.
 - **Offset LittleFS w scalaniu zmieniony z `0x400000` na `0x250000`**
-  (merge_bin, README_S3.md, download/README_S3.md).
+  (merge_bin, README_S3.md, download/README_S3.md, INSTRUKCJA.md,
+  download/flash/index.html, tools/make_release.sh).
 - WAŻNE (wyrównanie): rozmiar LittleFS musi być wielokrotnością 4096 dla
-  `mklittlefs`. `0xDA0000` (14 286 336) NIE łapie się (tool generuje 14 286 848)
-  i wychodzi poza partycję → użyto `0xD90000` = 14 221 312 (dokładnie tyle samo
-  co `littlefs.bin`). Weryfikacja: `stat -c%s littlefs.bin` == rozmiar partycji.
+  `mklittlefs`. `0xDA0000` = 14 286 848 (== rozmiar `littlefs.bin`), a
+  `0x250000 + 0xDA0000 = 0xFF0000` — dokładnie przed coredump, zero przerwy.
+  Weryfikacja: `stat -c%s littlefs.bin` == rozmiar partycji.
 - Pełny flash NOWEJ paczki (merged 0x0) czyści stary zapchany LittleFS
   — po wgraniu zniknie komunikat „brak miejsca".
-- ZIP po zmianie partycji: `714984100e9c356e0f378398b27a53a146400a6f4670cbf14d391d0234801dcf`
-  wgrany na work-1 i work-2 (zweryfikowano SHA na obu hostach).
+- ZIP po maksymalizacji: `0c56a969486ef4064a007c5c740a69b9c3ccf91233b19eda290ece803d6eb8cf`
+  (merged-flash.bin = 16 777 216 B = pełne 16 MB; wgrany na work-1/work-2,
+  SHA zweryfikowany).
+
+## CZARNY EKRAN RADIOSONDY przy wejściu (07.11.2026)
+- Objaw: po przejściu na ekran sondy długo czarny ekran zamiast mapy.
+- Przyczyna: `drawRadiosondyScreen()` przy pierwszym wejściu
+  (`!sondeFetchedOnce || lastSondeFetchMs == 0`) i przy TTL 60 s wołał
+  **synchronicznie** `fetchRadiosondeData()` (HTTP + gzip ~1.3 MB + JSON —
+  kilka sekund) ZANIM cokolwiek narysowano (fillScreen czarny już był).
+  Tryb `history` już wcześniej był asynchroniczny (flaga `sondeHistNeedsFetch`).
+- Fix: helper `requestLiveFetchInBackground()` — ustawia flagę
+  `sondeFetchBgReqLive`, gdy istnieje task tła `sondeFetchBgTask`; tylko gdy
+  taska brak (fallback) robi synchroniczny fetch. Render pokazuje od razu
+  mapę + „ŁADOWANIE...", dane dochodzą w tle i `sondeFetchBgDone` przerysowuje
+  markery (ta sama ścieżka co historia). Uwaga: w `drawRadiosondyScreen()`
+  fetch live (co 60 s) także przeniesiony do tła (UI_loop nadal ma swój
+  synchroniczny fetch live co 60 s — nie zmieniano, nie powoduje czarnego ekranu).
 
 ## POMIAR NAPIĘCIA — 3,1V→0,78V na pinie LED ~25% duty (08.11.2026, commit c54a36d)
 - User zmierzył na pinie LED spadek 3,1V → 0,78V. 0,78/3,1 ≈ 25% wypełnienia
