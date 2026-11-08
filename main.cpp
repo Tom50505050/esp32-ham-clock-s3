@@ -3416,6 +3416,10 @@ static void backlightWatchdogLoop() {
   lastBacklightWatchdogMs = now;
   // Podczas bootu PWM jest wymuszony na 100% (biale litery na czarnym tle).
   if (bootSequenceActive) return;
+  // Podczas usypiania ekranu NIE wlaczaj podswietlenia z powrotem - watchdog
+  // co sekunde przywrocilby jasnosc >=MIN_BACKLIGHT_PERCENT i zniszczyl efekt
+  // oszczedzania energii (enterScreenSleep wylaczyl PWM przez writeBacklightDuty(0)).
+  if (screenSleepActive) return;
   // setBacklightPercentRaw loguje TYLKO gdy percent != backlightPercent
   // (czyli gdy cos realnie zmienilo jasnosc); na co dzien jest cichy.
   // applyEffectiveBacklight() logowal ZAWSZE -> zapychal serial log co sekunde.
@@ -24330,7 +24334,7 @@ static bool streamStaticAsset(const char *path, const char *contentType, int max
 
 String getManualPL() {
   return String(
-    "ESP32-HAM-CLOCK v1.2e BETA (23.10.2026)\n"
+    "ESP32-HAM-CLOCK v1.2e BETA (06.11.2026)\n"
     "Autor oprogramowania: Tomasz SP9TNV\n"
     "Na podstawie projektu: Konrad Wisniewski SP3KON (z uĹĽyciem AI)\n"
     "Kontakt: SP9TNV@gmail.com\n\n"

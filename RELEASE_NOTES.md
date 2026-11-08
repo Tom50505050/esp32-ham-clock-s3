@@ -13,6 +13,26 @@ Dokument obejmuje wydania **v1.2**, **v1.2a**, **v1.2b**, **v1.2c** i **v1.2e** 
 
 ---
 
+# ESP32-HAM-CLOCK **v1.2e BETA — poprawione wydanie (08.11.2026)**
+
+Poprawki wprowadzone do artefaktów wydania `v1.2e-beta` (przebudowane obrazy
+`merged-flash*.bin` i paczka `esp32-ham-clock-s3.zip`):
+
+- **Fix: nieaktualne skompresowane strony WWW (`.gz`)** — `data/index*.html.gz`
+  (6 języków) serwowały jeszcze treść **v1.2d** ("ESP32-HAM-CLOCK v1.2d") zamiast
+  **v1.2e BETA**. Błędne pliki powstały przed przelabelowaniem wersji, więc
+  przeglądarki wysyłające `Accept-Encoding: gzip` dostawały stare strony.
+  Wszystkie `.gz` zostały wygenerowane ponownie z bieżących źródeł `data/*.html`
+  (deterministycznie, `mtime=0`).
+- **Fix: watchdog podświetlenia budził ekran z uśpienia** —
+  `backlightWatchdogLoop()` co sekundę przywracał jasność
+  (≥ `MIN_BACKLIGHT_PERCENT`) nawet gdy tryb uśpienia ekranu był aktywny,
+  przez co `enterScreenSleep()` (wyłączenie PWM + czarny ekran) nie zmniejszał
+  poboru mocy. Dodano strażnik `screenSleepActive` w watchdogu — podczas uśpienia
+  podświetlenie pozostaje wyłączone, a budzenie działa nadal przez dotyk.
+
+---
+
 # ESP32-HAM-CLOCK **v1.2e BETA** (06.11.2026) — wydanie zbiorcze (od v1.1 do v1.2e BETA)
 
 > ⚠️ **Wydanie BETA.** Testy przed wgraniem na głównym zegarze zalecane.
