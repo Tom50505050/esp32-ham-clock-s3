@@ -3,8 +3,6 @@ Zawartość katalogu data/ wgrywana do LittleFS:
 
 Pliki (nazwy muszą się zgadzać - kod szuka dokładnie tych ścieżek):
 
-  splash.bmp        - ekran startowy. 24-bit BMP, max 480 px szerokości,
-                      wysokość <= 1000. Tu: 480x320. (dostarczony placeholder)
   mapa.bmp          - mapa świata do ekranu HamClock (140x80, 16-bit RGB565).
   Mapa swiata.bmp   - mapa do ekranu PSK (480x320, 24-bit) ORAZ tło mapy
                       satelitów w WWW (serwowana jako /mapa_swiat.bmp).

@@ -1,0 +1,1 @@
+5a5f918ea50ce3addaa13020d33f54b043efe4edcb464ee4108dcfae0171f5ef  esp32-ham-clock-s3.zip

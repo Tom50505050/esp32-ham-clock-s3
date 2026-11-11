@@ -2,6 +2,157 @@
 
 Firmware zegara/DX-toola dla krótkofalowców (Arduino/PlatformIO).
 
+## Sesyjny wpis 11.11.2026 — PRZYWRÓCONY ekran powitalny + usunięty TFT-order (WWW)
+- **Kierunek odwrócony** (patrz niżej „Splash/welcome USUNIĘTE 11.11.2026" — to
+  była decyzja pośrednia; OSTATECZNIE welcome PRZYWRÓCONY):
+  - **Firmware**: `drawWelcomeScreenYellow()` (L5779, prototyp L99) rysuje
+    `/welcome.<ext>` (`findWelcomePath()` szuka /welcome.bmp/png/jpg/jpeg,
+    L5771) albo domyślną wiadomość z `FIRMWARE_VERSION "1.2e-beta"`.
+    `resolveUploadTarget` (**L26927**) ma gałąź `"welcome"` → `/welcome<ext>`;
+    `handleUpload`/`rawUploadFinish` wywołują `removeOldWelcomeVariants()`.
+    Trasy: `/upload_welcome` (L29653, HEADER `X-Upload-Target` może nadpisać),
+    `/welcome_preview` (L29660), `/welcome_clear` (L29667). Setup (~L36078)
+    pokazuje ekran powitalny ~4 s albo do dotknięcia.
+  - **WWW (6× data/index*.html)**: przywrócono opcję `welcome` w dropdown
+    `#img-target` („Ekran powitalny" / „Welcome screen" / „Willkommensbildschirm"
+    / „Écran d'accueil" / „Pantalla de bienvenida" / „Экран приветствия").
+    PL dodatkowo ma blok `welcome-direct` (upload `/upload_welcome`, przycisk
+    usunięcia, podgląd `/welcome_preview`) + JS `initWelcomeUpload()`
+    (wywoływane z `page === "tft"` obok initWallpaperUpload).
+  - **WWW: usunięto sekcję „Ekrany TFT (kolejność)"** (16 selectów +
+    auto-switch) w 6 plikach + cały JS screen-order: `screenOptionsDefault`,
+    `screenCodeAliases`, `applyScreenOrderToUI`, `readScreenOrderFromUI`,
+    `tft_switch_time_sec`. **Uwaga**: WWW już NIE wysyła `screen_order`
+    (zero wystąpień) — firmware zachowuje ostatnią wartość w NVS
+    (`preferences->getBytes("screen_order",…)` L26097) bez nadpisywania.
+    Firmware NIE był okrawany — wciąż parsuje `doc["screen_order"]` w `/api/save`.
+  - **Build**: littlefs obu env przebudowane (`python3 -m platformio run -t
+    buildfs`), `tools/make_gz.py` przed buildfs, scalenie `tools/make_release.sh`
+    (littlefs offset 0x2B0000). Hashe: merged-flash.bin `587cd530…`,
+    notouch `7275a8be…`. Wdrożono do `/workspace/share/` (work-1/work-2) i
+    `download/`; `git add` całości (data/ dist/ download/ main.cpp).
+  - **Balans div w PL**: `data/index.html` ma bal=-1 — TAK BYŁO W ORYGINALE
+    (backup też -1); NIE naprawiać, żeby nie zepsuć struktury. EN/DE/FR/ES/RU=0.
+
+## Sesyjny wpis 11.11.2026 — Buzzer NOC + mapa PROPAGACJA + build (working-1.2e-beta)
+- **BUG kompilacji BLE**: `bleSendln(const char*)` dostawał `String + const char*`
+  (typu `StringSumHelper`) — 2 konwersje user-defined ⇒ `cannot convert`. Fix:
+  `.c_str()` na całym wyrażeniu w `handleBleLine` (INFO, UART2>, Nieznana komenda).
+- **Flash overflow**: aplikacja z BLE+dekoderami miała **2 516 985 B** >
+  limit `app0` **0x240000** (2 359 296). LTO nie działa (framework prekompilowany,
+  `plugin needed to handle lto object`+utrata `app_main`). Rozwiązanie:
+  **`partitions.csv` app0 0x240000→0x2A0000**, LittleFS **0x250000→0x2B0000**
+  (size 0xDA0000→0xD40000). Zaktualizowano `tools/make_release.sh` (offset
+  littlefs w merge), `INSTRUKCJA.md`, `README_S3.md`. Po zmianie buildy obu env
+  SUCCESS (91.4% flash).
+- **PROPAGACJA „ŁADOWANIE..." wiszące**: `drawSunSpots()` ustawiał tylko
+  `propMapFetching`, nie `propMapFetchReq` — task `propMapFetchBgTask` czeka
+  wyłącznie na `propMapFetchReq`, więc mapa nigdy nie startowała. Poprawka
+  `~L13515`: `propMapFetchReq = true` (jeśli task istnieje). Flicker z pętli
+  `~L31257` w steady-state nie występuje: `updateScreen3Data()` ma guard
+  sygnatury (`computeScreen3Signature` — pasmo/region/godz. UTC/flagi), więc
+  tło mapy nie jest rysowane co 1 s.
+- **Buzzer NOC**: `aprsBuzzerNoc` (bool globalny ~L2354), menu S6 checkbox
+  w row 3 obok „Buzzer" (x=306, wzajemne wykluczanie ~L9339-9352),
+  NVS `aprs_bzr_noc`, JSON import/export, WWW (dodano też do `data/index.html`
+  — faktycznie serwowanego panelu). `aprsBeepPlayForStation` gdy NOC →
+  `notesNocSingle` (1 krótki cichy pip, APRS_NOTE_D(2000,90,200)).
+- **Build procedure** (pio 6.2 zainstalowane z `platformio-6.2.0-py3-none-any.whl`):
+  `python3 -m platformio run -e esp32-s3-n16r8`; `-t buildfs`; esptool merge
+  (offset littlefs **0x2B0000**); `tools/make_gz.py` PRZED buildfs; ZIP
+  `tools/make_zip.py`; serwery: `bash tools/serve.sh` (12000/12001, root
+  `/workspace/share`).
+- **Splash/welcome USUNIĘTE** (11.11.2026): endpointy `/upload_splash`,
+  `/upload_welcome`, `/splash_preview`, `/welcome_preview`, funkcje
+  `removeOldSplashVariants`/`removeOldWelcomeVariants`, flagi
+  `rawUploadIsSplash`/`mpUploadIsSplash` — usunięte. `resolveUploadTarget()`
+  bez gałęzi welcome/splash; domyślny fname `grafika.bmp`. WWW (6 wersji
+  `data/index*.html`): bez opcji splash/welcome w `#img-target`,
+  `uploadConvertedImage` tylko `/upload/mapa565` lub `/upload_wallpaper`.
+  Usunięte z data/: `splash.bmp`, `pzk-logo.bmp`, `Welcome-Regular21.vlw`.
+  Stare pliki `/splash.*`, `/welcome.*` w LittleFS są ignorowane.
+  Nieużywane legacy narzędzia (zostawione): `tools/make_splash.py`,
+  `tools/make_qsl_splash.py`, `tools/render_welcome_preview.py`.
+- **Dokumentacja po usunięciu splasha** (11.11.2026): INSTRUKCJA.md sekcja 8.3
+  → „Ekran startowy / powitalny (usunięty)"; README.md — opis dekoderów bez
+  'pełnoekranowy splash', LittleFS bez splash.bmp, notka w changelogu v1→v1.2,
+  struktura tools/ bez 'splash'; README_S3.md — sekcja 6 i komenda bez splash.
+  `download/index.html` to **strona projektu** (esp-web-install-button),
+  NIE kopia panelu — nie nadpisuj go panelem; przywrócony z HEAD gdy nadpisano.
+- **Martwe style `.splash-*` usunięte** z `data/style.base.css` (7 selektorów:
+  `.splash-upload-box`, `.splash-preview*`, `.splash-file-input`,
+  `.splash-upload-btn*`) — nieużywane w HTML. Po zmianie CSS: `make_gz.py` →
+  build obu env → `-t buildfs` (touch i notouch!) → merge (offset LittleFS
+  0x2B0000) → `make_zip.py` → `make_flash_page.py` → skopiuj dist→share i
+  dist/download + zip→share/download + SHA256.
+- **`tools/make_release.sh`**: poprawiona ścieżka esptool — było
+  `$ESPTOOL_ROOT=/workspace/pioenv` (nieistniejący), teraz `python3 -m esptool`.
+- **Aktualne hasze (po naprawie imienin, 11.11.2026)**:
+  - `merged-flash.bin` = `abfd3065...` (poprawny UTF-8 polskich imienin)
+  - `merged-flash-notouch.bin` = `92c983a3...`
+  - `esp32-ham-clock-s3.zip` = `57742ca8...`
+  - poprzednie (po usunięciu splash): `1e31d562...`, `7f657e60...`, `9c02a860...`.
+
+## Naprawa polskich liter w imieninach (11.11.2026)
+- **Objaw**: na ekranie imieniny bez polskich znaków (np. "Przemysaw" zamiast
+  "Przemysław"); przyczyną NIE był font — Inter-Regular*.vlw zawierają pełny
+  zestaw polskich glifów (U+0104..U+017C, ó/Ó) pod właściwymi kodami Unicode.
+- **Sedno**: tablica `nameDays[12][31]` w `getPolishNameDay()` miała **mojibake**
+  (double-encoding CP1250→UTF-8): np. "ł" zapisany jako `C4 B9 E2 80 9A`
+  ("Ĺ‚"), "ó" jako `C4 82 C5 82` ("Ăł"). TFT_eSPI przy VLW traktuje te bajty
+  jako inne znaki → znikające/fałszywe litery.
+- **Fix**: przekodowano tablicę imienin (62 linie) na poprawny UTF-8 przez
+  `s.encode('cp1250').decode('utf-8')` per linia (znaki U+0080..U+009F mapują
+  1:1, reszta przez CP1250). Także `toAsciiPolish()`, `getManualPL()` i stringi
+  HTML (instrukcja montażu, upload mapy) — te same poprawki. Logi/komentarze
+  zostawione (nie wyświetlane).
+- **Fallback**: `sanitizePolishToAscii()` (operuje na bajtach UTF-8 hex —
+  poprawna) konwertuje teraz-poprawne imiona na ASCII, gdy VLW nie jest
+  załadowany.
+
+## Poprawki z testów — 2. seria (10.11.2026)
+- **Ustawienia TFT tylko w zegarze**: HAM LOGGER nie ma już przycisku SETTINGS
+  (był tam 4. przycisk otwierający `drawBrightnessMenu()`). `handleLoggerTouch`
+  i `drawLoggerForm` mają teraz 3 przyciski równej szerokości; `loggerOpenSettings()`
+  usunięta. Menu jasności/kalibracji otwiera tylko HAM CLOCK (long-press 3 s).
+- **APRS beep o oktawę wyżej**: `aprsBeepTone(freq,duty)` — gustowny wrapper
+  buzzerRawTone z `<< BUZZER_OCTAVE_UP` dla nut <2000 Hz (analogicznie do
+  `alarmTone()`). Używany przez `aprsBeepPlay`, `aprsBeepStartPattern`,
+  `aprsBeepUpdate`. Bez tego melodie grały surowo 261–880 Hz (za nisko).
+- **Grey Line grafika 2.0**: `drawGreyline` (~12026) maluje mapę 456×228 (2:1)
+  z płynnym gradientem dzien/noc (blend R5G6B5, per-ląd/ocean) w strefie ±8°;
+  siatka co 30°; podwójna ramka; Słońce z glow; QTH z obrysem; stopka-legenda.
+- **APRS RX→TX z alertu**: alert APRS ma przycisk REPLY (`drawAprsAlertReplyButton`,
+  `isAprsAlertReplyButtonHit` ~15743) w prawym dolnym rogu (classic+modern).
+  Otwiera popup odpowiedzi (`aprsReplyOpenForCall`, flaga `aprsReplyFromAlert`);
+  po zamknięciu wraca do alertu (`ALERT_Screen(aprsAlertScreenStation)`).
+  UI nie nadpisuje popupu nowym alertem (`aprsAlertDrawPending && !aprsReplyPopupActive`).
+  Uwaga: `aprsReplyHandleTouch` wywołuje `ALERT_Screen` — dlatego forward
+  declaration na górze pliku.
+
+## APRS TX + GREY LINE (10.11.2026)
+- **APRS reply popup**: `aprsReplyPopupActive` (+ state ~line 2260),
+  `aprsReplyDrawQuick/Popup/Keyboard`, `aprsReplyHandleTouch` (~line 9100).
+  Otwarcie: `handleTouchNavigation` w bloku `SCREEN_APRS_IS`
+  (dotknięcie wiersza listy, y 55..265, x 80..400 — środkowy pas, bo rogi
+  i stopka są zarezerwowane dla nawigacji ekranów).
+  Dotyk popupu przechwytywany globalnie (po alertach, przed GPS).
+- **Wysyłka**: `sendAprsMessage` (APRS-IS, `::DST:tresc{NNN`) lub
+  `kissSendAprsMessage` gdy `aprsKissEnabled` (AX.25 message przez LoRa).
+  `String::replace` zwraca `void` — nie łańcuchować!
+- **SCREEN_GREYLINE=18**: nowy ekran, mapa świata z ISS_WORLDMASK,
+  dzień/noc/szary pas (elevacja Słońca <8°), pozycja Słońca i QTH,
+  `drawGreyline()` (~line 11985). Odświeżanie co 60 s w UI tasku.
+- Kolejność ekranów: `SCREEN_PAGE_COUNT`/`SCREEN_ORDER_COUNT` = 17,
+  `DEFAULT_SCREEN_ORDER`/`screenOrder` + GREYLINE na końcu, `seen[]`
+  `SCREEN_GREYLINE+1`, HTML/JS WWW (SCREENS ma `greyline`; 17 slotów).
+- Grejline jest w `issFullBleed` i `isHeaderScreen` (własny nagłówek).
+- **WWW serwowane jest z LittleFS (`data/index*.html` + `.gz`); `getMainHTML()`
+  to wyłącznie fallback.** Panel WWW miał 16 slotów screen_order — rozszerzyć na
+  17 we WSZYSTKICH językach (`data/index*.html`) i przegenerować `.gz`
+  (`tools/make_gz.py`), inaczej `screen_order[16]` (greyline) jest ignorowany
+  i po zapisie z WWW ekrany się przesuwają.
+
 ## WWW: panel RADIOSONDY (SondeHub) przeniesiony do ustawien; ekran odswiezany co 30 s (04.11.2026)
 Uzytkownik: „przenies RADIOSONDY (SondeHub) do www ustawienia, a z ekrany ftf usuń
 RADIOSONDY (SondeHub) i odswieżanie ekranu RADIOSONDY co 30 s".
@@ -779,13 +930,14 @@ dla `/mapa_swiat.bmp` i podglądu splash.
   strony (bez zmian zasobów) nie pobiera CSS/JS ponownie.
 
 ## Moduły ładowania (pełna lista) + kolor linków „Przydatne zasoby" (13.11.2026)
-- **Lista modułów ładowania rozszerzona** z 4 na 14 układów. `chargerModuleName()`
+- **Lista modułów ładowania rozszerzona** z 4 na 15 układów. `chargerModuleName()`
   (main.cpp) zwraca teraz: 0=TP4056, 1=TP4100, 2=IP2312, 3=CN3065, 4=TP4054,
   5=TP4057, 6=TP5000, 7=MCP73831, 8=MCP73833, 9=BQ24074, 10=BQ24075, 11=CN3791,
-  12=IP5306, 13=IP5328, 14=„Inny". Dodano `CHARGER_MODULE_MAX = 14`; walidacja
-  w `loadPreferences` i POST `/api/save` używa tej stałej (wcześniej sztywne 4).
+  12=IP5306, 13=IP5328, 14=MH-CD42, 15=„Inny". Dodano `CHARGER_MODULE_MAX = 15`;
+  walidacja w `loadPreferences` i POST `/api/save` używa tej stałej (wcześniej
+  sztywne 4).
 - **WWW – zakładka „Moduły", sekcja „🔋 Akumulator i moduł ładowania"**: select
-  `charger_module` ma wszystkie 15 pozycji (PL `data/index.html` + EN
+  `charger_module` ma wszystkie 16 pozycji (PL `data/index.html` + EN
   `data/indexEN.html`, regenerowane DE/FR/ES/RU przez `tools/gen_pages.py`) oraz
   w awaryjnym HTML w `main.cpp`. Etykiety układów to nazwy własne (nie tłumaczone).
 - **Kolor linków**: w zakładce „Linki" linki w tabeli „Przydatne zasoby"
@@ -1526,6 +1678,26 @@ Wydanie zbiorcze (wcześniej planowane jako v1.2e + v1.2e, scalone w jedno **v1.
   -> wymuszany zolty. API: `/api/config` GET/POST pole `clock_color`.
 - WWW (`data/index.html`, zakladka "Twoja Stacja"): kolor-picker
   `#clock_color_picker` (domyslnie `#ffff00`), konwersja hex<->RGB565 jak dla znaku.
+- **Tryb TECZA (10.11.2026):** przycisk `TECZA: WL/WYL` (dolny-lewy) w menu
+  pelnego koloru zegara; kazda cyfra rysowana per-znak kolorem HSV
+  (`clockDrawCentered(..., rainbow)` -> `clockDrawMonospace(..., rainbow)`).
+  `clockRainbowActive` globalna + NVS `rainbow_color`. TECZA i MIX wzajemnie
+  sie wylaczaja; ZAPISZ/DOMYSLNE wylaczaja tecze; `maybeMixClockColor()`
+  chroniona warunkiem `!clockRainbowActive`.
+  - **Kolor co 5 s, bez migania (poprawka 10.11.2026):** odcien liczony z
+    `millis()/5000` (`rainbowStep`), a nie `millis()/280`. w `clockDrawMonospace`
+    `prevRainbowStep` pozwala rysowac przyrostowo: zwykla zmiana sekundy
+    dotyka tylko zmienionych cyfr (full=false), pelne przepisanie nastepuje
+    tylko przy zmianie kroku koloru; globalny `fillRect` pasa omijany przy
+    `rainbowAdvanced`. Fallback czcionki wbudowanej uzywa rownego rstep.
+
+## GLOSNOSC APRS (menu APRS Setting) — 10.11.2026
+- `aprsBeepVolume` (NVS `aprs_beep_vol`, zakres ALM_VOL_MIN..ALM_VOL_MAX).
+  `aprsBeepTone()` podmienia domyslna duty na `aprsBeepVolume` gdy `duty ==
+  APRS_BEEP_DUTY` (jawne `APRS_NOTE_D` bez zmian).
+- Suwak `GLOSNOSC APRS` w `drawAprsSortMenu()` (y=214), `screen6MenuAprsVolTemp`,
+  probka dzwieku `aprsBeepPlay()` przy przeciaganiu w `handleScreen6MenuTouch`;
+  SAVE zapisuje do NVS. Layout menu zageszczony (checkRowGap 20, dystans y=248).
 
 ## EKRAN STARTOWY (splash) — 15.10.2026
 - `data/splash.bmp` (480x320, 24-bit RGB, bottom-up) w stylu **karty QSL**,
@@ -1611,6 +1783,16 @@ Dwie przyczyny:
 
 ## Wygląd WWW + śledzenie satelitów — 2026-10-11 (v1.4)
 - **Nowoczesny motyw:** `data/style.modern.css` — nakładka ładowana PO style.base/desktop/mobile (nadpisuje wygląd bez zmiany HTML/JS). Zmienne CSS, ciemny motyw z gradientami, glassmorphism, karty, pigułki nawigacji (sticky), tabele sticky-header + hover, responsywność.
+- **Motyw jasny/ciemny WWW (10.11.2026):** przycisk `#theme-toggle` (🌙/🌞) obok
+  `lang-switch` w pasku nawigacji; JS na końcu strony dodaje `body.theme-light`
+  i zapamiętuje wybór w `localStorage` (`hamclock-theme`, pierwsza wizyta →
+  `prefers-color-scheme`). Paleta jasna = nadpisanie zmiennych `:root` na
+  `body.theme-light` w `style.modern.css` plus nadpisania twardych kolorów
+  (`.nav`, `.nav-btn.active`, formularze, tabele, mobile `.dx-mobile-shell` itd.).
+  **WAŻNE dla gen_pages.py:** przycisk musi być **poza** blokiem `lang-switch`,
+  bo `gen_pages.py` podmienia cały ten blok regexem (stare wersje umieszczały go
+  wewnątrz i znikał przy regeneracji DE/FR/ES/RU). Po dodaniu motywu w EN trzeba
+  `python3 tools/gen_pages.py` + `python3 tools/make_gz.py` + buildfs + merge.
 - **Pasek statusu** w nagłówku (online/offline, IP, wolny RAM) — nowy lekki endpoint `/api/status` (StaticJsonDocument<256>), odpytywany co 10 s.
 - **Strona „Satelity"** (`#satellite-page`, przycisk 🛰 w nav, PL+EN):
   - `data/satellite.js` — mapa świata na canvas (kontury kontynentów WBUDOWANE w JS, brak CDN → działa offline), ground-track z SGP4 (`/api/iss_track`), okrąg zasięgu 5000 km, znacznik QTH, radar azymut/elewacja, metryki (lat/lon/wys./prędkość/az/el/dystans), najbliższy przelot, auto-odświeżanie co 5 s.
@@ -3109,3 +3291,25 @@ FW (zacommitowane częściowo na `main`, HEAD 4e7ee43):
 - Auto-odświeżanie: UI loop co `radiosondeLiveMin` min (`lastSondeFetchMs`/`staleMs`); hamburger w touch handlerze wymusza refetch (`lastSondeAttemptMs=lastSondeFetchMs=0` + redraw). `http.setTimeout(5000)`.
 - Ikony znaczników: `tools/gen_radiosonde_icons.py` → `radiosonde_icons.h` (Fluent Emoji 3D MIT: Balloon + Automobile, 16×16 RGB565, sentinel 0xF81F = przezroczysty). `drawRsIcon(x,y,w,h,arr,stride)` wyśrodkowana, pomija sentinel (wzór `APRS_HOUSE_ICON`). Uwaga na generator: `to565()` musi rzutować na `int`, bo numpy `uint8` przesuwa bity modulo 256 → ikona wychodziła niebieska.
 - Kompilacja w pio: 4 envy jak wyżej. Po zmianach w `main.cpp` weryfikować balans nawiasów (pomoc: `git show HEAD:main.cpp` dla bazowego odchylenia {2,9} — nie wprowadzać nowych).
+
+## PROPAGACJA (ekran 3) — mapa live z dr2w.de (10.11.2026)
+Ekran SCREEN_SUN_SPOTS („PROPAGACJA") przerobiony z tekstu (SFI/K/A) na **mapę propagacji live** z `img.propagation.dr2w.de`.
+- URL: `https://img.propagation.dr2w.de/<region>/<pasmo>/dr2w_<pasmo>_<HHUTC>.png`, PNG 1091×501.
+- Regiony (6): `europe, n-america, africa, s-america, asia, australia` (skróty EU/NA/AF/SA/AS/OC). Pasma (8): 80M 40M 30M 20M 17M 15M 12M 10M. Domyślne: europe + 40M (`propRegionIndex=0, propBandIndex=1`).
+- Stałe: `PROP_MAP_*` (przy `PROPAGATION_URL`, ~linia 1873). Stan: `propMapBuf` (PSRAM 480×216 RGB565), `propMapReady/Fetching`, `propMapLastError`, `propMapUtcHour`.
+- Fetch: `fetchPropagationMap()` — `WiFiClientSecure` + `HTTPClient`, pngle ze strumienia (`propPngInit/propPngDraw`); skala cover `src*PROP_MAP_W/pngW` (bez dzielenia przez 2). Blokujące, wywoływane w UI loop (currentScreen==3, `propMapFetching`). Godzina UTC z `gmtime_r` (`propUtcHour()`, nie `getLocalTime` — lokalna strefa!).
+- Rysowanie: `drawSunSpotsBody()` — mapa cover w 0..34..250, przyciski regionów y252..264, pasma y268..280 (CYAN aktywny / 0x1082 tło), status y282. `drawSunSpots()` wywołuje `drawSwitchScreenFooter()` (strzałki y309).
+- Dotyk: `handlePropagationTouch(x,y)` (geometry jak rysowanie); ekran dodany do `screenHandlesOwnNav` w handleTouchNavigation; reszta = `handleScreenSwitchTouch(x,y,296,80)`. Zmiana band/region → `propMapReady=false, propMapFetching=true` (pętla fetchuje i rysuje).
+- Signature: `computeScreen3Signature()` uwzględnia `propMapReady/propBandIndex/propRegionIndex/propMapUtcHour/propMapFetching/propMapLastError`.
+- Uwaga: `imgRgb565` zdefiniowana globalnie ~15611 — w bloku mapy tylko forward declaration (unikać duplikatu!). `pngle_set_init_callback/Set_draw_callback` sygnatury w `.pio/libdeps/.../pngle/src/pngle.h`.
+- Podglądy: `tools/render_propagation_map_preview.py` (Pillow, cover), pliki `dr2w_*_12.png` w `tools/`, galeria `download/propagation.html`; podglądy 2 regiony×2 pasma w download.
+- Build: env touch i notouch SUCCESS (pio 6.2). Dystrybucja: dist/merged-flash{,-notouch}.bin + esp32-ham-clock-s3.zip + kopie w download/ (narzedzia tools/make_release.sh, tools/make_zip.py; esptool systemowy `python3 -m esptool`).
+- **ASYNC fetch (poprawka opoznienia dotyku):** mapa pobierana w osobnym tasku FreeRTOS `PropMapFetch_Task` (Core 0, prio 1, stack 16 kB, jak SondeFetch_Task). UI tylko ustawia `propMapFetchReq` i czeka na `propMapFetchDone`; NIE blokuje. `handlePropagationTouch` od razu robi `drawScreen` (natychmiastowa zmiana podswietlenia + "LADOWANIE..."). Stany wiatkowe: `propMapFetchReq/Busy/Done` (volatile), `propMapMux` (SemaphoreHandle_t) chroni propMapBuf przy pushImage/fetch. `propMapLastError` to `char[48]` (String nie jest watkowo bezpieczny!).
+
+## SESJA: przywrócony ekran powitalny + usunięty TFT-order (11.11.2026)
+- **Welcome przywrócony** w firmware: `drawWelcomeScreenYellow()`, `findWelcomePath()` (`/welcome.bmp|png|jpg|jpeg`), trasy `/upload_welcome`,`/welcome_preview`,`/welcome_clear`, `resolveUploadTarget("welcome")` → `/welcome<ext>`, `removeOldWelcomeVariants()`. Po starcie ~4 s splash/welcome → główny ekran.
+- **WWW 6 języków**: dropdown „Grafika na ekran" ma opcję `value="welcome"`. PL wysyła do `/upload_welcome`; EN/DE/FR/ES/RU do `/upload_wallpaper` z nagłówkiem `X-Upload-Target: welcome` — firmware honory nagłówek z pierwszeństwem (L27024/L27077) w OBU ścieżkach (multipart i RAW). Usunięta sekcja „Ekrany TFT (kolejność)" + cały JS screen_order/screen_slot_ (NVS zachowuje kolejność).
+- **ROZRÓŻNIENIE RÓL `index.html` (ważne!):** `download/index.html` = **strona projektu/instalator** (esp-web-install, z HEAD; NIE nadpisywać panelem). `/workspace/share/index.html` = **panel PL** (kopia `data/index.html`, artefakt LittleFS dystrybucyjny — share/ NIE hostuje działającego panelu z assetami, brak style.*.css/satellite.js; user wgrywa `data/` przez uploadfs). Po wdrożeniu share/index.html powinien = data/index.html.
+- Dystrybucja po zmianach data/ lub docs: `python3 tools/make_gz.py` (index*.html.gz), `pio buildfs` obu env, `bash tools/make_release.sh` (scala dist/merged-flash*.bin), `python3 tools/make_zip.py` (733 wpisów), `cp esp32-ham-clock-s3.zip download/ /workspace/share/` + `sha256sum` do `esp32-ham-clock-s3-SHA256.txt` (download/ + share/) + `merged-flash-SHA256.txt`, `bash tools/serve.sh` (restart HTTP 12000/12001), weryfikacja curl (welcome=1, screen_slot=0).
+- Dokumentacja: INSTRUKCJA.md 8.3 (opisuje welcome), README.md + README_S3.md (notka historyczna); download/README_S3.md zsynchronizowany z root (uwaga: root ma aktualny offset LittleFS 0x2B0000, download miał stary 0x250000 — zawsze `cp README_S3.md download/`).
+- Git: wszystkie zmiany staged na gałęzi working-1.2e-beta; niecommitted (z wcześniejszych sesji): duży diff main.cpp, RELEASE_NOTES.md, STAN_PRAC.md, flash/, partitions.csv, tools/. Decyzja o commicie należy do użytkownika.

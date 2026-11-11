@@ -97,6 +97,13 @@ td {
         font-size: 12px;
     }
 
+    .theme-toggle {
+        grid-column: 1 / -1;
+        width: 100%;
+        max-width: 120px;
+        margin: 0 auto;
+    }
+
     .lang-link {
         padding: 6px 10px;
     }

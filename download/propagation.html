@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Podgląd PROPAGACJA — mapa propagacji + regiony + pasma</title>
+<style>
+  body { background: #111; color: #eee; font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+  h1 { color: #ffd700; margin-top: 0; }
+  h2 { color: #ccc; }
+  p  { max-width: 900px; line-height: 1.4; }
+  .note { color: #888; font-size: 0.9em; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; }
+  .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 10px; max-width: 520px; }
+  .card h3 { margin: 0 0 8px; font-size: 1em; color: #ffd700; }
+  .card img { width: 100%; height: auto; display: block; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>PROPAGACJA — podgląd finalnego wyglądu (mapa propagacji)</h1>
+<p>Mapa propagacji <b>prawie na cały ekran</b>, źródło danych: <b>propagation.dr2w.de</b> (live z internetu, tak jak AQI/prognoza).<br>
+Na dole: <b>pasek regionów</b> (dotyk) — EU / NA / AF / SA / AS / OC oraz <b>pasek pasm</b> (dotyk) — 80M…10M.<br>
+Po dotknięciu pasma lub regionu pobierana jest nowa mapa dla wybranych danych (aktualna godzina UTC).</p>
+
+<h2>Regiony — podgląd pasma 20M (mapa + pasek regionów + pasma)</h2>
+<div class="row">
+  <div class="card"><h3>Europa (EU)</h3><img src="propagation_preview_map_europe_20M.png" alt="EU 20M"></div>
+  <div class="card"><h3>Ameryka Pn. (NA)</h3><img src="propagation_preview_map_n-america_20M.png" alt="NA 20M"></div>
+  <div class="card"><h3>Afryka (AF)</h3><img src="propagation_preview_map_africa_20M.png" alt="AF 20M"></div>
+  <div class="card"><h3>Ameryka Płd. (SA)</h3><img src="propagation_preview_map_s-america_20M.png" alt="SA 20M"></div>
+  <div class="card"><h3>Azja (AS)</h3><img src="propagation_preview_map_asia_20M.png" alt="AS 20M"></div>
+  <div class="card"><h3>Australia/Oceania (OC)</h3><img src="propagation_preview_map_australia_20M.png" alt="OC 20M"></div>
+</div>
+
+<h2>Pasmo 40M (porównanie — inna propagacja)</h2>
+<div class="row">
+  <div class="card"><h3>Europa 40M</h3><img src="propagation_preview_map_europe_40M.png" alt="EU 40M"></div>
+  <div class="card"><h3>Ameryka Pn. 40M</h3><img src="propagation_preview_map_n-america_40M.png" alt="NA 40M"></div>
+  <div class="card"><h3>Afryka 40M</h3><img src="propagation_preview_map_africa_40M.png" alt="AF 40M"></div>
+  <div class="card"><h3>Ameryka Płd. 40M</h3><img src="propagation_preview_map_s-america_40M.png" alt="SA 40M"></div>
+  <div class="card"><h3>Azja 40M</h3><img src="propagation_preview_map_asia_40M.png" alt="AS 40M"></div>
+  <div class="card"><h3>Australia 40M</h3><img src="propagation_preview_map_australia_40M.png" alt="OC 40M"></div>
+</div>
+
+<p class="note">Na żywo na urządzeniu mapa będzie się zmieniać wg <b>aktualnej godziny UTC</b> (im ciemniejsza nocna strona, tym inne ścieżki). Źródło: propagation.dr2w.de (darmowy serwis DX).</p>
+</body>
+</html>

@@ -4,14 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32-HAM-CLOCK v1.2e BETA</title>
+    <title>ESP32-HAM-CLOCK v1.2e-beta</title>
     <link rel="stylesheet" href="style.base.css?v=1.2">
     <link rel="stylesheet" href="style.desktop.css?v=1.2" media="(min-width: 901px)">
     <link rel="stylesheet" href="style.mobile.css?v=1.2" media="(max-width: 900px)">
     <link rel="stylesheet" href="style.modern.css?v=1.2">
 </head>
 <body>
-    <div class="app-title">ESP32-HAM-CLOCK v1.2e BETA</div>
+    <div class="app-title">ESP32-HAM-CLOCK v1.2e-beta</div>
     <div class="sys-status-bar">
         <span class="sys-chip"><span class="sys-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0"/><circle cx="12" cy="19" r="1"/></svg></span><span class="sys-dot" id="sys-dot"></span><span id="sys-conn">Verbinde...</span></span>
         <span class="sys-chip"><span class="sys-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3C9.5 5.5 9.5 18 12 21"/></svg></span>IP <b id="sys-ip-chip">--</b></span>
@@ -41,6 +41,7 @@
             <a class="lang-link" href="/indexES.html">ES</a>
             <a class="lang-link" href="/indexRU.html">RU</a>
         </div>
+        <button id="theme-toggle" class="theme-toggle" type="button" title="Light / dark theme" aria-label="Light / dark theme">&#127769;</button>
     </div>
     
     <div id="dxspot-page" class="page active">
@@ -305,392 +306,6 @@
             </div>
 
             <div class="config-section">
-                <h3>🖥️ TFT-Bildschirme (Reihenfolge)</h3>
-                <small>Seite 1 erscheint nach dem Einschalten. Seiten 1-16 einstellbar oder deaktivieren (AUS).</small>
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="tft_auto_switch" name="tft_auto_switch" style="width: auto;">
-                        <span>AUTO-WECHSEL</span>
-                    </label>
-                    <small>Wechselt den TFT-Bildschirm automatisch einen Schritt nach rechts.</small>
-                </div>
-                <div class="form-group">
-                    <label>WECHSELZEIT (Sekunden):</label>
-                    <input type="number" id="tft_switch_time_sec" name="tft_switch_time_sec" min="1" max="3600" step="1" value="30">
-                    <small>Intervall zwischen automatischen Bildschirmwechseln (1-3600 s).</small>
-                </div>
-                                <div class="form-group">
-                    <label>Seite 1:</label>
-                    <select id="screen_slot_1">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 2:</label>
-                    <select id="screen_slot_2">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 3:</label>
-                    <select id="screen_slot_3">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 4:</label>
-                    <select id="screen_slot_4">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 5:</label>
-                    <select id="screen_slot_5">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 6:</label>
-                    <select id="screen_slot_6">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 7:</label>
-                    <select id="screen_slot_7">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 8:</label>
-                    <select id="screen_slot_8">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 9:</label>
-                    <select id="screen_slot_9">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 10:</label>
-                    <select id="screen_slot_10">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 11:</label>
-                    <select id="screen_slot_11">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 12:</label>
-                    <select id="screen_slot_12">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 13:</label>
-                    <select id="screen_slot_13">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 14:</label>
-                    <select id="screen_slot_14">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 15:</label>
-                    <select id="screen_slot_15">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Seite 16:</label>
-                    <select id="screen_slot_16">
-                            <option value="hamclock">HAM-UHR</option>
-                            <option value="dxcluster">DX-CLUSTER</option>
-                            <option value="aprsis">APRS-IS</option>
-                            <option value="aprsradar">APRS-RADAR</option>
-                            <option value="bandinfo">BAND-INFO</option>
-                            <option value="sunspots">SONNENFLECKEN</option>
-                            <option value="weather">WETTER</option>
-                            <option value="weatherforecast">WETTERVORHERSAGE</option>
-                            <option value="pota">POTA</option>
-                            <option value="hamalert">HAMALERT</option>
-                            <option value="pskmap">PSK-KARTE</option>
-                            <option value="matrix">MATRIX</option>
-                            <option value="systeminfo">SYSTEMINFO</option>
-                            <option value="station">STATION</option>
-                            <option value="logger">LOGBUCH</option>
-                            <option value="iss">ISS</option>
-                            <option value="radiosondy">RADIOSONDY</option>
-                            <option value="off">AUS</option>
-                    </select>
-                </div>
-
-            </div>
-
-            <div class="config-section">
                 <h3>🎯 TFT-Kalibrierung</h3>
                 <div class="form-group">
                     <label>TFT-Rotation (0-3):</label>
@@ -763,9 +378,9 @@
                 <div class="form-group">
                     <label>Ziel:</label>
                     <select id="img-target">
-                        <option value="splash">Startbildschirm (Splash)</option>
-                        <option value="welcome">Willkommensbildschirm (Version/Autoren)</option>
-                        <option value="mapa">Kartenhintergrund (PSK/ISS)</option>
+                                                <option value="wallpaper">Wallpaper for the main clock screen</option>
+                                                <option value="welcome">Willkommensbildschirm</option>
+                                                <option value="mapa">Kartenhintergrund (PSK/ISS)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -781,32 +396,7 @@
                 </div>
                 <div class="form-group" style="border-top:1px solid #2a3357;padding-top:12px;">
                     <label>Willkommensbildschirm — als JPG / PNG / BMP hochladen (mit optionaler Konvertierung):</label>
-                    <input type="file" id="welcome-direct-file" accept=".png,.jpg,.jpeg,.bmp">
-                    <small id="welcome-direct-est" style="display:none;"></small>
-                    <small>Ersetzt den <b>Willkommensbildschirm</b> (den Bildschirm mit Programmversion und Autoren) durch Ihr Bild. 480×320 empfohlen. Die Firmware dekodiert JPG (TJpg), PNG (pngle) und BMP.</small>
-                    <div style="margin-top:8px;">
-                        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
-                            <input type="checkbox" id="welcome-direct-convert" checked style="width:auto;">
-                            Im Browser in 480×320 RGB565 konvertieren (skaliert und verkleinert die Datei). Deaktivieren, um 1:1 hochzuladen.
-                        </label>
-                    </div>
-                    <div class="form-group" id="welcome-direct-fit-wrap">
-                        <label>Anpassen (wenn Konvertierung aktiv):</label>
-                        <select id="welcome-direct-fit">
-                            <option value="contain">Seitenverhältnis beibehalten (schwarzer Hintergrund, voll sichtbar)</option>
-                            <option value="cover">Bildschirm füllen (überschüssig beschneiden, keine Verzerrung)</option>
-                            <option value="stretch">Genau auf 480×320 strecken</option>
-                        </select>
-                    </div>
-                    <div style="margin-top:8px;">
-                        <button type="button" class="btn" id="welcome-direct-btn" style="background:#2a4a6a;">⬆️ Hochladen und als Startbildschirm setzen</button>
-                    </div>
-                    <div id="welcome-direct-status" style="margin-top:8px;color:#b0b0b0;font-size:13px;"></div>
-                    <div style="margin-top:10px;">
-                        <small>Vorschau des aktuellen Willkommensbildschirms (falls hochgeladen):</small><br>
-                        <img id="welcome-preview" src="/welcome_preview" alt="" style="max-width:320px;margin-top:6px;border:1px solid #2a3357;display:none;"
-                             onload="this.style.display='block';" onerror="this.style.display='none';">
-                    </div>
+
                 </div>
             </div>
 
@@ -961,7 +551,7 @@
     
     <div id="config-page" class="page">
         <div class="config-form">
-            <h2 style="color: #e0e0e0; margin-bottom: 20px; text-align: center;">ESP32-HAM-CLOCK v1.2e BETA Konfiguration</h2>
+            <h2 style="color: #e0e0e0; margin-bottom: 20px; text-align: center;">ESP32-HAM-CLOCK v1.2e-beta Konfiguration</h2>
             <form id="config-form" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
                 
                 <!-- Section: WiFi Connection -->
@@ -1611,10 +1201,10 @@
         <div class="cyd-container dx-mobile-shell propagation-mobile-shell links-mobile-shell">
             <h2 class="dx-panel-title">LINKS</h2>
             <div class="cyd-screen">
-                <h3 class="prop-section-title">ESP32-HAM-CLOCK v1.2e BETA</h3>
+                <h3 class="prop-section-title">ESP32-HAM-CLOCK v1.2e-beta</h3>
                 <div class="github-release-box">
                     <div class="github-release-label">&#128190; Neueste Version herunterladen</div>
-                    <div id="github-release-info" class="github-release-text">Verfügbare neueste Version: <strong>v1.2e BETA</strong> veröffentlicht am <strong>06.11.2026</strong></div>
+                    <div id="github-release-info" class="github-release-text">Verfügbare neueste Version: <strong>v1.2e-beta</strong> veröffentlicht am <strong>06.11.2026</strong></div>
                     <a href="https://github.com/Tom50505050/esp32-ham-clock" target="_blank" rel="noopener" class="github-link">github.com/Tom50505050/esp32-ham-clock</a>
                     <div class="github-release-text" style="margin-top:8px">&#128230; Projektpaket (Quellen + Daten + .bin-Dateien):<br><a href="https://github.com/Tom50505050/esp32-ham-clock-s3" class="github-link" target="_blank" rel="noopener">esp32-ham-clock-s3.zip</a></div>
                 </div>
@@ -1710,10 +1300,10 @@
 
         let linksLoaded = false;
         const loadLinks = () => {
-            // Version is hardcoded (v1.2e BETA, 06.11.2026) - do not query the GitHub
+            // Version is hardcoded (v1.2e-beta, 06.11.2026) - do not query the GitHub
             // API, so the text is not overwritten with another version.
             linksLoaded = true;
-            initSplashUpload();
+
         };
 
         // Turns an upload error into a readable message: 507 = LittleFS out of
@@ -1790,107 +1380,91 @@
             return resp;
         };
 
-        let splashUploadInit = false;
-        const initSplashUpload = () => {
-            if (splashUploadInit) return;
-            const btn = document.getElementById('splash-upload-btn');
-            const fileInput = document.getElementById('splash-file');
-            const status = document.getElementById('splash-upload-status');
+        // ===== Tapeta ekranu glownego (JPG/PNG/BMP) =====
+        // Upload bezposredni (1:1 lub konwersja w przegladarce do RGB565),
+        // wlaczanie/wylaczanie i usuwanie tapety. Trasy: /upload_wallpaper,
+        // /wallpaper_toggle, /wallpaper_clear.
+        let wallpaperUploadInit = false;
+        const initWallpaperUpload = () => {
+            if (wallpaperUploadInit) return;
+            const btn = document.getElementById('wallpaper-direct-btn');
+            const fileInput = document.getElementById('wallpaper-direct-file');
+            const status = document.getElementById('wallpaper-direct-status');
             if (!btn || !fileInput) return;
-            splashUploadInit = true;
+            wallpaperUploadInit = true;
+            const refreshWallpaperPreview = () => {
+                const pv = document.getElementById('wallpaper-preview');
+                if (pv) { pv.style.display = ''; pv.src = '/wallpaper_preview?t=' + Date.now(); }
+            };
             btn.addEventListener('click', () => {
                 const file = fileInput.files && fileInput.files[0];
-                if (!file) { status.textContent = "Wählen Sie eine PNG-, JPG- oder BMP-Datei."; return; }
-                status.textContent = "Hochladen... " + file.name;
-                btn.disabled = true;
-                // Raw body (not multipart): the WebServer multipart parser drops
-                // the connection on larger files. The firmware reads the body by
-                // Content-Length in blocks (see handleUpload()).
-                fetch('/upload_splash', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/octet-stream',
-                        'X-Filename': file.name,
-                        'X-Upload-Target': 'splash'
-                    },
-                    body: file
-                })
-                    .then(r => r.ok ? r.json() : Promise.reject(r.status))
-                    .then(() => {
-                        status.textContent = "OK - Startbildschirm gespeichert und auf dem TFT angezeigt.";
-                        const img = document.getElementById('splash-preview');
-                        if (img) { img.style.display = ''; img.src = '/splash_preview?t=' + Date.now(); }
-                    })
-                    .catch((e) => { status.textContent = uploadErrorMessage(e); })
-                    .finally(() => { btn.disabled = false; });
-            });
-        };
-
-        // Direct WELCOME-screen upload (JPG/PNG/BMP) - file sent 1:1 to the
-        // device, stored as /welcome.<ext>. Route: /upload_welcome.
-        let welcomeDirectInit = false;
-        const initWelcomeDirectUpload = () => {
-            if (welcomeDirectInit) return;
-            const btn = document.getElementById('welcome-direct-btn');
-            const fileInput = document.getElementById('welcome-direct-file');
-            const status = document.getElementById('welcome-direct-status');
-            if (!btn || !fileInput) return;
-            welcomeDirectInit = true;
-            btn.addEventListener('click', () => {
-                const file = fileInput.files && fileInput.files[0];
-                if (!file) { status.textContent = "Wählen Sie zuerst eine JPG- / PNG- / BMP-Datei."; return; }
-                const convert = document.getElementById('welcome-direct-convert');
+                if (!file) { status.textContent = "Najpierw wybierz plik JPG / PNG / BMP."; return; }
+                const convert = document.getElementById('wallpaper-direct-convert');
                 const convertOn = !convert || convert.checked;
                 btn.disabled = true;
                 const send = (blob, name) => {
-                    updateEstimate('welcome-direct-est', blob.size);
-                    estMeasureUpload('/upload_welcome', blob, {
+                    updateEstimate('wallpaper-direct-est', blob.size);
+                    estMeasureUpload('/upload_wallpaper', blob, {
                             'Content-Type': 'application/octet-stream',
-                            'X-Filename': name
+                            'X-Filename': name,
+                            'X-Upload-Target': 'wallpaper'
                         })
-                        .then(r => {
-                            if (!r.ok) throw new Error('http ' + r.status);
-                            status.textContent = "Hochgeladen. Starten Sie das Gerät neu, um den neuen Startbildschirm zu sehen.";
-                            btn.disabled = false;
-                            const pv = document.getElementById('welcome-preview');
-                            if (pv) pv.src = '/welcome_preview?t=' + Date.now();
-                        })
+                        .then(r => { if (!r.ok) throw new Error('http ' + r.status); status.textContent = "OK - tapeta zapisana i widoczna na ekranie zegara."; btn.disabled = false; refreshWallpaperPreview(); })
                         .catch((e) => { status.textContent = uploadErrorMessage(e); btn.disabled = false; });
                 };
                 if (convertOn) {
-                    status.textContent = "Konvertieren " + file.name + " to 480x320 RGB565...";
-                    const fitSel = document.getElementById('welcome-direct-fit');
+                    status.textContent = "Konwertuje " + file.name + " do 480x320 RGB565...";
+                    const fitSel = document.getElementById('wallpaper-direct-fit');
                     const mode = fitSel ? fitSel.value : 'contain';
                     convertImageToBmp565(file, mode, (blob) => {
-                        status.textContent = "Hochladen (konvertiert, " + (blob.size / 1024).toFixed(1) + " KB)...";
-                        const base = (file.name.replace(/\.[^.]+$/, '') || 'welcome');
+                        status.textContent = "Wgrywam (skonwertowany, " + (blob.size / 1024).toFixed(1) + " KB)...";
+                        const base = (file.name.replace(/\.[^.]+$/, '') || 'wallpaper');
                         send(blob, base + '_480x320.bmp');
-                    }, () => { status.textContent = "Diese Bilddatei kann nicht gelesen werden."; btn.disabled = false; });
+                    }, () => { status.textContent = "Nie mozna odczytac tego pliku obrazu."; btn.disabled = false; });
                 } else {
-                    status.textContent = "Hochladen 1:1: " + file.name + "...";
+                    status.textContent = "Wgrywam 1:1: " + file.name + "...";
                     send(file, file.name);
                 }
             });
-            // Estimate shown right after the file is picked (before clicking),
-            // depending on whether the file will be converted to a 480x320 BMP.
-            const estWelcome = () => {
+            const estWall = () => {
                 const file = fileInput.files && fileInput.files[0];
-                if (!file) { updateEstimate('welcome-direct-est', 0); return; }
-                const conv = document.getElementById('welcome-direct-convert');
+                if (!file) { updateEstimate('wallpaper-direct-est', 0); return; }
+                const conv = document.getElementById('wallpaper-direct-convert');
                 const on = !conv || conv.checked;
                 const bytes = on ? EST_BMP565_480x320 : file.size;
-                updateEstimate('welcome-direct-est', bytes);
+                updateEstimate('wallpaper-direct-est', bytes);
             };
-            fileInput.addEventListener('change', estWelcome);
-            const convBox = document.getElementById('welcome-direct-convert');
-            if (convBox) convBox.addEventListener('change', estWelcome);
+            fileInput.addEventListener('change', estWall);
+            const convBox = document.getElementById('wallpaper-direct-convert');
+            if (convBox) convBox.addEventListener('change', estWall);
+            const toggleBtn = document.getElementById('wallpaper-toggle-btn');
+            if (toggleBtn) toggleBtn.addEventListener('click', () => {
+                toggleBtn.disabled = true;
+                fetch('/wallpaper_toggle', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(j => {
+                        toggleBtn.textContent = j.enabled ? '\u23f8\ufe0f Wy\u0142\u0105cz tapet\u0119' : '\u25b6\ufe0f W\u0142\u0105cz tapet\u0119';
+                        status.textContent = j.enabled ? 'Tapeta w\u0142\u0105czona.' : 'Tapeta wy\u0142\u0105czona (plik zachowany).';
+                        toggleBtn.disabled = false;
+                    })
+                    .catch((e) => { status.textContent = uploadErrorMessage(e); toggleBtn.disabled = false; });
+            });
+            const clearBtn = document.getElementById('wallpaper-clear-btn');
+            if (clearBtn) clearBtn.addEventListener('click', () => {
+                clearBtn.disabled = true;
+                fetch('/wallpaper_clear', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(() => {
+                        status.textContent = 'Tapeta usunieta. Ekran zegara wrocil do czarnego tla.';
+                        clearBtn.disabled = false;
+                        const pv = document.getElementById('wallpaper-preview');
+                        if (pv) { pv.style.display = 'none'; pv.src = ''; }
+                    })
+                    .catch((e) => { status.textContent = uploadErrorMessage(e); clearBtn.disabled = false; });
+            });
         };
 
-        // ===== Image conversion JPG/PNG/BMP -> 16-bit RGB565 BMP (480x320) =====
-        // Runs entirely in the browser: scale to 480x320 + pack colors to RGB565
-        // (ILI9488 native format). The result is a ready-to-use BMP the firmware
-        // reads without any further conversion.
-        let imgUploadInit = false;
+let imgUploadInit = false;
         let imgConvertedBlob = null;
         let imgConvertedName = "image_480x320.bmp";
         let imgSourceImage = null;
@@ -1959,7 +1533,7 @@
         };
 
         // Convert a File to a ready BMP 16-bit RGB565 - used by the direct
-        // welcome-screen upload when conversion is enabled.
+        // image upload when conversion is enabled.
         const convertImageToBmp565 = (file, mode, onDone, onError) => {
             const url = URL.createObjectURL(file);
             const im = new Image();
@@ -1988,7 +1562,7 @@
             const btn = document.getElementById('img-upload-btn');
             if (!imgConvertedBlob) { status.textContent = "Click 'In RGB565 konvertieren' first."; return; }
             const target = document.getElementById('img-target').value;
-            const url = (target === 'mapa') ? '/upload/mapa565' : (target === 'welcome') ? '/upload_welcome' : '/upload_splash';
+            const url = (target === 'mapa') ? '/upload/mapa565' : '/upload_wallpaper';
             status.textContent = "Senden an ESP32...";
             btn.disabled = true;
             // Raw body (not multipart): the WebServer multipart parser drops the
@@ -2000,17 +1574,10 @@
                     'X-Upload-Target': target
                 })
                 .then(r => r.ok ? r.text() : Promise.reject(r.status))
-                .then(() => {
-                    status.textContent = "OK - Bild auf dem Gerät gespeichert.";
-                    if (target === 'welcome') {
-                        status.textContent = "OK - Startbildschirm gespeichert (sichtbar nach Neustart).";
-                        const wpv = document.getElementById('welcome-preview');
-                        if (wpv) { wpv.style.display = ''; wpv.src = '/welcome_preview?t=' + Date.now(); }
-                    } else if (target === 'splash') {
-                        status.textContent = "OK - Bild gespeichert und auf dem TFT angezeigt.";
-                        const pv = document.getElementById('splash-preview');
-                        if (pv) { pv.style.display = ''; pv.src = '/splash_preview?t=' + Date.now(); }
-                    }
+                                .then(() => {
+                    status.textContent = "OK - obraz zapisany i widoczny na ekranie zegara.";
+                    const wv = document.getElementById('wallpaper-preview');
+                    if (wv) { wv.style.display = ''; wv.src = '/wallpaper_preview?t=' + Date.now(); }
                 })
                 .catch((e) => { status.textContent = uploadErrorMessage(e); })
                 .finally(() => { btn.disabled = false; });
@@ -2233,7 +1800,7 @@
             document.getElementById(page + '-page').classList.add('active');
             if (page === "config" || page === "tft" || page === "alert" || page === "modules") {
                 loadConfig();
-                if (page === "tft") { initImageUpload(); initWelcomeDirectUpload(); }
+                if (page === "tft") { initImageUpload();  initWallpaperUpload(); }
                 if (page === "alert") { initWxIcons(); }
             } else if (page === "aprs") {
                 loadAPRS();
@@ -2538,31 +2105,7 @@
             document.getElementById('status').textContent = "Anzeigen " + filtered.length + " spots";
         }
         
-        const screenOptionsDefault = ["hamclock", "dxcluster", "aprsis", "aprsradar", "bandinfo", "sunspots", "weather", "weatherforecast", "pota", "hamalert", "pskmap", "matrix", "systeminfo", "station", "logger", "iss"];
-
-        // Legacy screen-code aliases -> <option> values (prevents empty fields).
-        const screenCodeAliases = { solarindex: "bandinfo", propagacja: "sunspots", forecast: "weatherforecast", pskreporter: "pskmap", unlishunter: "systeminfo" };
-        const applyScreenOrderToUI = (order) => {
-            const arr = Array.isArray(order) && order.length ? order : screenOptionsDefault;
-            for (let i = 0; i < 16; i++) {
-                const sel = document.getElementById(`screen_slot_${i+1}`);
-                if (!sel) continue;
-                let code = arr[i] || screenOptionsDefault[i] || "off";
-                if (screenCodeAliases[code]) code = screenCodeAliases[code];
-                const valid = Array.prototype.some.call(sel.options, (o) => o.value === code);
-                sel.value = valid ? code : "off";
-            }
-        };
-
-        const readScreenOrderFromUI = () => {
-            const arr = [];
-            for (let i = 0; i < 16; i++) {
-                const sel = document.getElementById(`screen_slot_${i+1}`);
-                arr.push(sel ? sel.value : "off");
-            }
-            return arr;
-        };
-
+        
         const logbookUpload = () => {
             const sel = document.getElementById('log_upload_service');
             const service = sel ? sel.value : 'qrz';
@@ -2685,10 +2228,7 @@
             document.getElementById('tft_rotation').value = tftRotationValue;
             const tftInvertValue = (data.tft_invert === true || data.tft_invert === false) ? (data.tft_invert ? "1" : "0") : "1";
             document.getElementById('tft_invert').value = tftInvertValue;
-            document.getElementById('tft_auto_switch').checked = data.tft_auto_switch === true;
-            const tftSwitchTimeValue = parseInt(data.tft_switch_time_sec, 10);
-            document.getElementById('tft_switch_time_sec').value = Number.isFinite(tftSwitchTimeValue) ? Math.min(3600, Math.max(1, tftSwitchTimeValue)) : 30;
-            const touchRotationValue = (data.touch_rotation !== undefined && data.touch_rotation !== null) ? data.touch_rotation : 1;
+                                    const touchRotationValue = (data.touch_rotation !== undefined && data.touch_rotation !== null) ? data.touch_rotation : 1;
             document.getElementById('touch_rotation').value = touchRotationValue;
             document.getElementById('touch_swap_mode').value = data.touch_swap_mode || "none";
             document.getElementById('cluster_host').value = data.cluster_host || "";
@@ -2844,7 +2384,6 @@
             if (rsPathEl) rsPathEl.checked = data.radiosonde_show_path === true;
             const rsUpEl = document.getElementById('radiosonde_show_uploader');
             if (rsUpEl) rsUpEl.checked = data.radiosonde_show_uploader === true;
-            applyScreenOrderToUI(data.screen_order);
             updateModulesInfoEN(data || {});
         };
 
@@ -3431,12 +2970,6 @@
             table_size: (document.getElementById('table_size') ? document.getElementById('table_size').value : "normal"),
             tft_rotation: (isNaN(parseInt(document.getElementById('tft_rotation').value)) ? 1 : parseInt(document.getElementById('tft_rotation').value)),
             tft_invert: (document.getElementById('tft_invert').value === "1"),
-            tft_auto_switch: document.getElementById('tft_auto_switch').checked,
-            tft_switch_time_sec: (() => {
-                const raw = parseInt(document.getElementById('tft_switch_time_sec').value, 10);
-                if (!Number.isFinite(raw)) return 30;
-                return Math.min(3600, Math.max(1, raw));
-            })(),
             touch_rotation: (isNaN(parseInt(document.getElementById('touch_rotation').value)) ? 1 : parseInt(document.getElementById('touch_rotation').value)),
             touch_swap_mode: document.getElementById('touch_swap_mode').value,
             cluster_host: document.getElementById('cluster_host').value,
@@ -3555,7 +3088,6 @@
                 if (!Number.isFinite(raw)) return 29;
                 return Math.min(180, Math.max(1, raw));
             })(),
-            screen_order: readScreenOrderFromUI()
             // Note: APRS uses coordinates from "Ihre Station" (user_lat, user_lon)
         };
         };
@@ -4036,7 +3568,8 @@
                 '        <option value="11">CN3791</option>' +
                 '        <option value="12">IP5306</option>' +
                 '        <option value="13">IP5328</option>' +
-                '        <option value="14">Other / none</option>' +
+                '        <option value="14">MH-CD42 (Li-ion/LiPo 1S, 4.2V)</option>' +
+                '        <option value="15">Other / none</option>' +
                 '      </select>' +
                 '      <small>Charger module type &mdash; displayed on the ESP32-S3 monitor screen.</small>' +
                 '    </div>' +
@@ -4209,12 +3742,37 @@
     <div class="app-footer">
         Softwareautor: Tomasz SP9TNV, basierend auf dem Projekt von Konrad Wiśniewski SP3KON.<br>
         Software angepasst von SP9TNV auf Basis des Projekts von Konrad Wiśniewski SP3KON (mit Hilfe von KI).<br>
-        Aktuelle Softwareversion: ESP32-HAM-CLOCK v1.2e BETA (06.11.2026).<br>
+        Current software version: ESP32-HAM-CLOCK v1.2e-beta (06.11.2026).<br>
         Bei Fragen kontaktieren Sie: SP9TNV@gmail.com
     </div>
     <div class="links-bottom-bar">
         <button class="links-bottom-btn" onclick="showPage('links')">&#128279; Links</button>
     </div>
+    <script>
+        // Light / dark theme toggle, stored in localStorage.
+        (function () {
+            var KEY = 'hamclock-theme';
+            var btn = document.getElementById('theme-toggle');
+            var apply = function (light) {
+                if (light) { document.body.classList.add('theme-light'); }
+                else { document.body.classList.remove('theme-light'); }
+                if (btn) { btn.innerHTML = light ? '&#127774;' : '&#127769;'; }
+                try { localStorage.setItem(KEY, light ? 'light' : 'dark'); } catch (e) {}
+            };
+            var saved = null;
+            try { saved = localStorage.getItem(KEY); } catch (e) {}
+            if (saved === null) {
+                saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+                    ? 'light' : 'dark';
+            }
+            apply(saved === 'light');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    apply(!document.body.classList.contains('theme-light'));
+                });
+            }
+        })();
+    </script>
 </body>
 </html>
 

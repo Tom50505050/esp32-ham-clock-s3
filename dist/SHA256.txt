@@ -1,0 +1,2 @@
+4381a39ede58364aba4ed06857ee930534051db6eb48408bcf3d0f5c727fe363  merged-flash.bin
+91d5cb9610fde413d902dbcb7a6f6bcc5aa2ade74f7ea4ef6b8812b2a5d3d995  merged-flash-notouch.bin

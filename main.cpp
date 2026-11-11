@@ -36,12 +36,18 @@ void normalizePolish(String &text);
 #endif
 
 // Wersja firmware
-#define FIRMWARE_VERSION "1.2e"
+#define FIRMWARE_VERSION "1.2e-beta"
 
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <WiFiClient.h>
 #include <WebServer.h>
 #include <Preferences.h>
+// BLE UART (Nordic UART Service) - ESP32-S3 ma TYLKO BLE (brak BT Classic/SPP).
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 #include <time.h>
 #include <sys/time.h>
 #include <ArduinoJson.h>
@@ -88,11 +94,9 @@ String getAPRSSymbolShort(const APRSStation &station);
 void drawBootScreen();
 void tftBootPrintLine(const String &line);
 String formatDistanceOrCountry(const DXSpot &spot, size_t maxLen);
-void drawWelcomeScreenYellow();
-static void uiWelcomeText(int y, const char *txt, uint8_t font, uint16_t color);
-void drawSplashScreen();
 void drawHamClock();
 void drawHamClockClassic();
+void drawWelcomeScreenYellow();
 void drawHamClockIp();
 void drawDxCluster();
 void drawSunSpots();
@@ -107,6 +111,8 @@ void drawHamalertCluster();
 void drawMatrixClock();
 void drawStationScreen();
 void handleStationTouch(uint16_t x, uint16_t y);
+bool handlePropagationTouch(uint16_t x, uint16_t y);
+bool fetchPropagationMap();
 void stationStartKeyboard();
 void stationLookupStart();
 void stationDrawLoading();
@@ -117,6 +123,10 @@ extern String stationCallsign;
 extern bool stationKeyboardActive;
 extern bool stationLoading;
 extern bool stationResultPending;
+extern bool stationFound;
+extern String stationName;
+extern String stationQth;
+extern String stationGrid;
 
 // EKRAN "ESP32 HAM LOGGER" (16. ekran) - dziennik lacznosci (ADIF)
 void drawLoggerScreen();
@@ -127,7 +137,20 @@ static void drawLoggerForm();
 extern bool loggerKeyboardActive;
 
 void drawHamburgerMenuButton3D(int x, int y);
+bool sendAprsMessage(const String &dstRaw, const String &message);
+void sendAprsReplyMessage(const String &dst, const String &reply);
+bool kissSendAprsMessage(const String &dstRaw, const String &message);
+// Popup odpowiedzi APRS (dotkniecie wiersza na liscie APRS-IS / alert APRS).
+void aprsReplyDrawPopup();
+void aprsReplyDrawKeyboard();
+void aprsReplyHandleTouch(uint16_t x, uint16_t y);
+static void aprsReplyOpenForCall(const String &call);
+static void aprsReplyOpenNewMessage();
+void ALERT_Screen(const APRSStation &station);
 void handleTouchCalibrationTouch(int16_t rawX, int16_t rawY, uint16_t x, uint16_t y, bool isNewTap);
+static void drawAprsAlertReplyButton();
+static bool isAprsAlertReplyButtonHit(uint16_t x, uint16_t y);
+static bool isAprsAlertHistoryButtonHit(uint16_t x, uint16_t y);
 static bool isAprsAlertCloseButtonHit(uint16_t x, uint16_t y);
 static void dismissAprsAlertScreen();
 static void dismissWeatherAlertScreen();
@@ -159,8 +182,10 @@ void alarmStartMelody(int index);
 void alarmStopMelody();
 void alarmStopBuzzer();
 void aprsBeepPlay();
+void aprsBeepPlayForStation(const APRSStation &station);
 void aprsBeepUpdate();
 void aprsBeepAbort();
+
 void alarmInitBuzzer();
 void drawAlarmRingScreen();
 void dismissAlarmRingScreen();
@@ -168,6 +193,8 @@ void alarmRingTimeoutCheck();
 void handleScreen1MenuTouch(uint16_t x, uint16_t y);
 void handleScreen2MenuTouch(uint16_t x, uint16_t y);
 void handleScreen6MenuTouch(uint16_t x, uint16_t y);
+static float normalizeAprsAlertDistanceKm(float km);
+static void applyAprsAlertDistanceKm(float km);
 void handleScreen5MenuTouch(uint16_t x, uint16_t y);
 void handleScreen7MenuTouch(uint16_t x, uint16_t y);
 void handleScreen8MenuTouch(uint16_t x, uint16_t y);
@@ -212,7 +239,10 @@ struct PskSpot {
 };
 
 const int PSK_MAX_SPOTS = 200;
-PskSpot pskSpots[PSK_MAX_SPOTS];
+// Tablice spotow/sond przeniesione do PSRAM (initBigBuffers): oszczedza
+// ~62 KB cennej DRAM (WiFi/TLS/web server) na ESP32-S3 bez wykraczania poza
+// okienko sterty wewnetrznej. Wskaznik indeksowany dokladnie jak tablica.
+PskSpot *pskSpots = nullptr;
 int pskSpotCount = 0;
 // Ile spotow jest juz narysowanych na mapie. Sluzy do przyrostowego
 // odswiezania (rysujemy tylko nowe), zeby nie przerysowywac chromu.
@@ -351,10 +381,10 @@ static char sondeHunterTypeChar(const SondeHunter &h) {
   if (strstr(h.software, "WebRX")) return 'W';
   return h.software[0] ? '?' : ' ';
 }
-static SondeHunter sondeHunters[SONDE_MAX_HUNTERS];
+static SondeHunter *sondeHunters = nullptr;
 static int sondeHunterCount = 0;
 
-static SondeSpot sondeSpots[SONDE_MAX_FETCH];
+static SondeSpot *sondeSpots = nullptr;
 static int sondeCount = 0;
 static bool sondeFetchedOnce = false;
 static bool sondeFetchError = false;
@@ -375,7 +405,7 @@ typedef struct {
   float lon[SONDE_HIST_MAX_POINTS];
 } SondeHistFlight;
 
-static SondeHistFlight sondeHist[SONDE_HIST_MAX_SONDES];
+static SondeHistFlight *sondeHist = nullptr;
 
 // Alokator ArduinoJson kierujacy pamiec do PSRAM (duze odpowiedzi SondeHub).
 struct SondeHubPsramAllocator {
@@ -620,17 +650,21 @@ void handleScreenSaverMenuTouch(uint16_t x, uint16_t y);
 
 // Forward declarations for Screen Sleep functions
 void drawScreenSleepMenu();
+void drawSleepClock();
 void handleScreenSleepMenuTouch(uint16_t x, uint16_t y);
 void enterScreenSleep();
 void wakeUpFromSleep();
-void applyEffectiveBacklight();
-void setBacklightPercentRaw(int percent);
+
+// Forward declarations for Battery calibration menu
+void drawBatteryCalMenu();
+void handleBatteryCalMenuTouch(uint16_t x, uint16_t y, bool isNewTap);
 bool tftIsNightTime();
 void applyPanelBrightnessBoost();
 void initTFTGamma();
 
 void savePreferences();
 float readBatteryVoltage();
+float readBatteryVoltageRaw();
 void locatorToLatLon(String locator, double &lat, double &lon);
 String latLonToLocator(double lat, double lon, int precision = 6);
 void gpsApplyConfig();
@@ -639,6 +673,13 @@ static void gpsApplyTime();
 void gpsApplyPosition();
 void gpsSnapshotManualPosition();
 bool gpsModuleDetected();
+// BLE UART (NUS) - forward declarations, patrz definicje przy sekcji BLE.
+void bleInit();
+void blePoll();
+void bleSend(const char *s);
+void bleSendln(const char *s);
+void blePrintf(const char *fmt, ...);
+void handleBleLine(const String &l);
 bool fetchAirPollutionData(double lat, double lon);
 static bool drawBmpFromFS(const String &filename, int16_t x, int16_t y);
 static bool drawBmp16FromFS(const String &filename, int16_t x, int16_t y);
@@ -651,6 +692,9 @@ static String getAprsBaseCallsign();
 void sendAPRSFilter();
 bool parseAPRSFrame(String line, APRSStation &station);
 void addAPRSStation(APRSStation station);
+void aprsHistoryAdd(bool rx, const String &callsign, const String &text);
+void drawAprsHistoryScreen();
+void handleAprsHistoryTouch(uint16_t x, uint16_t y, bool isNewTap);
 void fetchIssData();
 void getIssCountryFromCoords(double lat, double lng);
 String lookupIssCountryFromCoords(double lat, double lng);
@@ -977,6 +1021,9 @@ static const int UI_FOOTER_Y = 300;
 #define BACKLIGHT_PWM_FREQ 5000
 #define BACKLIGHT_PWM_RES_BITS 8
 #define MIN_BACKLIGHT_PERCENT 10
+// Delikatne podswietlenie w trybie uspienia ekranu - zegar na srodku
+// pozostaje widoczny, ale nie razi w nocy (zamiast pelnego wygaszenia PWM).
+#define SCREEN_SLEEP_BACKLIGHT_PERCENT 3
 #define TFT_BACKLIGHT 100
 int backlightPercent = TFT_BACKLIGHT;
 int backlightPwmPercent = 100;  // aktualnie wyjściowy PWM podświetlenia (boot = 100%)
@@ -1055,7 +1102,13 @@ int bootLogY = 2;
 const int BOOT_LOG_LINE_HEIGHT = 10;
 bool bootSequenceActive = true;
 bool littleFsReady = false;
-bool splashPathLoaded = false;
+// ---- Tapeta ekranu glownego ----
+// Wlasny obraz (BMP/PNG/JPG) wgrywany z panelu WWW pod /wall.{bmp,png,jpg,jpeg}.
+// Rysowany jako tlo zegara zamiast czarnego fillRect. Pusta sciezka = brak tapety.
+bool wallpaperEnabled = true;      // probuj wczytac tapete gdy plik istnieje
+String wallpaperPath = "";         // ostatnia znaleziona sciezka /wall.*
+const char *NVS_KEY_WALLPAPER_ENABLED = "wall_en";
+const char *NVS_KEY_WALLPAPER_PATH = "wall_path";
 
 // ========== SYSTEM MENU I NAWIGACJI ==========
 const int SCREEN_PAGE_COUNT = 16;
@@ -1282,15 +1335,6 @@ uint8_t dxTableSizeMode = DX_TABLE_SIZE_NORMAL;
 #define ROBOTO_FONT20_FILE "/fonts/Inter-Regular20.vlw"
 #define ROBOTO_FONT24_NAME "/fonts/Inter-Regular24"
 #define ROBOTO_FONT24_FILE "/fonts/Inter-Regular24.vlw"
-
-// Wiekszy font z polskimi znakami dla ekranu powitalnego (VLW, DejaVu Sans 21 pt).
-#define WELCOME_FONT_NAME "/fonts/Welcome-Regular21"
-#define WELCOME_FONT_FILE "/fonts/Welcome-Regular21.vlw"
-
-// Godlo PZK (Polski Zwiazek Krotkofalowcow) na ekranie powitalnym - romb 46x96.
-#define PZK_LOGO_FILE "/pzk-logo.bmp"
-#define PZK_LOGO_W 46
-#define PZK_LOGO_H 96
 
 enum TrKey : uint8_t {
   TR_TIME_SHORT = 0,
@@ -1675,29 +1719,29 @@ static uint16_t getAprsCallsignColorForEnlarged(const APRSStation &station) {
 }
 #endif
 
-// Funkcja zamieniajÄ…ca polskie znaki na ASCII (dla wyĹ›wietlacza TFT)
+// Funkcja zamieniająca polskie znaki na ASCII (dla wyświetlacza TFT)
 String toAsciiPolish(const String& input) {
   String output = input;
-  // MaĹ‚e litery
-  output.replace("Ä…", "a");
-  output.replace("Ä‡", "c");
-  output.replace("Ä™", "e");
-  output.replace("Ĺ‚", "l");
-  output.replace("Ĺ„", "n");
-  output.replace("Ăł", "o");
-  output.replace("Ĺ›", "s");
-  output.replace("Ĺş", "z");
-  output.replace("ĹĽ", "z");
-  // DuĹĽe litery
-  output.replace("Ä„", "A");
-  output.replace("Ä†", "C");
-  output.replace("Ä", "E");
-  output.replace("Ĺ", "L");
-  output.replace("Ĺ", "N");
-  output.replace("Ă“", "O");
-  output.replace("Ĺš", "S");
-  output.replace("Ĺą", "Z");
-  output.replace("Ĺ»", "Z");
+  // Małe litery
+  output.replace("ą", "a");
+  output.replace("ć", "c");
+  output.replace("ę", "e");
+  output.replace("ł", "l");
+  output.replace("ń", "n");
+  output.replace("ó", "o");
+  output.replace("ś", "s");
+  output.replace("ź", "z");
+  output.replace("ż", "z");
+  // Duże litery
+  output.replace("Ą", "A");
+  output.replace("Ć", "C");
+  output.replace("Ę", "E");
+  output.replace("Ł", "L");
+  output.replace("Ń", "N");
+  output.replace("Ó", "O");
+  output.replace("Ś", "S");
+  output.replace("Ź", "Z");
+  output.replace("Ż", "Z");
   return output;
 }
 
@@ -1747,7 +1791,12 @@ Screen6ViewMode screen6ViewMode = APRS_VIEW_LIST;
 bool screen6MenuBeaconingTemp = true;
 bool screen6MenuAprsAlertTemp = true;
 bool screen6MenuRangeAlertTemp = true;
+bool screen6MenuBuzzerAlertTemp = true;
+bool screen6MenuBuzzerNocTemp = false;   // "Buzzer NOC" - cichy 1-pik sygnal alertow APRS
 bool screen6MenuLedAlertTemp = true;
+bool screen6MenuWxAlertTemp = false;
+int screen6MenuAprsVolTemp = 0; // suwak glosnosci beepow APRS (niewykorzystywany do otwarcia)
+float screen6MenuAlertDistanceKmTemp = 1.0f; // DEFAULT_APRS_ALERT_DISTANCE_KM (definiowana nizej)
 
 const int SCREEN6_VIEW_BTN_ICON_X = 294;
 const int SCREEN6_VIEW_BTN_ICON_Y = 7;
@@ -1779,6 +1828,14 @@ uint16_t brightnessMenuPrevClockColor = 0xFFFF;
 unsigned long brightnessMenuOpenedMs = 0;
 unsigned long brightnessMenuTouchStartMs = 0;
 bool brightnessMenuLongPressHandled = false;
+
+// Menu kalibracji baterii (B2). Dostepne z menu jasnosci. Pozwala na zywo
+// korygowac offset i mnoznik pomiaru napiecia, bez podawania 'rzeczywistego V'
+// (to jest na WWW w /api/cal_batt).
+bool batteryCalMenuActive = false;
+float batteryCalTempOffset = 0.0f;   // robocza kopia batteryVoltOffset
+float batteryCalTempDiv = 1.0f;      // robocza kopia batteryDividerCal
+unsigned long batteryCalMenuOpenedMs = 0;
 
 bool touchCalActive = false;
 uint8_t touchCalStep = 0;
@@ -1816,6 +1873,41 @@ int touchCalNewYMax = TOUCH_Y_MAX;
 #define PROPAGATION_URL "https://www.hamqsl.com/solarxml.php"
 const unsigned long PROPAGATION_FETCH_INTERVAL_MS = 60UL * 60UL * 1000UL; // 60 min
 const unsigned long PROPAGATION_FETCH_RETRY_MS = 5UL * 60UL * 1000UL;      // 5 min retry on error
+
+// Mapa propagacji HF z propagation.dr2w.de (live, na podstawie aktualnej godziny UTC).
+// URL: https://img.propagation.dr2w.de/<region>/<pasmo>/dr2w_<pasmo>_<HH>_UTC.png
+#define PROP_MAP_URL_BASE "https://img.propagation.dr2w.de/"
+#define PROP_MAP_BANDS_COUNT 8
+static const char* const PROP_MAP_BANDS[PROP_MAP_BANDS_COUNT] = {"80M","40M","30M","20M","17M","15M","12M","10M"};
+#define PROP_MAP_REGIONS_COUNT 6
+static const char* const PROP_MAP_REGIONS[PROP_MAP_REGIONS_COUNT] = {"europe","n-america","africa","s-america","asia","australia"};
+static const char* const PROP_MAP_REGIONS_LBL[PROP_MAP_REGIONS_COUNT] = {"EU","NA","AF","SA","AS","OC"};
+static const char* const PROP_MAP_REGIONS_FULL[PROP_MAP_REGIONS_COUNT] = {"EUROPE","N. AMERICA","AFRICA","S. AMERICA","ASIA","OCEANIA"};
+// Cooldown po nieudanym pobraniu mapy - bez tego UI restartuje fetch natychmiast
+// po kazdym bledzie (drawSunSpots -> drawScreen -> drawSunSpots) i ekran migocze
+// miedzy "LADOWANIE..." a bledem w petli (kolejne timeouty HTTP co kilka sekund).
+#define PROP_MAP_RETRY_MS 60000UL
+
+// Wybiera domyslny region mapy propagacji na podstawie lokatora (>=4 znaki).
+// Zwraca indeks do PROP_MAP_REGIONS[]. Priorytet pokrycia dr2w.de:
+// EU > NA > AF > SA > AS > OC. Gdy lokator nieznany -> europe (0).
+int propRegionForLocator(const String &locator) {
+  if (locator.length() < 4) return 0;
+  double lat = 0, lon = 0;
+  locatorToLatLon(locator, lat, lon);
+  if (lat > 20 && lat <= 85 && lon >= -45 && lon <= 70) return 0;   // europa (calc.: -30..60, rozszerzony o Turcje/rosje)
+  if (lat > 5 && lat <= 80 && lon >= -175 && lon <= -35) return 1;  // n. america
+  if (lat > -40 && lat <= 40 && lon >= -25 && lon <= 60) return 2;   // afryka
+  if (lat > -60 && lat <= 15 && lon >= -95 && lon <= -30) return 3;  // s. america
+  if (lat > 0 && lat <= 80 && lon >= 40 && lon <= 185) return 4;     // azja (rosja/indie/chiny/japonia)
+  if (lat > -55 && lat <= 12 && lon >= 105 && lon <= 190) return 5;  // oceania/australia
+  return 0;
+}
+// Obszar rysowania mapy na ekranie (prawie caly ekran, bez paskow na dole).
+#define PROP_MAP_TOP 34
+#define PROP_MAP_BOTTOM 250
+#define PROP_MAP_W 480
+#define PROP_MAP_H (PROP_MAP_BOTTOM - PROP_MAP_TOP)
 const unsigned long WEATHER_FETCH_INTERVAL_MS = 10UL * 60UL * 1000UL;      // 10 min
 const unsigned long WEATHER_FETCH_RETRY_MS = 2UL * 60UL * 1000UL;          // 2 min retry on error
 const unsigned long QRZ_LOOKUP_INTERVAL_DEFAULT_MS = 6000;                 // byĹ‚o 3s - zbyt agresywne w poĹ‚Ä…czeniu z resztÄ… ruchu sieciowego na urzÄ…dzeniu
@@ -1911,6 +2003,33 @@ PropagationData propagationData;
 unsigned long lastPropagationFetchMs = 0;
 bool lastPropagationFetchOk = true;
 
+// Stan mapy propagacji (wbudowany w ekran PROPAGACJA, SCREEN_SUN_SPOTS).
+uint16_t *propMapBuf = nullptr;          // bufor RGB565 w PSRAM (480 x 216)
+bool     propMapReady = false;           // czy mapa jest załadowana i może być rysowana
+bool     propMapFetching = false;        // trwa pobieranie mapy
+char     propMapLastError[48] = "";      // tekst błędu (zapis z tasku tła - char[])
+int      propBandIndex = 1;              // domyślnie 40M
+int      propRegionIndex = 0;            // domyślnie europe
+bool     propRegionManualSelect = false; // true po recznym wyborze regionu dotykiem
+int      propMapUtcHour = -1;            // dla jakiej godziny UTC pobrano mapę (-1 = brak)
+int      propMapRegionUsed = -1;         // region, dla ktorego pobrano mapa (-1 = brak)
+
+// Fetch mapy w osobnym tasku (nie blokuje UI_Task; dane pobierane przez WiFi).
+static TaskHandle_t propMapFetchTaskHandle = nullptr;
+static volatile bool propMapFetchReq = false;    // UI prosi o pobranie mapy
+static volatile bool propMapFetchBusy = false;   // task tła jest w trakcie
+static volatile bool propMapFetchDone = false;   // task zakończył (fetchPropagationMap już ustawił stany)
+static volatile unsigned long propMapLastFailAtMs = 0;  // cooldown po błędzie pobrania (PROP_MAP_RETRY_MS)
+static SemaphoreHandle_t propMapMux = nullptr;   // ochrona propMapBuf przy rysowaniu/dekodowaniu
+
+static int propUtcHour() {
+  time_t now = time(nullptr);
+  if (now < 100000) return -1;
+  struct tm utcTm;
+  gmtime_r(&now, &utcTm);
+  return utcTm.tm_hour;
+}
+
 struct WeatherData {
   static const uint8_t DETAIL_COLS = WEATHER_DETAIL_COLS;
   String cityName;
@@ -2005,11 +2124,11 @@ unsigned long getQrzLookupIntervalMs() {
   return QRZ_LOOKUP_INTERVAL_DEFAULT_MS;
 }
 
-DXSpot spots[MAX_SPOTS];
+DXSpot *spots = nullptr;
 int spotCount = 0;
-DXSpot potaSpots[MAX_POTA_SPOTS];
+DXSpot *potaSpots = nullptr;
 int potaSpotCount = 0;
-DXSpot hamalertSpots[MAX_POTA_SPOTS];
+DXSpot *hamalertSpots = nullptr;
 int hamalertSpotCount = 0;
 SemaphoreHandle_t dxSpotsMutex = nullptr;
 
@@ -2192,6 +2311,8 @@ const char *NVS_KEY_WX_ICON_STORM = "wxal_ic_s";
 const char *NVS_KEY_WX_ICON_WIND = "wxal_ic_w";
 const char *NVS_KEY_OPENMETEO_URL = "wxal_url";
 const char *DEFAULT_OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast";
+const bool DEFAULT_ENABLE_BUZZER_ALERT = true;
+const char *NVS_KEY_ENABLE_BUZZER_ALERT = "bzr_al_en";
 const bool DEFAULT_ENABLE_LED_ALERT = true;
 const int DEFAULT_LED_ALERT_DURATION_MS = 5000;
 const int DEFAULT_LED_ALERT_BLINK_MS = 500;
@@ -2215,6 +2336,11 @@ int aprsAlertScreenSeconds = DEFAULT_APRS_ALERT_SCREEN_SEC;
 bool aprsAlertNearbyEnabled = true;
 bool aprsAlertWxEnabled = false;
 float aprsAlertDistanceKm = DEFAULT_APRS_ALERT_DISTANCE_KM;
+bool enableBuzzerAlert = DEFAULT_ENABLE_BUZZER_ALERT;
+// Tryb "Buzzer NOC": cichy sygnal dla alertow APRS - jeden krotki pip (bez
+// melodii wg typu stacji). Gdy aktywny, zwykly Buzzer jest wymuszony OFF.
+bool aprsBuzzerNoc = false;
+const char *NVS_KEY_APRS_BUZZER_NOC = "aprs_bzr_noc";
 bool enableLedAlert = DEFAULT_ENABLE_LED_ALERT;
 int ledAlertDurationMs = DEFAULT_LED_ALERT_DURATION_MS;
 int ledAlertBlinkMs = DEFAULT_LED_ALERT_BLINK_MS;
@@ -2227,6 +2353,22 @@ bool aprsBeaconEnabled = true;
 // ale mozna ustawic np. APZESP/APDW16 - niektore sieci/Digi preferuja wlasny.
 String aprsToCall = "APRS";
 const char *NVS_KEY_APRS_TOCALL = "aprs_tocall";
+// ===== Odpowiadanie na wiadomosci APRS (UI dotykowe, ekran APRS-IS) =====
+// Klikniecie wiersza stacji na liscie APRS-IS otwiera popup z szybkimi
+// odpowiedziami i wpisaniem wlasnego tekstu.
+bool aprsReplyPopupActive = false;      // czy popup odpowiedzi jest otwarty
+String aprsReplyPopupCall = "";         // adresat (znak, moze z SSID)
+String aprsReplyCustom = "";            // wlasny tekst do wyslania
+bool aprsReplyCustomKeyboard = false;   // tryb wpisywania wlasnego tekstu
+unsigned long aprsReplyStatusUntilMs = 0; // do kiedy pokazywac "wyslano/blad"
+String aprsReplyStatusMsg = "";
+bool aprsReplyFromAlert = false;       // popup otwarto z ekranu alertu APRS -> po zamknieciu wroc do alertu
+bool aprsReplyCallInput = false;       // klawiatura edytuje znak docelowy zamiast tresci
+bool aprsReplyLookupActive = false;    // tryb "SZUKAJ": pokaz dane QRZ znaku w popup REPLY
+bool aprsReplyLookupDone = false;      // czy wyszukiwanie sie zakonczylo
+bool aprsReplyLookupFound = false;     // czy znaleziono
+String aprsReplyLookupInfo = "";       // tekst podsumowania znalezionego znaku
+bool aprsReplyReturnToMenu = false;    // popup otwarto z menu APRS Setting -> po X wroc tam
 // Blokada znakow w alercie APRS (CSV masek). Wpisy z listy NIE wywoluja alertu
 // (uzyteczne, zeby wlasne beaconowanie / lokalne Digi nie spamowalo alarmem).
 // Format tokenow jak lista alertow: CALL, CALL-7, CALL* (dowolny SSID).
@@ -2284,6 +2426,41 @@ const int APRS_ALERT_CLOSE_BTN_W = 26;
 const int APRS_ALERT_CLOSE_BTN_H = 26;
 const int APRS_ALERT_CLOSE_HIT_W = 50;
 const int APRS_ALERT_CLOSE_HIT_H = 50;
+const int APRS_ALERT_REPLY_BTN_X = 350;
+const int APRS_ALERT_REPLY_BTN_Y = 286;
+const int APRS_ALERT_REPLY_BTN_W = 118;
+const int APRS_ALERT_REPLY_BTN_H = 28;
+const int APRS_ALERT_HIST_BTN_X = 12;
+const int APRS_ALERT_HIST_BTN_Y = 286;
+const int APRS_ALERT_HIST_BTN_W = 110;
+const int APRS_ALERT_HIST_BTN_H = 28;
+const int APRS_ALERT_HIST_HIT_W = 130;
+const int APRS_ALERT_HIST_HIT_H = 40;
+const int APRS_HISTORY_SCROLL_Y_TOP = 52;
+const int APRS_HISTORY_SCROLL_Y_BOTTOM = 300;
+const int APRS_HISTORY_SCROLL_X = 455;
+const int APRS_HISTORY_SCROLL_W = 20;
+const int APRS_HISTORY_MAX_ROWS = 11;
+// Historia wiadomosci APRS (RX i TX) do podgladu w alertach (B3).
+// Pojemnik kolowy: najnowsza na gorze, najstarsza wypada gdy pelen.
+// Indeksy 0..size-1 kolejno malejaco / najnowszy wpis jest zawsze na indeksie
+// head-1 (a to, co nadpisujemy po zapelnieniu, to tail).
+struct AprsMsgHistoryEntry {
+  bool rx;          // true = odebrana, false = wyslana
+  String callsign;  // partner (RX: nadawca, TX: odbiorca)
+  String text;
+  unsigned long whenMs;  // monotoniczny czas wpisu
+};
+#define APRSA_MSG_HISTORY_MAX 20
+AprsMsgHistoryEntry aprsMsgHistory[APRSA_MSG_HISTORY_MAX];
+int aprsMsgHistoryHead = 0;   // liczba wpisow (0..MAX)
+int aprsMsgHistoryWrite = 0;  // indeks nastepnego zapisu
+bool aprsMsgHistoryActive = false;
+int aprsMsgHistoryScroll = 0;   // offset przewijania (0 = najnowsze)
+bool aprsMsgHistoryWasAlert = false;   // wroc do alertu po zamknieciu hist.
+ScreenType aprsMsgHistoryPrevScreen = SCREEN_OFF;  // ekran pod historia (alert sensu na tym boolu)
+bool aprsMsgHistoryHadPrevScreen = false;          // czy mamy zapamietany ekran bazowy
+
 bool aprsAlertScreenActive = false;
 unsigned long aprsAlertScreenUntilMs = 0;
 unsigned long aprsAlertFrameLastToggleMs = 0;
@@ -2450,6 +2627,26 @@ String uart2ConnectedModule = "none";
 int  gpsRxPin = 18;               // ESP32 RX  <- TX modulu GPS
 int  gpsTxPin = 17;               // ESP32 TX  -> RX modulu GPS
 int  gpsBaud = 9600;              // predkosc NMEA
+// Piny zajete przez inne funkcje - GPS RX/TX z WWW nie moga ich uzywac.
+// TFT: 9(DC) 10(CS) 11(MOSI) 12(SCLK) 13(RSET/nein) 14(MISO) 15(T_CS) 16(T_IRQ),
+// BL=21, buzzer=2, bateria ADC=1/7, RGB=4/5/6. UART2 moze uzywac tylko wolnych.
+static bool gpsPinValid(int p) {
+  if (p < 1 || p > 47) return false;
+  switch (p) {
+    case 1: case 2: case 4: case 5: case 6: case 7:
+    case 9: case 10: case 11: case 12: case 13: case 14:
+    case 15: case 16: case 21:
+      return false;
+    default:
+      return true;
+  }
+}
+// Z NVS/WWW moze przyjsc dowolna liczba - sprowadzam do bezpiecznej pary.
+static void gpsSanitizePins() {
+  if (!gpsPinValid(gpsRxPin)) gpsRxPin = 18;
+  if (!gpsPinValid(gpsTxPin)) gpsTxPin = 17;
+  if (gpsRxPin == gpsTxPin) { if (gpsRxPin == 18) gpsTxPin = 17; else gpsTxPin = 18; }
+}
 bool gpsUseForPosition = false;   // uzywaj pozycji GPS zamiast recznej (NVS gps_use)
 bool gpsFix = false;              // GGA quality > 0
 bool gpsHasPosition = false;      // odebrano poprawna pozycje
@@ -2500,6 +2697,7 @@ int gpsLastProfileApplied = -1;  // indeks profilu (zmiana wymusza re-konfigurac
 // odbiorcow (APRS, PSK, radar). Po wylaczeniu GPS wracamy do tych wartosci.
 double userLatManual = 0.0, userLonManual = 0.0;
 String userLocatorManual = "";
+String aprsQthName = "";             // opcjonalna miejscowosc (QTH) pokazywana na radarze
 bool userLatLonValidManual = false;
 bool gpsPositionOverrideActive = false;
 
@@ -2540,6 +2738,24 @@ uint16_t callsignColor = 65535; // Default white (0xFFFF)
 // jasnosci (suwak "KOLOR ZEGARA"), WWW (Twoja Stacja) albo dlugie przytrzymanie
 // zegara.
 uint16_t clockDigitsColor = 0xFFFF; // Default white (0xFFFF) - jak czcionka na poczatku bootu
+// "Mix kolor" - zegar co minute zmienia kolor na nastepny z palety
+// (wylaczane w menu koloru zegara / przez ZAPISZ tam wybranego koloru).
+bool clockColorMixActive = false;
+int clockColorMixIndex = 0;
+static int lastMixClockMinute = -1;  // ostatnia minuta, w ktorej zmieniano kolor mix
+// "Tecza" - kazda cyfra zegara w innym kolorze (paleta HSV przesuwana w czasie).
+bool clockRainbowActive = false;
+static const uint16_t CLOCK_MIX_PALETTE[] = {
+  0xFFFF, // bialy
+  0xFFE0, // zolty
+  0x07FF, // blekit/cyjan
+  0x07E0, // zielony
+  0xF81F, // magenta
+  0xFD20, // pomaranczowy
+  0xF800, // czerwony
+  0x001F, // niebieski
+};
+#define CLOCK_MIX_COUNT (sizeof(CLOCK_MIX_PALETTE) / sizeof(CLOCK_MIX_PALETTE[0]))
 
 // Wybor czcionki znaku i duzego zegara (menu czasu, ekran HAM CLOCK).
 // 0 = wbudowana czcionka TFT_eSPI (bez pliku), 1..CLOCK_FONT_COUNT = pliki
@@ -2603,7 +2819,7 @@ int clockHitX = 40, clockHitY = 125, clockHitW = 400, clockHitH = 70;
 #define BUZZER_LEDC_CHANNEL 1   // kanal 0 zajety przez podswietlenie (BACKLIGHT_PWM_CHANNEL)
 #endif
 #define BUZZER_DUTY 512             // ~50% z 10 bitow - glosnosc piezo
-// Piezo pasywny ma rezonans ~2-4 kHz; tam jest NAJGLOŚNIEJSZY. Nuty 370-1568 Hz
+// Piezo pasywny ma rezonans ~2-4 kHz; tam jest NAJGŁOŚNIEJSZY. Nuty 370-1568 Hz
 // grane nizej sa ciche. Shift o 2 oktawy (x4) wprowadza CALY zakres melodii
 // (1480-6272 Hz) w rejon/nad rezonans - wszystkie nuty slyszalne i glosne.
 // UWAGA: to przesuniecie OKTAW, nie glosnosc - wartosc 10 (x1024) daje 0.4-1.6 MHz,
@@ -2621,12 +2837,18 @@ int clockHitX = 40, clockHitY = 125, clockHitW = 400, clockHitH = 70;
 #define APRS_BEEP_ON_MS 120         // dlugosc pipniecia
 #define APRS_BEEP_GAP_MS 120        // przerwa miedzy pipnieciami
 #define APRS_BEEP_DUTY 600          // stala glosnosc (niezalezna od suwaka alarmu)
+// Cala sekwencja APRS gra ~3 s (ulatwia uslyszenie i rozroznienie typu stacji).
+#define APRS_BEEP_TOTAL_MS 3000
 
 // Suwak glosnosci melodii w menu alarmu (wypelnienie LEDC, 10 bitow => 0..1023).
 // Ustawienia wspolne dla rysowania i hit-testu.
 #define ALM_VOL_MIN 40              // dolny zakres (nie 0, zeby suwak nie byl "głuchy")
-#define ALM_VOL_MAX 1023            // maks. wypelnienie
-#define ALM_VOL_DEFAULT 512         // = BUZZER_DUTY (dotychczasowa glosnosc)
+// Maks. wypelnienie = punkt, w ktorym piezo pasywny gra NAJGŁOŚNIEJ (dla zakresu
+// 40..1023 wychodzilo to przy ~70% => 728). Powyzej ~50% wypelnienia piezo na
+// jednym GPIO CICHNIE, wiec dawny zakres do 1023 dawal "słabszy dzwiek" przy
+// suwaku im blizej 100%. Koniec suwaka to teraz najglosniejszy mozliwy dzwiek.
+#define ALM_VOL_MAX 728
+#define ALM_VOL_DEFAULT ALM_VOL_MAX  // domyslnie alarm gra najglosniej
 
 bool alarmEnabled = false;          // czy alarm w ogole dziala
 int alarmHour = 7;                  // godzina alarmu (0..23)
@@ -2634,6 +2856,7 @@ int alarmMinute = 0;                // minuta (0..59)
 uint8_t alarmDaysMask = 0x7F;       // bity 0..6 = nd..sob (domyslnie codziennie)
 int alarmMelody = 0;                // wybrany dzwiek (0..ALARM_MELODY_COUNT-1)
 int alarmVolume = ALM_VOL_DEFAULT;  // glosnosc buzzera (wypelnienie LEDC, 0..1023)
+int aprsBeepVolume = ALM_VOL_DEFAULT;  // glosnosc beepow APRS (wypelnienie LEDC)
 
 // Menu alarmu (modalne, jak menu koloru znaku).
 bool alarmMenuActive = false;
@@ -2665,6 +2888,18 @@ int aprsBeepStep = 0;                    // 0..APRS_BEEP_COUNT-1
 unsigned long aprsBeepPhaseUntilMs = 0;
 bool aprsBeepToneOn = false;
 unsigned long aprsBeepMutedUntilMs = 0;  // okno ciszy po alarmie/potwierdzeniu
+bool aprsBeepSingleShot = false;         // NOC: 1 pik, bez zapetlania sekwencji
+unsigned long lastNocBeepMs = 0;         // globalny cooldown NOC (gesty ruch APRS)
+// Min. odstęp między pikami "Buzzer NOC", nawet gdy alerty nadciagaja od wielu stacji.
+const unsigned long APRS_NOC_BEEP_GAP_MS = 5000;
+// Liczba nut biezacej sekwencji (per typ stacji). Ustawiana razem z
+// aprsBeepActive w aprsBeepStartPattern (main loop), czytana w aprsBeepUpdate.
+volatile uint8_t aprsBeepSeqTotal = 0;
+// Wskaznik na biezaca tablice nut (AprsBeepNote*). Typ void*, bo struktura
+// jest zdefiniowana dopiero ponizej; ustawia go aprsBeepStartPattern.
+volatile const void *aprsBeepSeqPtr = 0;
+// Moment startu sekwencji - sygnal gra co najmniej 3 s (petla nut).
+volatile unsigned long aprsBeepStartedAtMs = 0;
 
 // Ekran modalny dzwoniacego alarmu (jak alert APRS/pogodowy) - widoczny na
 // dowolnym ekranie, zeby nie przegapic alarmu. Auto-stop po ALARM_RING_DISPLAY_MS.
@@ -2956,7 +3191,15 @@ unsigned long lastBatteryCheckMs = 0;
 float batteryVoltage = 0.0f;
 int batteryPercentage = 0;
 bool batteryLowWarningShown = false;
-bool batteryCharging = false;  // Rozpoznawanie ładowania (napięcie > 4.08V)
+bool batteryCharging = false;  // Rozpoznawanie ładowania (napięcie > 3.9V)
+// Wygladzanie pomiaru: surowe ADC szarpie, a krzywa procentowa ma male przeciecia
+// punktow - EMA + odrzucanie szpilek daje stabilny odczyt bez migania procentu.
+float batteryVoltageSmoothed = 0.0f;
+bool batterySmoothedInit = false;
+// Wygladzanie RSSI do paskow WiFi (EMA) - sam surowy RSSI oscyluje i belki
+// skakaly przy granicach progow (np. -55/-67/-78 dBm).
+float wifiRssiFiltered = 0.0f;
+bool wifiRssiInit = false;
 
 // --- Konfiguracja z WWW (informacyjna) ---
 // Typ modulu ladowania akumulatora (lista dostepnych ukladow ladowania).
@@ -2970,7 +3213,7 @@ const char *NVS_KEY_BAT_MAH = "bat_mah";
 const char *NVS_KEY_BAT_TYPE = "bat_type";
 
 // Maksymalny indeks obslugiwanego modulu ladowania (patrz chargerModuleName).
-static const int CHARGER_MODULE_MAX = 14;
+static const int CHARGER_MODULE_MAX = 15;
 
 // Czytelne nazwy modulow (uzywane na ekranie monitora i w WWW).
 const char* chargerModuleName(int type) {
@@ -2989,6 +3232,7 @@ const char* chargerModuleName(int type) {
     case 11: return "CN3791";
     case 12: return "IP5306";
     case 13: return "IP5328";
+    case 14: return "MH-CD42";
     default: return "Inny";
   }
 }
@@ -3052,6 +3296,22 @@ float readBatteryVoltage() {
   return (v1 > v2) ? v1 : v2;
 }
 
+// Surowy pomiar (bez kalibracji divider/offset) - potrzebny do menu kalibracji
+// baterii, by przeliczyc "rzeczywiste V" na zywych odczytach w trakcie korekty.
+// Wartosc = max(pinMv)/1000 * BATTERY_VOLTAGE_DIVIDER, bez batteryDividerCal
+// i bez batteryVoltOffset.
+#ifndef BATTERY_MONITORING_ENABLED
+float readBatteryVoltageRaw() { return 0.0f; }
+#else
+float readBatteryVoltageRaw() {
+  float v1 = batteryTrimmedMeanMv(BATTERY_ADC_PIN, 12, 2) / 1000.0f * BATTERY_VOLTAGE_DIVIDER;
+  float v2 = batteryTrimmedMeanMv(BATTERY_ADC_PIN2, 12, 2) / 1000.0f * BATTERY_VOLTAGE_DIVIDER;
+  if (v1 <= 0.05f) return v2;
+  if (v2 <= 0.05f) return v1;
+  return (v1 > v2) ? v1 : v2;
+}
+#endif
+
 // Charakterystyka rozładowania akumulatora Li-ion (SONY GB/T-18287) w skali
 // użytkownika: 3.80 V = 100% (pełne), 3.00 V = 0% (rozładowany). Kształt krzywej
 // oddaje realne plateau ogniwa: napięcie trzyma się długo w okolicach 3.5-3.7 V,
@@ -3094,18 +3354,33 @@ bool updateBatteryStatus() {
     batteryVoltage = 0.0f;
     batteryPercentage = 0;
     batteryCharging = false;
+    batterySmoothedInit = false;
     return false;
   }
 
-  batteryVoltage = v;
+  // Stabilizacja pomiaru: pojedynczy odczyt ADC potrafi odskoczyc (szpilka) lub
+  // wahac sie wokol punktu krzywej. Odrzucamy nagly skok >0.35 V od poprzedniego
+  // wygladzonego (pomiar z dwoch pinow/12 probek nie ma prawa tak skoczyc), a
+  // reszte przepuszczamy przez EMA, zeby procent nie migal przy granicach progow.
+  if (batterySmoothedInit) {
+    if (fabsf(v - batteryVoltageSmoothed) > 0.35f) {
+      return false;  // szpilka/odskok - ignorujemy ten cykl
+    }
+    batteryVoltageSmoothed = batteryVoltageSmoothed * 0.7f + v * 0.3f;
+  } else {
+    batteryVoltageSmoothed = v;
+    batterySmoothedInit = true;
+  }
+
+  batteryVoltage = batteryVoltageSmoothed;
   batteryPercentage = calculateBatteryPercentage(batteryVoltage);
 
-  // Wykrywanie ładowania: powyżej 4.08 V uznajemy, że podłączona jest ładowarka
-  // (ładowanie ogniwa Li-ion podnosi napięcie do ~4.1-4.4 V). Histereza 0.1 V
-  // (kasowanie poniżej 3.98 V) zapobiega miganiu ikony przy granicy.
-  if (batteryVoltage > 4.08f) {
+  // Wykrywanie ładowania: powyżej 3.9 V uznajemy, że podłączona jest ładowarka
+  // (moduł MH-CD42/TP4056 podnosi napięcie ogniwa podczas ładowania).
+  // Histereza 0.1 V (kasowanie poniżej 3.8 V) zapobiega miganiu ikony przy granicy.
+  if (batteryVoltage > 3.9f) {
     batteryCharging = true;
-  } else if (batteryVoltage < 3.98f) {
+  } else if (batteryVoltage < 3.8f) {
     batteryCharging = false;
   }
 
@@ -3522,7 +3797,9 @@ void initTFT() {
   
   // Podświetlenie i reset muszą być na prawdziwych wyjściach GPIO.
   setupBacklightPwm();
-  applyEffectiveBacklight();
+  // Podświetlenie włączymy dopiero PO ustawieniu czarnego tła (inaczej przez
+  // chwilę świeci treść VRAM -> "biały błysk" na starcie).
+  writeBacklightDuty(0);
 #if (TFT_RST >= 0)
   pinMode(TFT_RST, OUTPUT);
   digitalWrite(TFT_RST, HIGH);
@@ -3550,17 +3827,29 @@ void initTFT() {
   tft.fillScreen(TFT_WHITE);
 #endif
 
+  // Wczytaj geometrię ekranu z NVS zanim zastosujemy rotację/inwersję — dzięki
+  // temu boot (drawBootScreen) od pierwszej klatki używa ustawień użytkownika,
+  // a nie wartości domyślnych (czytanych wcześniej tylko w loadPreferences()).
+  if (preferences == nullptr) {
+    preferences = new Preferences();
+  }
+  preferences->begin("dxcluster", false);
+  tftRotation = preferences->getUChar("tft_rot", 3);
+  if (tftRotation > 3) tftRotation = 1;
+  touchRotation = preferences->getUChar("touch_rot", tftRotation);
+  if (touchRotation > 3) touchRotation = 1;
+  tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", true));
+  preferences->end();
+
   applyTftRotation();
-  // Wymus inwersje OFF na czas bootu (czarny ekran + biale litery), zamiast
-  // uzupelniac global (domyslnie true z TFT_INVERSION_ON w tft_setup.h). Bez
-  // tego boot startowal z 0x21 (inwersja ON), a po loadPreferences przechodzil
-  // na 0x20 -> nagla zmiana kolorow w okolicy "Config load".
-  tft.invertDisplay(false);
-  tft.writecommand(0x20);
-  Serial.println("[TFT] Boot: inwersja OFF (0x20) - czarne tlo, biale litery");
+  applyTftInversion();
+  Serial.printf("[TFT] Boot: rotacja=%d inwersja=%d\n", tftRotation, (int)tftInvertColors);
   // Czarny (nie bialy) - init nie moze konczyc sie jasnym blyskiem, a ekran
-  // startowy i tak zaczyna od czarnego tla (drawBootScreen/drawSplashScreen).
+  // glownego zegara i tak zaczyna od czarnego tla (drawScreen/drawBootScreen).
   tft.fillScreen(TFT_BLACK);
+  // Podświetlenie włączamy dopiero po ustawieniu czarnego tła i poprawnej
+  // geometrii — brak białego błysku przy starcie.
+  applyEffectiveBacklight();
 
   // Dotyk XPT2046 na tej samej magistrali SPI co TFT (osobny CS).
 #if TOUCH_ENABLED
@@ -3619,165 +3908,6 @@ void tftBootPrintLine(const String &line) {
   }
 }
 
-void drawWelcomeScreenYellow() {
-  if (!tftInitialized) {
-    return;
-  }
-
-  // Ekran powitalny moze byc zastapiony wlasna grafika (/welcome.<ext>),
-  // wgrana przez WWW (zakladka TFT -> "Grafika na ekran", cel "Ekran powitalny").
-  if (littleFsReady) {
-    for (const char *cand : {"/welcome.bmp", "/welcome.png", "/welcome.jpg", "/welcome.jpeg"}) {
-      if (!LittleFS.exists(cand)) continue;
-      if (drawImageFromFS(cand)) {
-        Serial.printf("[Welcome] Zaladowano ekran powitalny: %s\n", cand);
-        tft.setTextSize(1);
-        tft.setTextColor(TFT_LIGHTGREY);
-        tft.setCursor(240 - 80, 310);
-        tft.print("Kliknij ekran aby kontynuowac...");
-        return;
-      }
-      Serial.printf("[Welcome] Plik %s istnieje, ale dekodowanie nie udalo sie\n", cand);
-    }
-  }
-
-  tft.fillScreen(TFT_BLACK);
-
-  // Jedna linia tytulu z wersja firmware (FIRMWARE_VERSION = "1.2e").
-  // Polskie znaki - wymaga UTF-8 w zrodle (--utf8-source).
-  String lines[5];
-  lines[0] = "ESP32-HAM-CLOCK v" FIRMWARE_VERSION;
-  lines[1] = "Projekt bazowy: Konrad Wiśniewski SP3KON";
-  lines[2] = "Adaptacja i rozwój: Tomasz SP9TNV.";
-  lines[3] = "Kontakt: SP9TNV@gmail.com";
-  lines[4] = "Projekt udostępniany na licencji MIT.";
-
-  // Wiekszy font VLW (DejaVu Sans 21 pt, polskie znaki). Gdy brak pliku/pamieci,
-  // spadamy na ROM Font 2 (16 px, bez diakrytykow) - i tak sie zmiesci.
-  bool smooth = littleFsReady && LittleFS.exists(WELCOME_FONT_FILE) && ESP.getFreeHeap() > 80000;
-  if (smooth) {
-    tft.loadFont(WELCOME_FONT_NAME, LittleFS);
-
-    int lineH = tft.fontHeight() + 2;
-    int textH = lineH * 5;
-
-    // Godlo PZK (romb) nad tekstem, jesli plik jest w LittleFS.
-    int logoH = 0, logoY = 0;
-    if (LittleFS.exists(PZK_LOGO_FILE)) {
-      logoH = PZK_LOGO_H;
-      logoY = (320 - (logoH + 10 + textH)) / 2;
-      if (drawBmpFromFS(PZK_LOGO_FILE, (480 - PZK_LOGO_W) / 2, logoY)) {
-        logoY += logoH + 10;
-      } else {
-        logoH = 0;
-      }
-    }
-    // Gdy jest godlo - blok tekstu tuz pod nim; inaczej optycznie w dol (+18 px,
-    // bo litera bazowa lezy w dolnej czesci wiersza i ogonki schodza ponizej).
-    int y = (logoH > 0) ? logoY : (320 - textH) / 2 + 18;
-
-    for (int i = 0; i < 5; i++) {
-      tft.setTextColor(TFT_WHITE, TFT_BLACK);
-      tft.setCursor((480 - tft.textWidth(lines[i])) / 2, y);
-      tft.print(lines[i]);
-      y += lineH;
-    }
-    tft.unloadFont();
-    return;
-  }
-
-  // Fallback: ROM Font 2 (16 px), tekst bez polskich ogonkow.
-  const char *ascii[5] = {
-    "ESP32-HAM-CLOCK v" FIRMWARE_VERSION,
-    "Projekt bazowy: Konrad Wisniewski SP3KON",
-    "Adaptacja i rozwoj: Tomasz SP9TNV.",
-    "Kontakt: SP9TNV@gmail.com",
-    "Projekt udostepniany na licencji MIT."
-  };
-  const int lineH = 24;
-  const int textH = lineH * 5;
-  int y;
-  if (LittleFS.exists(PZK_LOGO_FILE) &&
-      drawBmpFromFS(PZK_LOGO_FILE, (480 - PZK_LOGO_W) / 2, (320 - (PZK_LOGO_H + 10 + textH)) / 2)) {
-    y = (320 - (PZK_LOGO_H + 10 + textH)) / 2 + PZK_LOGO_H + 10;
-  } else {
-    y = (320 - textH) / 2 + 4;
-  }
-  for (int i = 0; i < 5; i++) {
-    uiWelcomeText(y, ascii[i], 2, TFT_WHITE);
-    y += lineH;
-  }
-}
-
-// Rysuje wysrodkowana linie ekranu powitalnego (czarny ekran, bialy tekst).
-// Font 2 = 16 px, wiec linia jest czytelna; dluzsze napisy mierzone i centrowane.
-static void uiWelcomeText(int y, const char *txt, uint8_t font, uint16_t color) {
-  tft.setTextSize(1);
-  tft.setTextColor(color, TFT_BLACK);
-  int w = tft.textWidth(txt, font);
-  int x = (480 - w) / 2;
-  if (x < 4) x = 4;
-  tft.setCursor(x, y);
-  tft.setTextDatum(TL_DATUM);
-  tft.print(txt);
-}
-
-// Ekran startowy z grafika (splash). Wczytuje PLIK, ktory wrzucisz do data/
-// (np. splash.png / splash.bmp) lub przez upload na urzadzenie.
-// Obsluguje: BMP 24/16-bit, PNG, JPG (przez drawImageFromFS -> dekodery).
-void drawSplashScreen() {
-  if (!tftInitialized) {
-    return;
-  }
-
-  tft.fillScreen(TFT_BLACK);
-  const int centerX = 240;
-
-  // Kolejnosc = priorytet. /splash.bmp pierwszy, bo to udokumentowana nazwa
-  // pliku wgranego na urzadzenie - kazda nieudana proba to odczyt flasha
-  // (skok pradu = chwilowe przygaszenie podswietlenia).
-  static const char *splashCandidates[] = {
-    "/splash.bmp",
-    "/splash_16bit.bmp",
-    "/splash16.bmp",
-    "/splash.png",
-    "/splash.jpg",
-    "/splash.jpeg",
-    "/icon50/splash.bmp",
-    "/boot.bmp",
-    "/boot.png",
-    "/logo.bmp",
-    "/logo.png",
-    "/start.bmp",
-    "/start.png",
-  };
-
-  bool imgLoaded = false;
-  if (littleFsReady) {
-    for (const char *cand : splashCandidates) {
-      if (!LittleFS.exists(cand)) continue;
-      if (drawImageFromFS(cand)) {
-        imgLoaded = true;
-        Serial.printf("[Splash] Zaladowano ekran startowy: %s\n", cand);
-        break;
-      }
-      Serial.printf("[Splash] Plik %s istnieje, ale dekodowanie nie udalo sie\n", cand);
-    }
-  }
-
-  splashPathLoaded = imgLoaded;
-
-  if (!imgLoaded) {
-    Serial.println("[Splash] Nie znaleziono obrazu startowego - czarny ekran");
-    tft.fillScreen(TFT_BLACK);
-  }
-
-  // Tekst "Kliknij aby kontynuowac"
-  tft.setTextSize(1);
-  tft.setTextColor(TFT_LIGHTGREY);
-  tft.setCursor(centerX - 80, 310);
-  tft.print("Kliknij ekran aby kontynuowac...");
-}
 
 // Aktualizuj wyĂ„Ä…Ă˘â‚¬Ĺźwietlacz z aktualnym adresem IP
 void updateTFT_IP() {
@@ -4582,109 +4712,109 @@ String getPolishNameDay() {
   // Tablica imienin dla kaĹĽdego dnia roku (miesiÄ…c 0-11, dzieĹ„ 1-31)
   // StyczeĹ„
   static const char* nameDays[12][31] = {
-    {"Mieszko, MieczysĹ‚aw", "Izydor, Grzegorz", "Danuta, Genowefa", "Angelika, Aniela", "Edward, Szymon",
+    {"Mieszko, Mieczysław", "Izydor, Grzegorz", "Danuta, Genowefa", "Angelika, Aniela", "Edward, Szymon",
      "Kacper, Melchior, Baltazar", "Lucjan, Julian", "Seweryn, Marcin", "Marcelina, Julianna", "Danuta, Piotr",
-     "Agata, MaĹ‚gorzata", "Arkadiusz, Benedykt", "BogumiĹ‚a, Wojciech", "Feliks, Nina", "PaweĹ‚, Arnold",
-     "Marcel, WĹ‚odzimierz", "Antoni, Jan", "MaĹ‚gorzata, Piotr", "Henryk, Marta", "Fabian, Sebastian",
-     "Agnieszka, JarosĹ‚aw", "Anastazy, Wincenty", "Ildefons, Rajmund", "Felicja, Tymoteusz", "PaweĹ‚, MichaĹ‚",
-     "Paula, Wanda", "Aniela, Jerzy", "Walery, Karol", "Franciszek, JĂłzef", "Maciej, Martyna",
+     "Agata, Małgorzata", "Arkadiusz, Benedykt", "Bogumiła, Wojciech", "Feliks, Nina", "Paweł, Arnold",
+     "Marcel, Włodzimierz", "Antoni, Jan", "Małgorzata, Piotr", "Henryk, Marta", "Fabian, Sebastian",
+     "Agnieszka, Jarosław", "Anastazy, Wincenty", "Ildefons, Rajmund", "Felicja, Tymoteusz", "Paweł, Michał",
+     "Paula, Wanda", "Aniela, Jerzy", "Walery, Karol", "Franciszek, Józef", "Maciej, Martyna",
      "Joanna, Marceli"
     },
     // Luty
-    {"Brygida, Ignacy", "Maria, MirosĹ‚aw", "BĹ‚aĹĽej, Oskar", "Andrzej, JĂłzef", "Agata, Jakub",
-     "Dorota, PaweĹ‚", "Ryszard, Teodor", "Hieronim, Sebastian", "Apolonia, Cyryl", "Elwira, Scholastyka",
-     "Lucjan, Olgierd", "Eulalia, RadosĹ‚aw", "Grzegorz, Leszek", "Krystyna, Liliana", "Jowita, Faustyn",
+    {"Brygida, Ignacy", "Maria, Mirosław", "Błażej, Oskar", "Andrzej, Józef", "Agata, Jakub",
+     "Dorota, Paweł", "Ryszard, Teodor", "Hieronim, Sebastian", "Apolonia, Cyryl", "Elwira, Scholastyka",
+     "Lucjan, Olgierd", "Eulalia, Radosław", "Grzegorz, Leszek", "Krystyna, Liliana", "Jowita, Faustyn",
      "Danuta, Juliana", "Aleksy, Zbigniew", "Szymon, Konstancja", "Arnold, Konrad", "Leon, Ludomir",
-     "Eleonora, Feliks", "Marta, MaĹ‚gorzata", "Roman, Damian", "Maciej, Marek", "Cezary, Donat",
-     "MichaĹ‚, Tytus", "Aleksander, Gabriel", "Antoni, Romuald", "Baltazar, Kochany", "Marta, Geralda"
+     "Eleonora, Feliks", "Marta, Małgorzata", "Roman, Damian", "Maciej, Marek", "Cezary, Donat",
+     "Michał, Tytus", "Aleksander, Gabriel", "Antoni, Romuald", "Baltazar, Kochany", "Marta, Geralda"
     },
     // Marzec
     {"Albina, Antonina", "Helena, Halszka", "Tomasz, Maryna", "Lucja, Kazimierz", "Adrian, Adriana",
-     "RĂłĹĽa, Eugeniusz", "Tomasz, Felicyta", "Beatrycze, Wincenty", "Franciszka, Brunon", "Cyprian, Aleksander",
-     "Ludwik, Konstantyn", "Grzegorz, Alojzy", "BoĹĽena, Patrycja", "Matylda, Lazarz", "Longin, Klemens",
-     "Izabela, Oktawia", "Patryk, Zbigniew", "Cyryl, Edward", "JĂłzef, Bogdan", "Klaudia, Eufemia",
-     "Lubomir, Benedykt", "Katarzyna, BogusĹ‚aw", "Pelagia, Oktawian", "Gabriel, Marek", "Mariola, WiÄ™nczysĹ‚aw",
+     "Róża, Eugeniusz", "Tomasz, Felicyta", "Beatrycze, Wincenty", "Franciszka, Brunon", "Cyprian, Aleksander",
+     "Ludwik, Konstantyn", "Grzegorz, Alojzy", "Bożena, Patrycja", "Matylda, Lazarz", "Longin, Klemens",
+     "Izabela, Oktawia", "Patryk, Zbigniew", "Cyryl, Edward", "Józef, Bogdan", "Klaudia, Eufemia",
+     "Lubomir, Benedykt", "Katarzyna, Bogusław", "Pelagia, Oktawian", "Gabriel, Marek", "Mariola, Więnczysław",
      "Teodor, Olga", "Ernest, Lidia", "Aniela, Sykstus", "Wiktoryna, Jan", "Amelia, Dobromierz",
      "Beniamin, Leon"
     },
-    // KwiecieĹ„
-    {"GraĹĽyna, Teodor", "WĹ‚adysĹ‚aw, Franciszek", "Ryszard, Pankracy", "Izydor, Wojciech", "Katarzyna, Irena",
-     "Izabela, Wilhelm", "Rufin, Celestyn", "Juliusz, Dionizy", "Maria, Dymitr", "MichaĹ‚, Makary",
-     "Filip, Leon", "Juliusz, LubosĹ‚aw", "PrzemysĹ‚aw, Hermenegild", "Berenika, Tiburcy", "Wiktoryn, Anastazja",
-     "Ksenia, Erwin", "Aniceta, Robert", "Alicja, BogusĹ‚aw", "Waleriana, Tytus", "CzesĹ‚aw, Agnieszka",
-     "Anselm, JarosĹ‚aw", "Kaja, Leon", "Jerzy, Wojciech", "Grzegorz, PaweĹ‚", "Erwina, Marek",
+    // Kwiecień
+    {"Grażyna, Teodor", "Władysław, Franciszek", "Ryszard, Pankracy", "Izydor, Wojciech", "Katarzyna, Irena",
+     "Izabela, Wilhelm", "Rufin, Celestyn", "Juliusz, Dionizy", "Maria, Dymitr", "Michał, Makary",
+     "Filip, Leon", "Juliusz, Lubosław", "Przemysław, Hermenegild", "Berenika, Tiburcy", "Wiktoryn, Anastazja",
+     "Ksenia, Erwin", "Aniceta, Robert", "Alicja, Bogusław", "Waleriana, Tytus", "Czesław, Agnieszka",
+     "Anselm, Jarosław", "Kaja, Leon", "Jerzy, Wojciech", "Grzegorz, Paweł", "Erwina, Marek",
      "Marzena, Klaudiusz", "Zygmunt, Florian", "Piotr, Waleria", "Rita, Bogna", "Katarzyna, Marian",
-     "Lidia, TrzebomysĹ‚"
+     "Lidia, Trzebomysł"
     },
     // Maj
-    {"JĂłzef, Jeremiasz", "Zygmunt, Anatolia", "Maria, Mariola", "Monika, Florian", "WĹ‚odzimierz, Iryda",
-     "Judyta, Filip", "Benedykt, Gizela", "StanisĹ‚aw, Lizbona",     "Ĺukasz, BoĹĽena", "Antonin, Izydor",
+    {"Józef, Jeremiasz", "Zygmunt, Anatolia", "Maria, Mariola", "Monika, Florian", "Włodzimierz, Iryda",
+     "Judyta, Filip", "Benedykt, Gizela", "Stanisław, Lizbona",     "Łukasz, Bożena", "Antonin, Izydor",
      "Iga, Maja", "Joanna, Pankracy", "Glora, Roberta", "Maciej, Bonifacy", "Zofia, Izydora",
-     "JÄ™drzej, JÄ™drzej", "Brunon, SĹ‚awomir", "Aleksandra, Eryk", "Iwa, Piotr", "Bernard, Aleksandra",
-     "Jerzy, Jan", "Wiktoria, Julia", "Emilia, MichaĹ‚", "Joanna, Zuzanna", "Grzegorz, MaĹ‚gorzata",
-     "Filip, Paulina", "Augustyn, Julian", "Jaromir, Justyna", "Magdalena, ZdisĹ‚awa", "Ferdynand, Karolina",
+     "Jędrzej, Jędrzej", "Brunon, Sławomir", "Aleksandra, Eryk", "Iwa, Piotr", "Bernard, Aleksandra",
+     "Jerzy, Jan", "Wiktoria, Julia", "Emilia, Michał", "Joanna, Zuzanna", "Grzegorz, Małgorzata",
+     "Filip, Paulina", "Augustyn, Julian", "Jaromir, Justyna", "Magdalena, Zdisława", "Ferdynand, Karolina",
      "Aniela, Petronela"
     },
     // Czerwiec
     {"Justyn, Konrad", "Erazm, Marzenna", "Leszek, Tamara", "Katarzyna, Franciszek", "Walter, Bonifacy",
-     "Natalia, Saba", "Antoni, Robert", "Maksym, Seweryn", "Feliks, Pelagia", "Bogdan, MaĹ‚gorzata",
-     "Barnaba, RadomiĹ‚", "Janina, Jan", "Antoni, Lucylla", "Eliza, Walenty", "Witold, Jolanta",
-     "Alina, Benon", "Albert, Ignacy", "Marek, ElĹĽbieta", "Gerwazy, Protazy", "Dina, Bogna",
-     "Alicja, Alojzy", "Paulina, Tomasz", "Wanda, Zenon", "Jan, Danuta", "WĹ‚adysĹ‚aw, Dorota",
-     "Piotr, PaweĹ‚", "Maryla, WĹ‚adysĹ‚awa", "Leon, Ireneusz", "Piotr, PaweĹ‚", "Emilia, Lucyna",
+     "Natalia, Saba", "Antoni, Robert", "Maksym, Seweryn", "Feliks, Pelagia", "Bogdan, Małgorzata",
+     "Barnaba, Radomił", "Janina, Jan", "Antoni, Lucylla", "Eliza, Walenty", "Witold, Jolanta",
+     "Alina, Benon", "Albert, Ignacy", "Marek, Elżbieta", "Gerwazy, Protazy", "Dina, Bogna",
+     "Alicja, Alojzy", "Paulina, Tomasz", "Wanda, Zenon", "Jan, Danuta", "Władysław, Dorota",
+     "Piotr, Paweł", "Maryla, Władysława", "Leon, Ireneusz", "Piotr, Paweł", "Emilia, Lucyna",
      "Oktawia, Oktawian"
     },
     // Lipiec
-    {"Halina, Marian", "Jagoda, Maria", "Anatol, Tomasz", "ElĹĽbieta, Odon", "Antoni, Maria",
-     "Dominika, Gotard", "Cyryl, Metody", "Edgar, ElĹĽbieta", "Ĺucjan, Weronika", "Sylwia, Witalis",
+    {"Halina, Marian", "Jagoda, Maria", "Anatol, Tomasz", "Elżbieta, Odon", "Antoni, Maria",
+     "Dominika, Gotard", "Cyryl, Metody", "Edgar, Elżbieta", "Łucjan, Weronika", "Sylwia, Witalis",
      "Olga, Kalina", "Jan, Brunon", "Henryk, Kinga", "Bonawentura, Kamil", "Dawid, Henryk",
-     "Eustachy, Maria", "Aneta, Bogdan", "Emil, Erwin", "Wincenty, WodzisĹ‚aw", "CzesĹ‚aw, Eliasz",
-     "Piotr, Wiktor", "Magdalena, WĹ‚adysĹ‚awa", "Ilona, Stefan", "Kinga, Krystyna", "Walentyna, Krzysztof",
-     "Anna, MirosĹ‚awa", "Aurelia, Malwina", "Lilia, Innocenty", "Olaf, Marta", "Julita, LudmiĹ‚a",
+     "Eustachy, Maria", "Aneta, Bogdan", "Emil, Erwin", "Wincenty, Wodzisław", "Czesław, Eliasz",
+     "Piotr, Wiktor", "Magdalena, Władysława", "Ilona, Stefan", "Kinga, Krystyna", "Walentyna, Krzysztof",
+     "Anna, Mirosława", "Aurelia, Malwina", "Lilia, Innocenty", "Olaf, Marta", "Julita, Ludmiła",
      "Ignacy, Lubomir"
     },
-    // SierpieĹ„
+    // Sierpień
     {"Nadzieja, Piotr", "Karina, Gustaw", "Lidia, Nikodem", "Dominik, Protus", "Emil, Karol",
-     "SĹ‚awomir, Jan", "Kajetan, Albert", "Cyprian, Emiliana", "Roman, Ryszard", "Borys, Wawrzyniec",
+     "Sławomir, Jan", "Kajetan, Albert", "Cyprian, Emiliana", "Roman, Ryszard", "Borys, Wawrzyniec",
      "Klara, Zuzanna", "Lech, Euzebiusz", "Hildegarda, Diana", "Alfred, Euzebiusz", "Maria, Napoleon",
-     "Roch, Stefan", "Anita, Eliza", "Klara, Helena",     "Jan, BolesĹ‚aw", "Bernard, Samuel",
-     "Joanna, Franciszek", "Maria, Cezary", "RĂłĹĽa, Apolinary", "Jerzy, Bartosz", "Luiza, Ludwik",
-     "Maria, Zefiryn", "JĂłzef, Klaudiusz", "Patrycja, Wyszomir", "Beata, Jan", "RĂłĹĽa, SzczÄ™sny",
+     "Roch, Stefan", "Anita, Eliza", "Klara, Helena",     "Jan, Bolesław", "Bernard, Samuel",
+     "Joanna, Franciszek", "Maria, Cezary", "Róża, Apolinary", "Jerzy, Bartosz", "Luiza, Ludwik",
+     "Maria, Zefiryn", "Józef, Klaudiusz", "Patrycja, Wyszomir", "Beata, Jan", "Róża, Szczęsny",
      "Ramona, Rajmund"
     },
-    // WrzesieĹ„
-    {"Ida, BronisĹ‚aw", "Stefan, Wilhelm", "Grzegorz, Izabela", "Ida, Julian", "Dorota, Wawrzyniec",
-     "Beata, Eugeniusz", "Regina, Melchior", "Mariam, Adriana", "Piotr, Sergiusz", "ElĹĽbieta, Gordian",
+    // Wrzesień
+    {"Ida, Bronisław", "Stefan, Wilhelm", "Grzegorz, Izabela", "Ida, Julian", "Dorota, Wawrzyniec",
+     "Beata, Eugeniusz", "Regina, Melchior", "Mariam, Adriana", "Piotr, Sergiusz", "Elżbieta, Gordian",
      "Jacek, Protus", "Gwido, Maria", "Eugenia, Aureliusz", "Bernard, Roksana", "Albin, Nikodem",
-     "Edyta, Kornel", "Franciszek, Hildegarda", "Irma, StanisĹ‚aw", "Jan, Konstancja", "Filipina, Eustachy",
-     "Jonasz, Mateusz", "Tomasz, Maurycy", "Tekla, BogusĹ‚aw", "Gerard, Herman", "Aurelia, LadysĹ‚aw",
-     "WĹ‚adysĹ‚aw, Ewa", "Damian, Kosma", "WacĹ‚aw, Laurencjusz", "MichaĹ‚, RafaĹ‚, Gabriela", "Hieronim, Remigiusz"
+     "Edyta, Kornel", "Franciszek, Hildegarda", "Irma, Stanisław", "Jan, Konstancja", "Filipina, Eustachy",
+     "Jonasz, Mateusz", "Tomasz, Maurycy", "Tekla, Bogusław", "Gerard, Herman", "Aurelia, Ladysław",
+     "Władysław, Ewa", "Damian, Kosma", "Wacław, Laurencjusz", "Michał, Rafał, Gabriela", "Hieronim, Remigiusz"
     },
-    // PaĹşdziernik
+    // Październik
     {"Danuta, Remigiusz", "Teofil, Dionizy", "Teresa, Heliodor", "Edwin, Franciszek", "Igor, Placyd",
      "Artur, Brunon", "Maria, Marek", "Pelagia, Brygida", "Arnold, Dionizy", "Paulina, Franciszek",
-     "Emil, Aldona", "Maksymilian, Eustachy", "Edward, Gerald", "Ĺukasz, Manfred", "Teresa, Jadwiga",
-     "Gall, Florian", "Ignacy, Rudolfa", "Ĺukasz, Julian", "Ziemowit, Jadwiga", "Irena, Jan",
-     "Urszula, Hilaria", "Filip, Marek", "Marlena, Seweryn", "RafaĹ‚, Marcin", "Beata, Daria",
-     "Ĺucjan, Ewaryst", "Iwona, Sabina", "Szymon, Juda", "Euzebia, Wioletta", "Zenobia, PrzemysĹ‚aw",
+     "Emil, Aldona", "Maksymilian, Eustachy", "Edward, Gerald", "Łukasz, Manfred", "Teresa, Jadwiga",
+     "Gall, Florian", "Ignacy, Rudolfa", "Łukasz, Julian", "Ziemowit, Jadwiga", "Irena, Jan",
+     "Urszula, Hilaria", "Filip, Marek", "Marlena, Seweryn", "Rafał, Marcin", "Beata, Daria",
+     "Łucjan, Ewaryst", "Iwona, Sabina", "Szymon, Juda", "Euzebia, Wioletta", "Zenobia, Przemysław",
      "Urbain, Saturnin"
     },
     // Listopad
-    {"Seweryn, Wiktoryna", "Bohdan, BoĹĽydar", "Sylwia, Marcin", "Karol, Wiktor", "ElĹĽbieta, Zachariasz",
+    {"Seweryn, Wiktoryna", "Bohdan, Bożydar", "Sylwia, Marcin", "Karol, Wiktor", "Elżbieta, Zachariasz",
      "Feliks, Leonard", "Antoni, Ernest", "Seweryn, Bogdan", "Aleksander, Ludwik", "Lena, Marcin",
-     "SzczÄ™sny, Leon", "Marcin, Witold", "MikoĹ‚aj, StanisĹ‚aw", "Emilian, Wawrzyniec", "Albert, Leopold",
-     "Gertruda, Edmund", "Grzegorz, Salomea", "Klaudyna, Karolina", "ElĹĽbieta, Seweryn", "Anatol, RafaĹ‚",
+     "Szczęsny, Leon", "Marcin, Witold", "Mikołaj, Stanisław", "Emilian, Wawrzyniec", "Albert, Leopold",
+     "Gertruda, Edmund", "Grzegorz, Salomea", "Klaudyna, Karolina", "Elżbieta, Seweryn", "Anatol, Rafał",
      "Albertina, Janusz", "Cecylia, Felicyta", "Adela, Klemens", "Flora, Emma", "Katarzyna, Erazm",
-     "Delfina, Sylwester", "Wirgiliusz, Walery", "Jakub, ZdzisĹ‚aw", "Fryderyk, Zygmunt", "Andrzej, Seweryn",
+     "Delfina, Sylwester", "Wirgiliusz, Walery", "Jakub, Zdzisław", "Fryderyk, Zygmunt", "Andrzej, Seweryn",
      ""
     },
-    // GrudzieĹ„
+    // Grudzień
     {"Eligiusz, Natalia", "Bibiana, Balbina", "Franciszek, Ksawery", "Barbara, Krystian", "Norbert, Wawrzyniec",
-     "Jadwiga, Jan", "Marcin, AmbroĹĽy", "Maria, ĹšwiÄ™tosĹ‚awa", "WiesĹ‚aw, Leokadia", "Daniel, Bogdan",
-     "Damaszek, Waldemar", "Dagmara, Aleksandra", "Ĺucja, Otylia", "Alfred, Izydor", "Nina, Celina",
-     "Albina, Olimpia", "Lazarz, Florian", "Gracjan, BogusĹ‚aw", "MichaĹ‚, Dariusz", "BogumiĹ‚a, Dominik",
-     "TomisĹ‚aw, Honorata", "Zenon, Honorata", "Wiktor, Seweryn", "Ewa, Adam", "Anastazja, Eugenia",
-     "Dionizy, Szczepan", "Jan, Zenobiusz", "Teofila, GodzisĹ‚aw", "Marta, Tomasz", "Rainer, Eugeniusz",
+     "Jadwiga, Jan", "Marcin, Ambroży", "Maria, Świętosława", "Wiesław, Leokadia", "Daniel, Bogdan",
+     "Damaszek, Waldemar", "Dagmara, Aleksandra", "Łucja, Otylia", "Alfred, Izydor", "Nina, Celina",
+     "Albina, Olimpia", "Lazarz, Florian", "Gracjan, Bogusław", "Michał, Dariusz", "Bogumiła, Dominik",
+     "Tomisław, Honorata", "Zenon, Honorata", "Wiktor, Seweryn", "Ewa, Adam", "Anastazja, Eugenia",
+     "Dionizy, Szczepan", "Jan, Zenobiusz", "Teofila, Godzisław", "Marta, Tomasz", "Rainer, Eugeniusz",
      "Sylwester, Melania"
     }
   };
@@ -4723,10 +4853,12 @@ void drawDateLine(const String &dateText) {
 // x, y - pozycja lewego gĂłrnego rogu
 // strength - siĹ‚a sygnaĹ‚u 0-4 (0=brak, 4=max)
 // Mapowanie RSSI -> liczba belek (0-4). Jedno zrodlo prawdy dla wskazan WiFi
-// (paski w naglowku + ekran monitora), zeby prog nie rozjechaly sie miedzy
+// (paski w naglowku + ekran monitora), zeby progi nie rozjechaly sie miedzy
 // miejscami. Pulsowanie co 5 s wymusza odswiezenie, bo RSSI jest ustalane
 // dopiero po polaczeniu - bez tego pierwszy rysunek naglowka zostawal z 0 belek.
-static int rssiToBars(int rssi) {
+// Surowy RSSI potrafi skakac o kilka dB miedzy sekundami, dlatego liczba belek
+// idzie przez EMA + histereze w getFilteredWifiBars() ponizej.
+static int rawRssiToBars(int rssi) {
   if (rssi > -55) return 4;
   if (rssi > -67) return 3;
   if (rssi > -78) return 2;
@@ -4734,19 +4866,51 @@ static int rssiToBars(int rssi) {
   return 0;
 }
 
+// Wygladzony RSSI (krok EMA) + histereza 3 dB: belka przeskakuje tylko przy
+// realnej zmianie sygnalu, a nie przy oscylacji wokol progu. Wynik 0-4.
+static int getFilteredWifiBars() {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) {
+    wifiRssiInit = false;
+    return 0;
+  }
+  int rssi = WiFi.RSSI();
+  // RSSI==0 tuz po polaczeniu = brak danych z radia; pokaz minimum zamiast
+  // "brak zasiegu", zeby ikona nie klamala przy dobrym sygnale.
+  if (rssi == 0) return 1;
+  if (!wifiRssiInit) {
+    wifiRssiFiltered = (float)rssi;
+    wifiRssiInit = true;
+  } else {
+    wifiRssiFiltered = wifiRssiFiltered * 0.7f + (float)rssi * 0.3f;
+  }
+  int bars = rawRssiToBars((int)(wifiRssiFiltered + 0.5f));
+  // Histereza: wokol granicy progu pasek nie przeskakuje w te i z powrotem.
+  // Nowy poziom jest akceptowany dopiero, gdy wygladzony RSSI przesunie sie
+  // o 3 dB w glab nowego progu - inaczej zostaje poprzednia liczba belek.
+  static int lastBars = -1;
+  if (lastBars == bars) {
+    return bars;
+  }
+  if (lastBars >= 0) {
+    int newThr = 0;
+    if (bars >= 1) newThr = -88;
+    if (bars >= 2) newThr = -78;
+    if (bars >= 3) newThr = -67;
+    if (bars >= 4) newThr = -55;
+    if (wifiRssiFiltered < newThr + 3.0f) {
+      return lastBars;
+    }
+  }
+  lastBars = bars;
+  return bars;
+}
+
 void drawWifiSignalBars(int x, int y, int strength = -1, uint16_t bg = TFT_BLACK) {
   // Wyczysc obszar paskow kolorem tla naglowka - bez tego pusta belka
   // (drawRect) zostawialaby slad po poprzednim, mocniejszym sygnale.
   tft.fillRect(x, y, 30, 16, bg);
   if (strength < 0) {
-    if (!wifiConnected || WiFi.status() != WL_CONNECTED) {
-      strength = 0;
-    } else {
-      int rssi = WiFi.RSSI();
-      // RSSI==0 tuz po polaczeniu = brak danych z radia; pokaz minimum zamiast
-      // "brak zasiegu", zeby ikona nie klamala przy dobrym sygnale.
-      strength = (rssi == 0) ? 1 : rssiToBars(rssi);
-    }
+    strength = getFilteredWifiBars();
   }
 
   uint16_t bar1Color = TFT_RED;
@@ -4779,7 +4943,7 @@ void drawWifiSignalBars(int x, int y, int strength = -1, uint16_t bg = TFT_BLACK
 void drawWifiBarsQuickUpdate() {
   if (!tftInitialized) return;
   if (inMenu || aprsAlertScreenActive || gpsScreenActive) return;
-  if (brightnessMenuActive || screenSaverMenuActive || alarmMenuActive) return;
+  if (brightnessMenuActive || screenSaverMenuActive || alarmMenuActive || batteryCalMenuActive) return;
   if (!wifiConnected || WiFi.status() != WL_CONNECTED) return;  // brak polaczenia -> zostaw
 
   bool clockScreen = (currentScreen == SCREEN_HAM_CLOCK);
@@ -4852,7 +5016,7 @@ static void drawGpsIconInHeader(bool classic) {
 static void refreshGpsIconIfChanged() {
   if (!tftInitialized || !gpsEnabled) return;
   if (currentScreen != SCREEN_HAM_CLOCK) return;
-  if (inMenu || brightnessMenuActive || screenSaverMenuActive || alarmMenuActive) return;
+  if (inMenu || brightnessMenuActive || screenSaverMenuActive || alarmMenuActive || batteryCalMenuActive) return;
   uint8_t st = gpsIconState();
   if (st == gpsIconLastState) return;
   drawGpsIconInHeader(uiStyleClassic());
@@ -4894,13 +5058,13 @@ void drawBatteryQuickUpdate(bool skipScreenCheck = false) {
   if (!tftInitialized) return;
   if (inMenu) return;  // Naglowki menu nie maja ikony baterii
   if (!skipScreenCheck && currentScreen != SCREEN_HAM_CLOCK) return;
-  if (brightnessMenuActive || screenSaverMenuActive || alarmMenuActive) return;  // Nie rysuj podczas menu
+  if (brightnessMenuActive || screenSaverMenuActive || alarmMenuActive || batteryCalMenuActive) return;  // Nie rysuj podczas menu
 
   // Brak akumulatora/dzielnika = brak pomiaru; naglowek nie rysuje ikony.
   if (batteryVoltage <= 0.1f || batteryVoltage > 5.0f) return;
   // Ta sama pozycja, w ktorej naglowek rysuje ikone baterii (20x10, obudowa
   // o 2 px w dol od y). Zegar: drawBatteryIcon(screenW-82, 8); inne ekrany:
-  // uiHeader -> drawBatteryIcon(408, 1); splash -> prawy gorny rog, tlo czarne.
+  // uiHeader -> drawBatteryIcon(408, 1); ekran wylaczony -> prawy gorny rog.
   int screenW = tft.width();
   bool clockScreen = (currentScreen == SCREEN_HAM_CLOCK);
   int x = clockScreen ? (screenW - 82) : 408;
@@ -4911,13 +5075,13 @@ void drawBatteryQuickUpdate(bool skipScreenCheck = false) {
   if (clockScreen) {
     bg = uiStyleClassic() ? TFT_RADIO_ORANGE : 0x0000;
   } else if (currentScreen == SCREEN_OFF) {
-    bg = TFT_BLACK;  // ekran startowy (splash)
+    bg = TFT_BLACK;  // ekran wylaczony
   } else {
     bg = uiStyleClassic() ? TFT_RADIO_ORANGE : UI_COL_CARD;
   }
   const int bw = 20, bh = 10;
   // Odswiez cala ikone (idempotentnie z drawBatteryIcon) - dziala takze tam,
-  // gdzie naglowek nie zdazyl jej narysowac (splash).
+  // gdzie naglowek nie zdazyl jej narysowac.
   tft.fillRect(x + 2, y + 4, bw - 4, bh - 4, bg);
   tft.drawRect(x, y + 2, bw, bh, TFT_WHITE);
   tft.fillRect(x + bw, y + 4, 3, bh - 4, TFT_WHITE);
@@ -5226,7 +5390,7 @@ static void clockMonoInvalidate() { clockMonoGeneration++; }
 // faktycznie sie zmienily (czyszczenie + rysunek jednej cyfry). useCache=false
 // wymusza pelne rysowanie (podglad w menu, ktory ma wlasne tlo/pozycje).
 static int clockDrawMonospace(const char *text, int centerX, int y, uint16_t bg,
-                              bool useCache = true) {
+                              bool useCache = true, bool rainbow = false) {
   int total = clockMonospaceWidth(text);
   int n = (int)strlen(text);
   if (n == 0 || total <= 0) return tft.textWidth(text);
@@ -5237,22 +5401,50 @@ static int clockDrawMonospace(const char *text, int centerX, int y, uint16_t bg,
   static char prevText[16] = "";
   static int prevFont = -1;
   static uint32_t prevGen = 0xFFFFFFFFu;
+  // Mix kolor/zmiana koloru: cache komorek trzyma tylko ZNAKI, wiec gdy kolory
+  // sie zmienia (mix co minute albo wybor w menu), komorki o niezmienionych
+  // znakach (godziny, minuty, dwukropki) zostalyby w starym kolorze. Pamietamy
+  // fg/bg i przy zmianie wymuszamy pelne przerysowanie.
+  static uint16_t prevFg = 0xFFFF;
+  static uint16_t prevBg = 0xFFFF;
+  // Tecza: odcien zmienia sie co RAINBOW_STEP_MS (5 s), a nie w kazdej sekundzie
+  // (poprzednio hue plynal z millis()/280 -> caly zegar migal, bo kazda cyfra
+  // miala inny kolor przy kazdym odswiezeniu). Przechowujemy tez poprzedni krok,
+  // zeby przy zwyklej zmianie sekundy NIE czyscic calego pasa (full=false) -
+  // przerysowuja sie tylko cyfry, ktore faktycznie sie zmienily.
+  static int prevRainbowStep = -1;
+  const int rainbowStep = (int)(millis() / 5000UL);
+  bool rainbowAdvanced = rainbow && (rainbowStep != prevRainbowStep);
 
   bool full;
-  if (useCache) {
+  if (useCache && !rainbow) {
     full = (prevGen != clockMonoGeneration) || (prevFont != (int)clockFontIndex) ||
-           (strlen(prevText) != (size_t)n);
+           (strlen(prevText) != (size_t)n) ||
+           (prevFg != (uint16_t)tft.textcolor) || (prevBg != (uint16_t)tft.textbgcolor);
+  } else {
+    // Tecza: pelne rysowanie tylko gdy zmienil sie krok koloru albo metryki
+    // ekranu/czcionki. Zwykla zmiana sekundy zostaje w trybie incrementalnym,
+    // dzieki czemu nie migocze cale tlo zegara.
+    full = rainbowAdvanced || (prevGen != clockMonoGeneration) ||
+           (prevFont != (int)clockFontIndex) || (strlen(prevText) != (size_t)n) ||
+           (prevFg != (uint16_t)tft.textcolor) || (prevBg != (uint16_t)tft.textbgcolor);
+    prevRainbowStep = rainbowStep;
+  }
+  if (useCache) {
     prevGen = clockMonoGeneration;
     prevFont = (int)clockFontIndex;
-  } else {
-    full = true;
+    prevFg = (uint16_t)tft.textcolor;
+    prevBg = (uint16_t)tft.textbgcolor;
   }
 
   tft.setTextDatum(TL_DATUM);
   tft.setTextPadding(0);
   // Przy pelnym rysowaniu (nowy ekran/kroj) wyczysc caly pas zegara, aby nie
   // zostaly resztki po szerszej czcionce. Tylko dla zegara (wlasne tlo ekranu).
-  if (full && useCache) {
+  // Przy samej zmianie koloru teczy (rainbowAdvanced) omijamy ten globalny
+  // clear - pojedyncze komorki i tak sa czyszczone w petli, a tlo pasa nie
+  // zmienilo sie, wiec zmiana koloru przebiega bez "bubbla" tla.
+  if (full && useCache && !rainbowAdvanced) {
     tft.fillRect(centerX - 200, y, 400, cellH, bg);
   }
 
@@ -5266,6 +5458,15 @@ static int clockDrawMonospace(const char *text, int centerX, int y, uint16_t bg,
       if (tft.getUnicodeIndex((uint8_t)ch, &idx)) gw = tft.gWidth[idx];
       tft.fillRect(cx, y, cell, cellH, bg);
       char one[2] = {ch, '\0'};
+      if (rainbow) {
+        // Tecza: kazda cyfra w innym odcieniu (hue przesuwany co RAINBOW_STEP_MS
+        // o krok na znak), pelne nasycenie/jasnosc. Staly odcien w oknie kroku -
+        // brak migotania przy zmianie sekundy.
+        uint16_t col = hsv565((int)(rainbowStep + i * 34) % 256, 100, 100);
+        tft.setTextColor(col, bg);
+      } else {
+        tft.setTextColor(tft.textcolor, bg);
+      }
       tft.drawString(one, cx + (cell - gw) / 2, y);
       if (useCache) prevText[i] = ch;
     }
@@ -5316,7 +5517,8 @@ static int clockTimeInkOffset(uint8_t fallbackSize) {
 // respektuje setTextDatum i setTextPadding (padding czysci cala szerokosc pasa
 // przy sekundowej aktualizacji zegara). Zwraca szerokosc napisu.
 static int clockDrawCentered(int bandY, int bandH, const char *text, uint16_t fg,
-                             uint16_t bg, uint8_t fallbackSize, bool forTime) {
+                             uint16_t bg, uint8_t fallbackSize, bool forTime,
+                             bool rainbow = false) {
   bool useFont = clockFontHasFile(clockFontIndex, forTime);
 
   tft.setTextDatum(TC_DATUM);
@@ -5343,12 +5545,29 @@ static int clockDrawCentered(int bandY, int bandH, const char *text, uint16_t fg
   // Godzina z czcionka VLW: rysuj w stalych komorkach, aby szerokosc nie zmieniala
   // sie przy waskich cyfrach ("1") i caly zegar byl rowno wysrodkowany.
   if (useFont && forTime) {
-    w = clockDrawMonospace(text, 240, cy, bg);
+    w = clockDrawMonospace(text, 240, cy, bg, true, rainbow);
   } else {
     // Brak czcionki VLW (np. chwilowy brak pamieci) -> czcionka wbudowana.
     // Uniewaznij pamiec podreczna, aby powrot do VLW przerysowal caly zegar.
     if (forTime) clockMonoInvalidate();
-    tft.drawString(text, 240, cy);
+    if (rainbow) {
+      // Tecza na czcionce wbudowanej: kazda cyfra osobnym kolorem, hue
+      // przesuwany co 5 s (jak w clockDrawMonospace) - brak migotania.
+      int n = (int)strlen(text);
+      int tw = tft.textWidth(text);
+      int cx = 240 - tw / 2;
+      int rstep = (int)(millis() / 5000UL);
+      for (int i = 0; i < n; i++) {
+        char one[2] = {text[i], '\0'};
+        uint16_t col = hsv565((int)(rstep + i * 34) % 256, 100, 100);
+        tft.setTextColor(col, bg);
+        tft.drawString(one, cx, cy);
+        cx += tft.textWidth(one);
+      }
+      tft.setTextColor(fg, bg);
+    } else {
+      tft.drawString(text, 240, cy);
+    }
   }
 
   if (useFont) tft.unloadFont();
@@ -5504,11 +5723,156 @@ static const uint8_t *vlwFontCached(const char *path) {
   return buf;
 }
 
+// ================= TAPETA EKRANU GLOWNEGO =================
+// Uzytkownik moze wgrac wlasny obraz (BMP/PNG/JPG) z panelu WWW
+// (target "wallpaper" -> /wall.*). Rysowany jako tlo zegara.
+static void removeOldWallpaperVariants() {
+  static const char *exts[] = {".bmp", ".png", ".jpg", ".jpeg"};
+  for (const char *e : exts) {
+    String p = String("/wall") + e;
+    if (LittleFS.exists(p)) LittleFS.remove(p);
+  }
+}
+
+// Zwraca sciezke tapety (pierwszy istniejacy wariant), inaczej "".
+static String findWallpaperPath() {
+  static const char *cands[] = {"/wall.bmp", "/wall.png", "/wall.jpg", "/wall.jpeg"};
+  if (!littleFsReady) return "";
+  for (const char *c : cands) {
+    if (LittleFS.exists(c)) return String(c);
+  }
+  return "";
+}
+
+// Rysuje tapete na calym ekranie (480x320) jako tlo zegara.
+// Zwraca true, gdy tapeta zostala narysowana.
+static bool drawClockWallpaper() {
+  if (!tftInitialized || !wallpaperEnabled) return false;
+  if (wallpaperPath.length() == 0) wallpaperPath = findWallpaperPath();
+  if (wallpaperPath.length() == 0) return false;
+  return drawImageFromFS(wallpaperPath.c_str());
+}
+
+// ================= EKRAN POWITALNY =================
+// Uzytkownik moze wgrac wlasny obraz (BMP/PNG/JPG) z panelu WWW
+// (target "welcome" -> /welcome.<ext>). Rysowany zamiast domyslnej
+// wiadomosci powitalnej po starcie, az do dotkniecia.
+static void removeOldWelcomeVariants() {
+  static const char *exts[] = {".bmp", ".png", ".jpg", ".jpeg"};
+  for (const char *e : exts) {
+    String p = String("/welcome") + e;
+    if (LittleFS.exists(p)) LittleFS.remove(p);
+  }
+}
+
+// Zwraca sciezke obrazu ekranu powitalnego (pierwszy istniejacy wariant),
+// inaczej "".
+static String findWelcomePath() {
+  static const char *cands[] = {"/welcome.bmp", "/welcome.png", "/welcome.jpg", "/welcome.jpeg"};
+  if (!littleFsReady) return "";
+  for (const char *c : cands) {
+    if (LittleFS.exists(c)) return String(c);
+  }
+  return "";
+}
+// Ekran powitalny po starcie: domyslna wiadomosc (tytul/grafika/autorstwo)
+// albo wlasna grafika /welcome.<ext> wgrana przez WWW.
+void drawWelcomeScreenYellow() {
+  if (!tftInitialized) {
+    return;
+  }
+
+  // Wlasna grafika ekranu powitalnego ma pierwszenstwo.
+  if (littleFsReady) {
+    String welcomePath = findWelcomePath();
+    if (welcomePath.length() > 0) {
+      if (drawImageFromFS(welcomePath.c_str())) {
+        Serial.printf("[Welcome] Zaladowano ekran powitalny: %s\n", welcomePath.c_str());
+        tft.setTextSize(1);
+        tft.setTextColor(TFT_LIGHTGREY);
+        tft.setCursor(240 - 80, 310);
+        tft.print("Kliknij ekran aby kontynuowac...");
+        return;
+      }
+      Serial.printf("[Welcome] Plik %s istnieje, ale dekodowanie nie udalo sie\n", welcomePath.c_str());
+    }
+  }
+
+  tft.fillScreen(UI_COL_BG);
+  const int centerX = 240;
+
+  // --- Tytul ---
+  const char *title = "ESP32-HAM-CLOCK";
+  tft.setTextSize(3);
+  tft.setTextColor(TFT_YELLOW, UI_COL_BG);
+  int titleW = tft.textWidth(title);
+  tft.setCursor(centerX - titleW / 2, 8);
+  tft.print(title);
+
+  // Cienka linia akcentu pod tytulem.
+  tft.drawFastHLine(centerX - 150, 40, 300, UI_COL_ACCENT);
+
+  // --- Grafika: maszt antenowy + fale radiowe ---
+  const int tipY = 92;
+  const int baseY = 208;
+
+  // Fale radiowe - wspolsrodkowe okregi wokol wierzcholka anteny.
+  for (int i = 0; i < 3; i++) {
+    int r = 18 + i * 14;
+    tft.drawCircle(centerX, tipY, r, (i % 2) ? UI_COL_ACCENT2 : UI_COL_ACCENT);
+  }
+  // Krotkie "dipole" po bokach masztu.
+  tft.drawFastHLine(centerX - 42, tipY + 34, 84, UI_COL_ACCENT);
+  tft.drawFastHLine(centerX - 62, tipY + 74, 124, UI_COL_ACCENT);
+
+  // Maszt (rysowany po falach, zeby byl na wierzchu).
+  tft.fillRect(centerX - 3, tipY, 6, baseY - tipY, UI_COL_TEXT);
+  // Kratownica - skosy.
+  for (int y = tipY + 6; y < baseY - 12; y += 18) {
+    tft.drawLine(centerX - 3, y, centerX + 3, y + 18, UI_COL_DIM);
+    tft.drawLine(centerX + 3, y, centerX - 3, y + 18, UI_COL_DIM);
+  }
+  // Swiatlo ostrzegawcze na szczycie.
+  tft.fillCircle(centerX, tipY - 6, 4, UI_COL_RED);
+
+  // Ziemia / podstawa.
+  tft.drawFastHLine(centerX - 110, baseY, 220, UI_COL_BORDER);
+  for (int x = centerX - 110; x <= centerX + 110; x += 20) {
+    tft.drawFastVLine(x, baseY, 4, UI_COL_BORDER);
+  }
+
+  // Etykieta pod grafika.
+  const char *lbl = "HAM RADIO  -  AMATEUR RADIO STATION";
+  tft.setTextSize(1);
+  tft.setTextColor(UI_COL_ACCENT, UI_COL_BG);
+  int lblW = tft.textWidth(lbl);
+  tft.setCursor(centerX - lblW / 2, baseY + 9);
+  tft.print(lbl);
+
+  // --- Stopka: autorstwo ---
+  String lines[] = {
+    String("version v") + FIRMWARE_VERSION,
+    "Autor: Tomasz SP9TNV",
+    "Base: Konrad SP3KON",
+    "License: MIT",
+    "SP9TNV@gmail.com"
+  };
+  const int startY = 226;
+  const int lineGap = 17;
+  tft.setTextSize(2);
+  for (int i = 0; i < 5; i++) {
+    int textWidth = tft.textWidth(lines[i]);
+    tft.setTextColor(TFT_YELLOW, UI_COL_BG);
+    tft.setCursor(centerX - (textWidth / 2), startY + i * lineGap);
+    tft.print(lines[i]);
+  }
+}
+
 // ================= EKRAN 1: STARSZA WERSJA (v1.4.3) =================
 // Klasyczny uklad: pomaranczowy naglowek z logo/klockiem/WiFi/bateria,
 // ramka ze znakiem + duzy zegar cyfrowy + data + imieniny, adres IP i strzalki.
 void drawHamClockClassic() {
-  tft.fillScreen(TFT_BLACK);
+  if (!drawClockWallpaper()) tft.fillScreen(TFT_BLACK);
   clockMonoGeneration++;  // nowy ekran -> wymus pelne przerysowanie zegara
   screen1HeaderNeedsRedraw = true;
 
@@ -5546,7 +5910,7 @@ void drawHamClockClassic() {
                      ? getTimezoneTimeString("%H:%M:%S", 9)
                      : getUtcTimeString();
   const int timeY = 126;
-  int timeW = clockDrawCentered(timeY, 52, timeStr.c_str(), TFT_WHITE, TFT_BLACK, 7, true);
+  int timeW = clockDrawCentered(timeY, 52, timeStr.c_str(), clockDigitsColor, TFT_BLACK, 7, true, clockRainbowActive);
   clockHitX = max(10, (screenW - timeW) / 2) - 10;
   clockHitY = timeY - 5;
   clockHitW = timeW + 20;
@@ -5641,11 +6005,25 @@ void drawHamClockClassic() {
 #endif
 }
 
-// Aktualizacja duzego zegara cyfrowego (styl klasyczny).
+// Mix kolor: gdy wlaczony, kolor duzego zegara zmienia sie co minute na
+// nastepny z palety CLOCK_MIX_PALETTE. Minuta wykrywana z czasu lokalnego.
+static void maybeMixClockColor() {
+  // Tecza ma pierwszenstwo przed mixem (w menu wzajemnie sie wylaczaja).
+  if (!clockColorMixActive || clockRainbowActive) return;
+  struct tm ti;
+  if (!getLocalTime(&ti, 0)) return;
+  int minute = ti.tm_hour * 60 + ti.tm_min;
+  if (minute == lastMixClockMinute) return;
+  lastMixClockMinute = minute;
+  clockColorMixIndex = (clockColorMixIndex + 1) % (int)CLOCK_MIX_COUNT;
+  clockDigitsColor = CLOCK_MIX_PALETTE[clockColorMixIndex];
+}
+
 static void updateScreen1ClockClassic() {
   if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
     return;
   }
+  maybeMixClockColor();
   String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                      ? getTimezoneTimeString("%H:%M:%S", 9)
                      : getUtcTimeString();
@@ -5655,7 +6033,7 @@ static void updateScreen1ClockClassic() {
   static String lastClassicTime;
   if (timeStr == lastClassicTime) return;
   lastClassicTime = timeStr;
-  clockDrawCentered(126, 52, timeStr.c_str(), TFT_WHITE, TFT_BLACK, 7, true);
+  clockDrawCentered(126, 52, timeStr.c_str(), clockDigitsColor, TFT_BLACK, 7, true, clockRainbowActive);
 }
 
 // ================= EKRAN 1: ZEGAR w stylu nowoczesnym =================
@@ -5705,7 +6083,7 @@ static void hamClockModernTime() {
                      ? getTimezoneTimeString("%H:%M:%S", 9)
                      : getUtcTimeString();
   const int timeY = 126;
-  int w = clockDrawCentered(timeY, 52, timeStr.c_str(), clockDigitsColor, HC_BG, 7, true);
+  int w = clockDrawCentered(timeY, 52, timeStr.c_str(), clockDigitsColor, HC_BG, 7, true, clockRainbowActive);
   clockHitX = max(10, (480 - w) / 2) - 10;
   clockHitY = timeY - 5;
   clockHitW = w + 20;
@@ -5796,7 +6174,7 @@ static void hamClockModernIpAndArrows() {
 }
 
 static void drawHamClockModern() {
-  tft.fillScreen(HC_BG);
+  if (!drawClockWallpaper()) tft.fillScreen(HC_BG);
   clockMonoGeneration++;  // nowy ekran -> wymus pelne przerysowanie zegara
 
   hamClockModernHeader();
@@ -5820,10 +6198,11 @@ static void updateScreen1ClockModern() {
   if (!tftInitialized || currentScreen != SCREEN_HAM_CLOCK || inMenu) {
     return;
   }
+  maybeMixClockColor();
   String timeStr = (screen1TimeMode == SCREEN1_TIME_LOCAL)
                      ? getTimezoneTimeString("%H:%M:%S", 9)
                      : getUtcTimeString();
-  clockDrawCentered(126, 52, timeStr.c_str(), clockDigitsColor, HC_BG, 7, true);
+  clockDrawCentered(126, 52, timeStr.c_str(), clockDigitsColor, HC_BG, 7, true, clockRainbowActive);
 }
 
 static void updateScreen1HeaderModern() {
@@ -7162,7 +7541,7 @@ bool readTouchPoint(uint16_t &x, uint16_t &y) {
   return true;
 }
 
-const int SCREEN_ORDER_COUNT = 16;//SCREEN_PAGE_COUNT;
+const int SCREEN_ORDER_COUNT = SCREEN_PAGE_COUNT;//16
 
 ScreenType normalizeScreenType(uint8_t raw) {
   switch (raw) {
@@ -7248,12 +7627,12 @@ void loadDefaultScreenOrder() {
 
 void ensureScreenOrderValid() {
   bool hasActive = false;
-  bool seen[SCREEN_HAM_LOGGER + 1] = {false}; // indeksy odpowiadajÄ… ScreenType wartoĹ›ciom (0..15)
+  bool seen[SCREEN_RADIOSONDE + 1] = {false}; // indeksy odpowiadajÄ… ScreenType wartoĹ›ciom
   for (int i = 0; i < SCREEN_ORDER_COUNT; i++) {
     screenOrder[i] = normalizeScreenType(screenOrder[i]);
     ScreenType t = screenOrder[i];
     if (t != SCREEN_OFF) {
-      if (t >= 0 && t <= SCREEN_HAM_LOGGER) {
+      if (t >= 0 && t <= SCREEN_RADIOSONDE) {
         if (seen[t]) {
           // drugi raz ten sam ekran Ă˘â‚¬â€ś usuĹ„ duplikat
           screenOrder[i] = SCREEN_OFF;
@@ -7430,7 +7809,37 @@ void handleTouchNavigation() {
     if (aprsAlertScreenActive) {
       if (isNewTap && isAprsAlertCloseButtonHit(x, y)) {
         dismissAprsAlertScreen();
+      } else if (isNewTap && isAprsAlertHistoryButtonHit(x, y)) {
+        // HISTORIA (B3): otworz podglad wiadomosci APRS RX/TX. Po zamknieciu
+        // ekranu historii wracamy do alertu (o ile jeszcze trwa).
+        aprsAlertScreenActive = false;
+        aprsMsgHistoryWasAlert = true;
+        aprsMsgHistoryHadPrevScreen = false;
+        aprsMsgHistoryScroll = 0;
+        aprsMsgHistoryActive = true;
+        drawAprsHistoryScreen();
+        return;
+      } else if (isNewTap && isAprsAlertReplyButtonHit(x, y)) {
+        // REPLY (RX -> TX): otworz popup odpowiedzi do stacji z alertu.
+        // Wylacz alert, zeby dotyk przejal popup; po zamknieciu (X) wrocimy
+        // do alertu przez aprsReplyFromAlert.
+        aprsAlertScreenActive = false;
+        aprsReplyFromAlert = true;
+        aprsReplyOpenForCall(aprsAlertScreenStation.callsign);
       }
+      return;
+    }
+
+    // Ekran historii APRS (B3).
+    if (aprsMsgHistoryActive) {
+      if (isNewTap) handleAprsHistoryTouch(x, y, true);
+      return;
+    }
+
+    // Popup odpowiedzi APRS (ekran APRS-IS): caly dotyk obsluguje popup,
+    // w tym klawiature - blokuje nawigacje/zmiane ekranow.
+    if (aprsReplyPopupActive) {
+      if (isNewTap) aprsReplyHandleTouch(x, y);
       return;
     }
 
@@ -7466,10 +7875,11 @@ void handleTouchNavigation() {
       }
     }
 
-    // Menu jasnosci nie otwiera sie na ekranie Matrix - tam dlugie przytrzymanie
-    // (>=5 s) nalezy do menu alarmu.
+    // Menu jasnosci / ustawien TFT otwiera sie tylko z EKRANU ZEGARA (HAM CLOCK)
+    // przytrzymaniem 3 s. Na ekranie Matrix dlugie przytrzymanie (>=5 s) nalezy
+    // do menu alarmu; z pozostalych ekranow przytrzymanie nie otwiera tego menu.
     if (!brightnessMenuActive && !alarmMenuActive && !longPressHandled &&
-        currentScreen != SCREEN_MATRIX_CLOCK) {
+        currentScreen == SCREEN_HAM_CLOCK && !inMenu) {
       if (now - touchStartMs >= 3000) {
         brightnessMenuPrevScreen = currentScreen;
         brightnessMenuPrevInMenu = inMenu;
@@ -7506,6 +7916,11 @@ void handleTouchNavigation() {
 
     if (alarmMenuActive) {
       handleAlarmMenuTouch(x, y, isNewTap);
+      return;
+    }
+
+    if (batteryCalMenuActive) {
+      handleBatteryCalMenuTouch(x, y, isNewTap);
       return;
     }
 
@@ -7639,9 +8054,38 @@ void handleTouchNavigation() {
         screen6MenuBeaconingTemp = aprsBeaconEnabled;
         screen6MenuAprsAlertTemp = aprsAlertEnabled;
         screen6MenuRangeAlertTemp = aprsAlertNearbyEnabled;
+        screen6MenuBuzzerAlertTemp = enableBuzzerAlert;
+        screen6MenuBuzzerNocTemp = aprsBuzzerNoc;
         screen6MenuLedAlertTemp = enableLedAlert;
+        screen6MenuWxAlertTemp = aprsAlertWxEnabled;
+        screen6MenuAprsVolTemp = aprsBeepVolume;
+        screen6MenuAlertDistanceKmTemp = aprsAlertDistanceKm;
         drawAprsSortMenu();
         return;
+      }
+    }
+    // Klikniecie wiersza stacji na liscie APRS-IS otwiera popup odpowiedzi.
+    // Zakres x = srodek ekranu (80..400), bo rogi (x<80 / x>=400) sa zarezerwowane
+    // dla nawigacji ekranow (handleScreenSwitchTouch) - tak samo jak w DX Cluster.
+    if (currentScreen == SCREEN_APRS_IS && aprsStationCount > 0 && y > 55 && y < 265 && x >= 80 && x < 400) {
+      if (!aprsTnc2MonitorEnabled) {
+        const bool enlarged = isDxTableEnlarged();
+        const int rowH = enlarged ? 27 : 17;
+        const int rowStart = enlarged ? 60 : 58;
+        int rowIndex = (y - rowStart) / rowH;
+        int order[MAX_APRS_DISPLAY_LCD];
+        int displayCount = 0;
+        buildAprsDisplayOrder(order, displayCount);
+        int maxRows = getAprsTableMaxRows();
+        if (rowIndex >= 0 && rowIndex < displayCount && rowIndex < maxRows) {
+          int idx = order[rowIndex];
+          if (idx >= 0 && idx < MAX_APRS_STATIONS && aprsStations[idx].callsign.length() > 0) {
+            aprsReplyFromAlert = false;
+            aprsReplyOpenForCall(aprsStations[idx].callsign);
+            resetTftAutoSwitchTimer();
+            return;
+          }
+        }
       }
     }
       if (currentScreen == SCREEN_APRS_RADAR) {
@@ -7665,8 +8109,20 @@ void handleTouchNavigation() {
         screen6MenuBeaconingTemp = aprsBeaconEnabled;
         screen6MenuAprsAlertTemp = aprsAlertEnabled;
         screen6MenuRangeAlertTemp = aprsAlertNearbyEnabled;
+        screen6MenuBuzzerAlertTemp = enableBuzzerAlert;
+        screen6MenuBuzzerNocTemp = aprsBuzzerNoc;
         screen6MenuLedAlertTemp = enableLedAlert;
+        screen6MenuWxAlertTemp = aprsAlertWxEnabled;
+        screen6MenuAprsVolTemp = aprsBeepVolume;
+        screen6MenuAlertDistanceKmTemp = aprsAlertDistanceKm;
         drawAprsSortMenu();
+        return;
+      }
+      // Przycisk MSG w stopce -> nowa wiadomosc APRS (wpisz znak + tresc).
+      if (!aprsTnc2MonitorEnabled && x >= 336 && x <= 440 && y >= 298 && y <= 320) {
+        aprsReplyFromAlert = false;
+        aprsReplyOpenNewMessage();
+        resetTftAutoSwitchTimer();
         return;
       }
       // Nawigacja ekranow: pas stopki. Obszar jest wiekszy niz w innych ekranach
@@ -7740,14 +8196,15 @@ void handleTouchNavigation() {
     // Nawigacja: dolne obszary dotyku (ok. 80x180)
     // Zamienione kierunki: lewa strona = w prawo (next), prawa strona = w lewo (prev)
     // TYLKO gdy nie jesteĹ›my w ĹĽadnym menu i nie ma aktywnej klawiatury
-    if (!inMenu && !brightnessMenuActive && !screenSaverMenuActive && !screenSleepMenuActive && !touchCalActive && !pskKeyboardActive && !stationKeyboardActive && !loggerKeyboardActive) {
+    if (!inMenu && !brightnessMenuActive && !batteryCalMenuActive && !screenSaverMenuActive && !screenSleepMenuActive && !touchCalActive && !pskKeyboardActive && !stationKeyboardActive && !loggerKeyboardActive) {
       // Ekrany PSK / STACJA / LOGGER maja wlasne przyciski przy dolnej krawedzi
       // (mapa, transceivery, przyciski akcji). Wspolna nawigacja w rogach
       // (y>=60) przechwytywala te dotkniecia, wiec te ekrany obsluguja
       // nawigacje same - tylko w pasie stopki (patrz ich handlery).
       const bool screenHandlesOwnNav = (currentScreen == SCREEN_PSK_MAP ||
                                         currentScreen == SCREEN_STATION ||
-                                        currentScreen == SCREEN_HAM_LOGGER);
+                                        currentScreen == SCREEN_HAM_LOGGER ||
+                                        currentScreen == SCREEN_SUN_SPOTS);
       if (!screenHandlesOwnNav && handleScreenSwitchTouch(x, y, 60, 80)) return;
     }
 
@@ -7762,6 +8219,13 @@ void handleTouchNavigation() {
     }
     if (currentScreen == SCREEN_HAM_LOGGER) {
       handleLoggerTouch(x, y);
+      return;
+    }
+    // Ekran PROPAGACJA - przyciski pasm/regionow; reszta to nawigacja w rogach.
+    if (currentScreen == SCREEN_SUN_SPOTS) {
+      if (!handlePropagationTouch(x, y)) {
+        handleScreenSwitchTouch(x, y, 296, 80);
+      }
       return;
     }
   } else {
@@ -8014,8 +8478,8 @@ static void uiMenuHeader(const char *title) {
 
 // Zegar UTC w lewym gornym rogu naglowka (mniejszy, obok hamburgera przy menu).
 static void uiHeaderClock() {
-  if (!tftInitialized || inMenu || brightnessMenuActive || screenSaverMenuActive ||
-      screenSleepMenuActive || touchCalActive || pskKeyboardActive || alarmMenuActive) {
+  if (!tftInitialized || inMenu || brightnessMenuActive || batteryCalMenuActive ||
+      screenSaverMenuActive || screenSleepMenuActive || touchCalActive || pskKeyboardActive || alarmMenuActive) {
     return;
   }
   String utc = getUtcTimeString();
@@ -8029,7 +8493,7 @@ static void uiHeaderClock() {
 
 // Stopka: strzalki < > + podpis "SWITCH SCREEN" (styl ISS).
 static void uiFooter() {
-  if (inMenu || brightnessMenuActive || screenSaverMenuActive ||
+  if (inMenu || brightnessMenuActive || batteryCalMenuActive || screenSaverMenuActive ||
       screenSleepMenuActive || touchCalActive || pskKeyboardActive || alarmMenuActive) {
     return;
   }
@@ -8043,6 +8507,18 @@ static void uiFooter() {
   tft.setTextColor(UI_COL_FAINT, UI_COL_BG);
   tft.drawString("SWITCH SCREEN", 240, UI_FOOTER_Y, 1);
   tft.setTextDatum(TL_DATUM);
+
+  // Przycisk MSG na ekranie APRS-IS: nowa wiadomosc APRS do wpisanego znaku.
+  if (currentScreen == SCREEN_APRS_IS && !aprsTnc2MonitorEnabled) {
+    const int mx = 340, my = 300, mw = 96, mh = 18;
+    const uint16_t mcol = uiStyleClassic() ? TFT_GREEN : (uint16_t)0x1B62;
+    tft.fillRoundRect(mx, my, mw, mh, 4, mcol);
+    tft.drawRoundRect(mx, my, mw, mh, 4, uiStyleClassic() ? TFT_WHITE : UI_COL_FAINT);
+    tft.setTextColor(TFT_WHITE, mcol);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString("MSG", mx + mw / 2, my + mh / 2, 1);
+    tft.setTextDatum(TL_DATUM);
+  }
 }
 
 // Hamburger rysowany do sprite'a radaru (ten sam wyglad co wersja na tft).
@@ -8245,6 +8721,26 @@ static void aprsRadarRow(int y, const char *label, const char *value, uint16_t v
   aprsRadarRowValue(y, value, valCol);
 }
 
+// Wiersz QTH z WIEKSZA wartoscia (font 2 = 16 px) dla CALL/LOK/SZER/DLUG.
+// Etykieta zostaje Font 1; wartosc jest czytelna i dopasowana do ramki.
+static void aprsRadarRowBig(int y, const char *label, const char *value, uint16_t valCol) {
+  aprsRadarSprite.setTextDatum(TL_DATUM);
+  aprsRadarSprite.setTextSize(1);
+  aprsRadarSprite.setTextColor(ARP_COL_DIM, ARP_COL_PANEL);
+  aprsRadarSprite.drawString(label, ARP_PANEL_X + 6, y, 1);
+  const int x = ARP_PANEL_X + 52;
+  const int maxW = (ARP_PANEL_X + ARP_PANEL_W - 6) - x;
+  String v(value ? value : "");
+  int charW = 8;
+  int fit = maxW / charW;
+  if (fit < 1) fit = 1;
+  if ((int)v.length() > fit) v = v.substring(0, fit);
+  aprsRadarSprite.setTextDatum(TL_DATUM);
+  aprsRadarSprite.setTextSize(1);
+  aprsRadarSprite.setTextColor(valCol, ARP_COL_PANEL);
+  aprsRadarSprite.drawString(v, x, y - 4, 2);
+}
+
 // Panel zakresow na dole, wysrodkowany; aktywny kafelek podswietlony.
 static void aprsRadarRangeTiles() {
   const char *labels[] = {"x0.2", "x0.5", "x1", "x2", "x4"};
@@ -8389,31 +8885,30 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   }
 
   // Wlasna stacja (QTH) w centrum: ZNAK wyzej, pod nim LOKATOR + SZER/DLUG.
+  // Oryginalny uklad - male odczyty w centrum; wieksze sa w panelu bocznym QTH.
   sp.fillCircle(ARP_CX, ARP_CY, 3, ARP_COL_TEXT);
   {
     String c = userCallsign.length() > 0 ? userCallsign : String("QTH");
     if (c.length() > 10) c = c.substring(0, 10);
     sp.setTextSize(1);
     sp.setTextDatum(TC_DATUM);
-    // Znak wyzej nad znacznikiem (bylo BC_DATUM przy CY-6).
     sp.setTextColor(ARP_COL_TEXT, ARP_COL_BG);
-    sp.drawString(c, ARP_CX, ARP_CY - 28, 1);
-    // Lokator i wspolrzedne nizej, kazdy z etykieta i danymi.
-    int my = ARP_CY + 8;
-    char lbl[32];
+    sp.drawString(c, ARP_CX, ARP_CY - 20, 1);
+    int my = ARP_CY + 2;
+    char lbl[40];
     sp.setTextColor(ARP_COL_DIM, ARP_COL_BG);
     snprintf(lbl, sizeof(lbl), "LOK: %s", userLocator.length() > 0 ? userLocator.c_str() : "--");
     sp.drawString(lbl, ARP_CX, my, 1);
-    my += 10;
+    my += 9;
     if (userLatLonValid) {
       snprintf(lbl, sizeof(lbl), "SZER: %.4f", userLat);
       sp.drawString(lbl, ARP_CX, my, 1);
-      my += 10;
+      my += 9;
       snprintf(lbl, sizeof(lbl), "DLUG: %.4f", userLon);
       sp.drawString(lbl, ARP_CX, my, 1);
     } else {
       sp.drawString("SZER: --", ARP_CX, my, 1);
-      my += 10;
+      my += 9;
       sp.drawString("DLUG: --", ARP_CX, my, 1);
     }
     sp.setTextDatum(TL_DATUM);
@@ -8423,23 +8918,24 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
   sp.fillRect(ARP_PANEL_X - 1, 0, ARP_PANEL_W + 1, 320, ARP_COL_PANEL);
   sp.drawFastVLine(ARP_PANEL_X - 1, 0, 320, ARP_COL_GRID);
 
-  // QTH (Moja Stacja): CALL + LOKATOR + wspolrzedne.
+  // QTH (Moja Stacja): CALL + LOKATOR + wspolrzedne. Wartosci WIEKSZE (font 2),
+  // wiersze rozstawione niżej, zeby CALL/LOK/SZER/DLUG byly czytelne.
   aprsRadarSection(6, "QTH");
   char buf[40];
   {
     String call = userCallsign.length() > 0 ? userCallsign : String("(brak)");
     if (call.length() > 12) call = call.substring(0, 12);
-    aprsRadarRow(16, "CALL:", call.c_str(), ARP_COL_TEXT);
-    aprsRadarRow(27, "LOK:", userLocator.length() > 0 ? userLocator.c_str() : "--",
-                 ARP_COL_TEXT);
+    aprsRadarRowBig(18, "CALL:", call.c_str(), ARP_COL_TEXT);
+    aprsRadarRowBig(34, "LOK:", userLocator.length() > 0 ? userLocator.c_str() : "--",
+                    ARP_COL_TEXT);
     if (userLatLonValid) {
       snprintf(buf, sizeof(buf), "%.4f", userLat);
-      aprsRadarRow(38, "SZER:", buf, ARP_COL_TEXT);
+      aprsRadarRowBig(50, "SZER:", buf, ARP_COL_TEXT);
       snprintf(buf, sizeof(buf), "%.4f", userLon);
-      aprsRadarRow(49, "DLUG:", buf, ARP_COL_TEXT);
+      aprsRadarRowBig(66, "DLUG:", buf, ARP_COL_TEXT);
     } else {
-      aprsRadarRow(38, "SZER:", "--", ARP_COL_DIM);
-      aprsRadarRow(49, "DLUG:", "--", ARP_COL_DIM);
+      aprsRadarRowBig(50, "SZER:", "--", ARP_COL_DIM);
+      aprsRadarRowBig(66, "DLUG:", "--", ARP_COL_DIM);
     }
   }
 
@@ -8502,6 +8998,11 @@ static void aprsRadarRenderFrame(float angleDeg, bool advanceBlips) {
     sp.setTextSize(1);
     sp.setTextColor(UI_COL_TEXT, UI_COL_CARD);
     sp.drawString(tb, ARP_PANEL_X - 6, 9, 1);
+    // Miejscowosc QTH z ustawien WWW (APRS-IS) - w prawym gornym rogu, pod UTC.
+    if (aprsQthName.length() > 0) {
+      sp.setTextColor(ARP_COL_MOBILE, UI_COL_CARD);
+      sp.drawString(aprsQthName, ARP_PANEL_X - 6, 25, 1);
+    }
     sp.setTextDatum(TL_DATUM);
   }
 
@@ -8547,6 +9048,8 @@ static void drawAprsRadarBody() {
 // Animacja smugi - wolane cyklicznie z UI_Task gdy ekran radaru jest aktywny.
 static void aprsRadarTick() {
   if (currentScreen != SCREEN_APRS_RADAR || inMenu || !tftInitialized) return;
+  if (aprsAlertScreenActive || weatherAlertScreenActive) return;
+  if (aprsReplyPopupActive) return;
   if (!aprsRadarSpriteReady && !ensureAprsRadarSprite()) return;
   aprsRadarSweepAngle += 4.0f;
   if (aprsRadarSweepAngle >= 360.0f) aprsRadarSweepAngle -= 360.0f;
@@ -8699,22 +9202,79 @@ void drawAprsSortMenu() {
   tft.setCursor(10, 74);
   tft.print("APRS Setting:");
 
-  const int checkX = 34;
-  const int checkRowY0 = 94;
-  const int checkRowGap = 28;
+  const int checkX = 26;
+  const int checkRowY0 = 82;
+  const int checkRowGap = 20;
   drawScreen6MenuCheckButton(checkX, checkRowY0 + 0 * checkRowGap, "Beaconing", screen6MenuBeaconingTemp);
   drawScreen6MenuCheckButton(checkX, checkRowY0 + 1 * checkRowGap, "APRS Alert", screen6MenuAprsAlertTemp);
-  drawScreen6MenuCheckButton(checkX, checkRowY0 + 2 * checkRowGap, "Range Alert", screen6MenuRangeAlertTemp);
-  drawScreen6MenuCheckButton(checkX, checkRowY0 + 3 * checkRowGap, "LED / Buzzer", screen6MenuLedAlertTemp);
+  drawScreen6MenuCheckButton(checkX, checkRowY0 + 2 * checkRowGap, "Range Alert (mobile)", screen6MenuRangeAlertTemp);
+  drawScreen6MenuCheckButton(checkX, checkRowY0 + 3 * checkRowGap, "Buzzer", screen6MenuBuzzerAlertTemp);
+  // "Buzzer NOC" obok "Buzzer" w tym samym wierszu - gdy aktywny, zwykly buzzer
+  // jest wymuszony OFF i kazdy alert APRS gra jeden krotki pip (bez melodii).
+  drawScreen6MenuCheckButton(306, checkRowY0 + 3 * checkRowGap, "Buzzer NOC", screen6MenuBuzzerNocTemp);
+  drawScreen6MenuCheckButton(checkX, checkRowY0 + 4 * checkRowGap, "LED", screen6MenuLedAlertTemp);
+  drawScreen6MenuCheckButton(checkX, checkRowY0 + 5 * checkRowGap, "WX Alert (weather)", screen6MenuWxAlertTemp);
+
+  // Suwak glosnosci beepow APRS.
+  const int volX = 30;
+  const int volY = 214;
+  const int volW = 250;
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setCursor(volX, volY - 13);
+  tft.print(trStr("GLOSNOSC APRS:", "APRS volume:", "APRS-LAUTSTAERKE:", "Vol. APRS:", "Volumen APRS:", "GROMKOST APRS:"));
+  tft.drawRect(volX, volY, volW, 12, TFT_WHITE);
+  int volVal = screen6MenuAprsVolTemp;
+  if (volVal < ALM_VOL_MIN) volVal = ALM_VOL_MIN;
+  if (volVal > ALM_VOL_MAX) volVal = ALM_VOL_MAX;
+  int volFill = (int)((long)(volVal - ALM_VOL_MIN) * (volW - 2) / (ALM_VOL_MAX - ALM_VOL_MIN));
+  tft.fillRect(volX + 1, volY + 1, volFill, 10, TFT_RADIO_ORANGE);
+  char volPct[8];
+  snprintf(volPct, sizeof(volPct), "%d%%", (volVal * 100 + ALM_VOL_MAX / 2) / ALM_VOL_MAX);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(volX + volW + 10, volY - 2);
+  tft.print(volPct);
+
+  // Suwak dystansu ALERT dla stacji ruchomych (0.1 - 500 km), skala logarytmiczna.
+  const int distX = 30;
+  const int distY = 248;
+  const int distW = 250;
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setCursor(distX, distY - 13);
+  tft.print(trStr("ALERT_Distance (mobile): 0.1-500 km", "ALERT_Distance (mobile): 0.1-500 km",
+                  "ALERT_Distance (mobil): 0.1-500 km", "ALERT_Distance (mobile): 0.1-500 km",
+                  "ALERT_Distance (movil): 0.1-500 km", "ALERT_Distance (моб.): 0.1-500 km"));
+  // tor
+  tft.drawRect(distX, distY, distW, 12, TFT_WHITE);
+  float distNorm = log10f(screen6MenuAlertDistanceKmTemp / 0.1f) / log10f(5000.0f);
+  if (distNorm < 0.0f) distNorm = 0.0f;
+  if (distNorm > 1.0f) distNorm = 1.0f;
+  int distFill = (int)(distNorm * (distW - 2));
+  tft.fillRect(distX + 1, distY + 1, distFill, 10, TFT_RADIO_ORANGE);
+  char distLabel[16];
+  if (screen6MenuAlertDistanceKmTemp < 1.0f) {
+    snprintf(distLabel, sizeof(distLabel), "%.1f km", screen6MenuAlertDistanceKmTemp);
+  } else if (screen6MenuAlertDistanceKmTemp < 100.0f) {
+    snprintf(distLabel, sizeof(distLabel), "%.1f km", screen6MenuAlertDistanceKmTemp);
+  } else {
+    snprintf(distLabel, sizeof(distLabel), "%.0f km", screen6MenuAlertDistanceKmTemp);
+  }
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(distX + distW + 10, distY - 2);
+  tft.print(distLabel);
 
   const int closeW = 100;
   const int saveW = 100;
   const int closeH = 26;
   const int closeX = 54;
   const int saveX = 166;
-  const int closeY = 210;
+  const int closeY = 280;
+  // "MSG" obok "SAVE": wyszukanie znaku + wyslanie wiadomosci APRS.
+  const int msgX = saveX + saveW + 10;
   drawFilterTile(closeX, closeY, closeW, closeH, "CLOSE", false);
   drawFilterTile(saveX, closeY, saveW, closeH, "SAVE", false);
+  drawFilterTile(msgX, closeY, saveW, closeH, "MSG", false);
 }
 
 void handleScreen6MenuTouch(uint16_t x, uint16_t y) {
@@ -8740,11 +9300,11 @@ void handleScreen6MenuTouch(uint16_t x, uint16_t y) {
     return;
   }
 
-  const int checkX = 34;
-  const int checkRowY0 = 94;
-  const int checkRowGap = 28;
+  const int checkX = 26;
+  const int checkRowY0 = 82;
+  const int checkRowGap = 20;
   const int checkHitW = 250;
-  const int checkHitH = 22;
+  const int checkHitH = 20;
 
   if (isPointInRect(x, y, checkX, checkRowY0 + 0 * checkRowGap, checkHitW, checkHitH)) {
     screen6MenuBeaconingTemp = !screen6MenuBeaconingTemp;
@@ -8762,7 +9322,66 @@ void handleScreen6MenuTouch(uint16_t x, uint16_t y) {
     return;
   }
   if (isPointInRect(x, y, checkX, checkRowY0 + 3 * checkRowGap, checkHitW, checkHitH)) {
+    // Zwykly "Buzzer" i "Buzzer NOC" sa wzajemnie wykluczajace.
+    screen6MenuBuzzerAlertTemp = !screen6MenuBuzzerAlertTemp;
+    if (screen6MenuBuzzerAlertTemp) screen6MenuBuzzerNocTemp = false;
+    drawAprsSortMenu();
+    return;
+  }
+  // "Buzzer NOC" (obok "Buzzer", row 3) - wlaczenie wycisza zwykly buzzer.
+  if (isPointInRect(x, y, 306, checkRowY0 + 3 * checkRowGap, 160, checkHitH)) {
+    screen6MenuBuzzerNocTemp = !screen6MenuBuzzerNocTemp;
+    if (screen6MenuBuzzerNocTemp) screen6MenuBuzzerAlertTemp = false;
+    drawAprsSortMenu();
+    return;
+  }
+  if (isPointInRect(x, y, checkX, checkRowY0 + 4 * checkRowGap, checkHitW, checkHitH)) {
     screen6MenuLedAlertTemp = !screen6MenuLedAlertTemp;
+    drawAprsSortMenu();
+    return;
+  }
+  if (isPointInRect(x, y, checkX, checkRowY0 + 5 * checkRowGap, checkHitW, checkHitH)) {
+    screen6MenuWxAlertTemp = !screen6MenuWxAlertTemp;
+    drawAprsSortMenu();
+    return;
+  }
+
+  // Suwak glosnosci beepow APRS (obslugiwany rowniez przy przeciaganiu, zeby
+  // dalo sie plynnie zmieniac glosnosc i odsluchac).
+  const int volX = 30;
+  const int volY = 214;
+  const int volW = 250;
+  if (y >= volY - 8 && y <= volY + 14) {
+    long volVal;
+    if (x <= volX) {
+      volVal = ALM_VOL_MIN;
+    } else if (x >= volX + volW) {
+      volVal = ALM_VOL_MAX;
+    } else {
+      volVal = ALM_VOL_MIN + (long)(x - volX) * (ALM_VOL_MAX - ALM_VOL_MIN) / (volW - 1);
+    }
+    screen6MenuAprsVolTemp = (int)volVal;
+    aprsBeepVolume = (int)volVal;  // slysze nowa glosnosc
+    drawAprsSortMenu();
+    aprsBeepPlay();  // probka dzwieku przy zmianie
+    return;
+  }
+
+  // Suwak dystansu ALERT (0.1 - 500 km, skala logarytmiczna).
+  const int distX = 30;
+  const int distY = 248;
+  const int distW = 250;
+  if (y >= distY - 14 && y <= distY + 16) {
+    float distNorm;
+    if (x <= distX) {
+      distNorm = 0.0f;
+    } else if (x >= distX + distW) {
+      distNorm = 1.0f;
+    } else {
+      distNorm = (float)(x - distX) / (float)distW;
+    }
+    screen6MenuAlertDistanceKmTemp = 0.1f * powf(5000.0f, distNorm);
+    screen6MenuAlertDistanceKmTemp = normalizeAprsAlertDistanceKm(screen6MenuAlertDistanceKmTemp);
     drawAprsSortMenu();
     return;
   }
@@ -8772,10 +9391,21 @@ void handleScreen6MenuTouch(uint16_t x, uint16_t y) {
   const int closeH = 26;
   const int closeX = 54;
   const int saveX = 166;
-  const int closeY = 210;
+  const int closeY = 280;
+  const int msgX = saveX + saveW + 10;
   if (isPointInRect(x, y, closeX, closeY, closeW, closeH)) {
     inMenu = false;
     drawScreen(currentScreen);
+    return;
+  }
+
+  // "MSG" obok "SAVE": wyszukanie znaku + wyslanie wiadomosci APRS.
+  // Po zamknieciu popupu (X) wracamy DO TEGO menu APRS Setting.
+  if (isPointInRect(x, y, msgX, closeY, saveW, closeH)) {
+    inMenu = false;
+    aprsReplyFromAlert = false;
+    aprsReplyReturnToMenu = true;
+    aprsReplyOpenNewMessage();
     return;
   }
 
@@ -8783,10 +9413,339 @@ void handleScreen6MenuTouch(uint16_t x, uint16_t y) {
     aprsBeaconEnabled = screen6MenuBeaconingTemp;
     aprsAlertEnabled = screen6MenuAprsAlertTemp;
     aprsAlertNearbyEnabled = screen6MenuRangeAlertTemp;
+    enableBuzzerAlert = screen6MenuBuzzerAlertTemp;
+    aprsBuzzerNoc = screen6MenuBuzzerNocTemp;
+    // NOC nie wylacza enableBuzzerAlert: dzwiek APRS i tak gra (aprsBeepPlayForStation
+    // wybiera cicha nute NOC), a wykluczanie checkboxow juz rozwiazane w menu.
     enableLedAlert = screen6MenuLedAlertTemp;
+    aprsAlertWxEnabled = screen6MenuWxAlertTemp;
+    applyAprsAlertDistanceKm(screen6MenuAlertDistanceKmTemp);
+    aprsBeepVolume = screen6MenuAprsVolTemp;
     savePreferences();
     inMenu = false;
     drawScreen(currentScreen);
+    return;
+  }
+}
+
+// ===== Popup odpowiedzi APRS (dotkniecie wiersza na liscie APRS-IS) =====
+// Rysuje ekran szybkiej odpowiedzi: adresat, gotowe odpowiedzi i przycisk
+// wpisania wlasnego tekstu / wyslania. Wysylanie przez sendAprsMessage.
+void aprsReplyDrawQuick(const char *label, int x, int y, int w, int h) {
+  drawFilterTile(x, y, w, h, label, false);
+}
+
+// Otwarta popup odpowiedzi dla wybranego znaku. Gdy popup znika, wraca do
+// biezacego ekranu (drawScreen(currentScreen)); z alertu APRS wraca do alertu
+// (aprsReplyFromAlert).
+static void aprsReplyOpenForCall(const String &call) {
+  aprsReplyPopupCall = call;
+  aprsReplyPopupActive = true;
+  aprsReplyCustom = "";
+  aprsReplyCustomKeyboard = false;
+  aprsReplyCallInput = false;
+  aprsReplyLookupActive = false;
+  aprsReplyLookupDone = false;
+  aprsReplyLookupInfo = "";
+  aprsReplyStatusUntilMs = 0;
+  aprsReplyStatusMsg = "";
+  aprsReplyDrawPopup();
+}
+
+// Otwiera nowa wiadomosc APRS: od razu klawiatura, ktora edytuje ZNAK docelowy.
+static void aprsReplyOpenNewMessage() {
+  aprsReplyPopupCall = "";
+  aprsReplyPopupActive = true;
+  aprsReplyCustom = "";
+  aprsReplyCustomKeyboard = true;  // rysuj klawiature od razu
+  aprsReplyCallInput = true;       // klawiatura wpisuje adresata
+  aprsReplyLookupActive = false;
+  aprsReplyLookupDone = false;
+  aprsReplyLookupInfo = "";
+  aprsReplyStatusUntilMs = 0;
+  aprsReplyStatusMsg = "";
+  aprsReplyDrawKeyboard();
+}
+
+void aprsReplyDrawPopup() {
+  if (!tftInitialized) return;
+  const bool classic = uiStyleClassic();
+  const uint16_t bg = classic ? TFT_BLACK : UI_COL_BG;
+  const uint16_t card = classic ? TFT_BLACK : UI_COL_CARD;
+  const uint16_t text = classic ? TFT_WHITE : UI_COL_TEXT;
+  const uint16_t dim = classic ? TFT_LIGHTGREY : UI_COL_DIM;
+
+  tft.fillScreen(bg);
+  uiMenuHeader("APRS REPLY");
+
+  // Adresat + przycisk CALL (edytuj znak docelowy)
+  tft.setTextColor(dim, bg);
+  tft.setTextSize(1);
+  tft.setCursor(10, 36);
+  tft.print("DO:");
+  tft.setTextColor(classic ? TFT_YELLOW : UI_COL_ACCENT, bg);
+  tft.setTextSize(2);
+  tft.setCursor(60, 34);
+  String call = aprsReplyPopupCall;
+  if (call.length() > 12) call = call.substring(0, 12);
+  tft.print(call);
+  // Przyciski obok adresata: CALL (edytuj znak) i SZUKAJ (QRZ lookup znaku).
+  tft.fillRoundRect(299, 34, 88, 26, 4, classic ? TFT_BLUE : UI_COL_ACCENT);
+  tft.setTextColor(TFT_WHITE, classic ? TFT_BLUE : UI_COL_ACCENT);
+  tft.setTextSize(1);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString(aprsReplyPopupCall.length() == 0 ? "WPISZ CALL" : "CALL", 343, 47, 1);
+  tft.setTextDatum(TL_DATUM);
+  tft.fillRoundRect(393, 34, 78, 26, 4, classic ? TFT_GREEN : UI_COL_ACCENT2);
+  tft.setTextColor(TFT_BLACK, classic ? TFT_GREEN : UI_COL_ACCENT2);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString("SZUKAJ", 432, 47, 1);
+  tft.setTextDatum(TL_DATUM);
+
+  // Sekcja wyniku wyszukiwania znaku (QRZ lookup). Aktywna tylko w trybie
+  // "SZUKAJ" - nadal mozna wpisac tresc i wyslac wiadomosc do tego znaku.
+  if (aprsReplyLookupActive) {
+    tft.fillRect(10, 64, 460, 30, card);
+    tft.drawRect(10, 64, 460, 30, classic ? TFT_WHITE : UI_COL_FAINT);
+    tft.setTextColor(classic ? TFT_CYAN : UI_COL_ACCENT, card);
+    tft.setTextSize(1);
+    tft.setCursor(16, 70);
+    if (aprsReplyLookupDone) {
+      if (aprsReplyLookupFound) {
+        tft.print(sanitizePolishToAscii(aprsReplyLookupInfo));
+      } else {
+        tft.setTextColor(UI_COL_RED, card);
+        tft.print("Nie znaleziono danych QRZ");
+      }
+    } else {
+      tft.print("Szukanie znaku... " + aprsReplyPopupCall);
+    }
+  }
+
+  // Przyciski szybkiej odpowiedzi (4 w 2 rzedach)
+  const int bw = 200;
+  const int bh = 40;
+  const int bx = (480 - bw) / 2;
+  const int by0 = aprsReplyLookupActive ? 102 : 80;
+  int by = by0;
+  aprsReplyDrawQuick("73!", bx, by, bw, bh); by += bh + 8;
+  aprsReplyDrawQuick("QSL", bx, by, bw, bh); by += bh + 8;
+  aprsReplyDrawQuick("TU", bx, by, bw, bh); by += bh + 8;
+  aprsReplyDrawQuick("CQ", bx, by, bw, bh);
+
+  // Status wyslania (nad przyciskami akcji)
+  if (aprsReplyStatusUntilMs > millis()) {
+    tft.setTextColor(classic ? TFT_GREEN : UI_COL_ACCENT2, bg);
+    tft.setTextSize(1);
+    tft.setCursor(10, 252);
+    tft.print(sanitizePolishToAscii(aprsReplyStatusMsg));
+  }
+
+  // Akcje: wlasny tekst, wyslij (tekst wlasny), zamknij
+  const int aw = 100;
+  const int ah = 28;
+  const int ay = 278;
+  drawFilterTile(54, ay, aw, ah, "TEXT", false);
+  drawFilterTile(166, ay, aw, ah, "SEND", false);
+  drawFilterTile(278, ay, aw, ah, "X", false);
+}
+
+// Klawiatura do wlasnego tekstu (zminimalizowana wersja station keyboard).
+// Gdy aprsReplyCallInput = true, klawiatura edytuje ZNAK docelowy
+// (aprsReplyPopupCall) zamiast tresci (aprsReplyCustom).
+void aprsReplyDrawKeyboard() {
+  if (!tftInitialized) return;
+  const bool classic = uiStyleClassic();
+  const uint16_t card = classic ? 0x18E3 : UI_COL_CARD;
+  const uint16_t key = classic ? TFT_DARKGREY : UI_COL_BORDER;
+
+  tft.fillScreen(card);
+  uiMenuHeader(aprsReplyCallInput ? "APRS CALL" : "APRS TEXT");
+
+  // Pole edycji
+  tft.fillRect(20, 40, 440, 34, TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setTextColor(classic ? TFT_YELLOW : UI_COL_ACCENT, TFT_BLACK);
+  tft.setCursor(24, 48);
+  String shown = aprsReplyCallInput ? aprsReplyPopupCall : aprsReplyCustom;
+  if (shown.length() > 22) shown = shown.substring(shown.length() - 22);
+  tft.print(shown);
+  tft.print("_");
+
+  const char* rows[] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM .,!?"};
+  const int KW = 32, KH = 26, GAP = 4;
+  int startY[] = {84, 114, 144, 174};
+  for (int r = 0; r < 4; r++) {
+    for (int i = 0; i < (int)strlen(rows[r]); i++) {
+      int x = 20 + i * (KW + GAP);
+      int y = startY[r];
+      uint16_t fill = (r == 0) ? (classic ? TFT_BLUE : UI_COL_ACCENT2) : key;
+      tft.fillRect(x, y, KW, KH, fill);
+      tft.drawRect(x, y, KW, KH, classic ? TFT_WHITE : UI_COL_FAINT);
+      tft.setTextSize(1);
+      tft.setTextColor(classic ? TFT_WHITE : UI_COL_TEXT);
+      tft.setCursor(x + 11, y + 8);
+      tft.print(rows[r][i]);
+    }
+  }
+
+  // Przyciski akcji
+  tft.fillRect(20, 220, 80, 28, TFT_RED);
+  tft.setTextColor(TFT_WHITE); tft.setCursor(34, 228); tft.print("DEL");
+  tft.fillRect(120, 220, 80, 28, TFT_ORANGE);
+  tft.setTextColor(TFT_WHITE); tft.setCursor(140, 228); tft.print("CLR");
+  tft.fillRect(270, 220, 80, 28, TFT_ORANGE);
+  tft.setTextColor(TFT_WHITE); tft.setCursor(290, 228); tft.print("SPC");
+  tft.fillRect(370, 220, 90, 28, TFT_GREEN);
+  tft.setTextColor(TFT_BLACK); tft.setCursor(390, 228); tft.setTextSize(2); tft.print("OK");
+  tft.setTextSize(1);
+}
+
+// Obsluga dotyku popupu odpowiedzi APRS.
+void aprsReplyHandleTouch(uint16_t x, uint16_t y) {
+  const int bw = 200, bh = 40;
+  const int bx = (480 - bw) / 2;
+  int by = 80;
+
+  if (aprsReplyCustomKeyboard) {
+    const char* rows[] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM .,!?"};
+    const int KW = 32, KH = 26, GAP = 4;
+    int startY[] = {84, 114, 144, 174};
+    const int maxLen = aprsReplyCallInput ? 9 : 67;   // znak <= 9 (z SSID), tresc <= 67
+    String &buf = aprsReplyCallInput ? aprsReplyPopupCall : aprsReplyCustom;
+    for (int r = 0; r < 4; r++) {
+      for (int i = 0; i < (int)strlen(rows[r]); i++) {
+        int kx = 20 + i * (KW + GAP);
+        int ky = startY[r];
+        if (x >= kx && x <= kx + KW && y >= ky && y <= ky + KH) {
+          char c = rows[r][i];
+          if (c != ' ' && buf.length() < maxLen) buf += c;
+          else if (c == ' ' && buf.length() < maxLen) buf += ' ';
+          aprsReplyDrawKeyboard();
+          return;
+        }
+      }
+    }
+    if (x >= 20 && x <= 100 && y >= 220 && y <= 248) {  // DEL
+      if (buf.length() > 0) buf.remove(buf.length() - 1);
+      aprsReplyDrawKeyboard();
+      return;
+    }
+    if (x >= 120 && x <= 200 && y >= 220 && y <= 248) {  // CLR
+      buf = "";
+      aprsReplyDrawKeyboard();
+      return;
+    }
+    if (x >= 270 && x <= 350 && y >= 220 && y <= 248) {  // SPC
+      if (buf.length() < maxLen) buf += ' ';
+      aprsReplyDrawKeyboard();
+      return;
+    }
+    if (x >= 370 && x <= 460 && y >= 220 && y <= 248) {  // OK
+      if (aprsReplyCallInput) {
+        // Konczeniu edycji znaku towarzyszy walidacja: pusty znak -> wroc do
+        // popupu z prozba o wpisanie (nie wysylaj). Poprawne -> popup reply.
+        aprsReplyCallInput = false;
+        aprsReplyCustomKeyboard = false;
+        aprsReplyDrawPopup();
+        return;
+      }
+      aprsReplyCustomKeyboard = false;
+      aprsReplyDrawPopup();
+      return;
+    }
+    return;
+  }
+
+  // Szybkie odpowiedzi
+  const char *quick[4] = {"73!", "QSL", "TU", "CQ"};
+  for (int i = 0; i < 4; i++) {
+    int qx = bx;
+    int qy = by + i * (bh + 8);
+    if (x >= qx && x <= qx + bw && y >= qy && y <= qy + bh) {
+      if (sendAprsMessage(aprsReplyPopupCall, quick[i])) {
+        aprsReplyStatusMsg = "Wyslano: " + String(quick[i]);
+      } else {
+        aprsReplyStatusMsg = "Blad wysylania (APRS-IS offline?)";
+      }
+      aprsReplyStatusUntilMs = millis() + 3000;
+      aprsReplyDrawPopup();
+      return;
+    }
+  }
+
+  // Akcje
+  if (x >= 299 && x <= 387 && y >= 34 && y <= 60) {  // CALL -> edycja znaku
+    aprsReplyCustomKeyboard = true;
+    aprsReplyCallInput = true;
+    aprsReplyDrawKeyboard();
+    return;
+  }
+  if (x >= 393 && x <= 471 && y >= 34 && y <= 60) {  // SZUKAJ -> QRZ lookup znaku
+    String call = aprsReplyPopupCall;
+    call.trim();
+    call.toUpperCase();
+    if (call.length() == 0) {
+      aprsReplyStatusMsg = "Najpierw wpisz znak (CALL)";
+      aprsReplyStatusUntilMs = millis() + 3000;
+      aprsReplyDrawPopup();
+      return;
+    }
+    aprsReplyPopupCall = call;
+    aprsReplyLookupActive = true;
+    aprsReplyLookupDone = false;
+    aprsReplyLookupInfo = "";
+    // Wykorzystuje wspolny mechanizm wyszukiwania znaku (QRZ.com/HamDB/callook).
+    stationCallsign = call;
+    stationLookupStart();
+    aprsReplyLookupDone = true;
+    aprsReplyLookupFound = stationFound;
+    if (stationFound) {
+      aprsReplyLookupInfo = call;
+      if (stationName.length() > 0) aprsReplyLookupInfo += "  " + stationName;
+      if (stationQth.length() > 0) aprsReplyLookupInfo += " / " + stationQth;
+      if (stationGrid.length() >= 4) aprsReplyLookupInfo += "  [" + stationGrid + "]";
+      if (aprsReplyLookupInfo.length() > 52) aprsReplyLookupInfo = aprsReplyLookupInfo.substring(0, 52);
+    }
+    aprsReplyDrawPopup();
+    return;
+  }
+  if (x >= 54 && x <= 154 && y >= 278 && y <= 306) {  // TEXT -> klawiatura
+    aprsReplyCustomKeyboard = true;
+    aprsReplyCallInput = false;
+    aprsReplyDrawKeyboard();
+    return;
+  }
+  if (x >= 166 && x <= 266 && y >= 278 && y <= 306) {  // SEND
+    if (aprsReplyCustom.length() > 0) {
+      if (sendAprsMessage(aprsReplyPopupCall, aprsReplyCustom)) {
+        aprsReplyStatusMsg = "Wyslano: " + aprsReplyCustom;
+      } else {
+        aprsReplyStatusMsg = "Blad wysylania (APRS-IS offline?)";
+      }
+      aprsReplyStatusUntilMs = millis() + 3000;
+      aprsReplyCustom = "";
+      aprsReplyDrawPopup();
+    }
+    return;
+  }
+  if (x >= 278 && x <= 378 && y >= 278 && y <= 306) {  // X -> zamknij
+    aprsReplyPopupActive = false;
+    aprsReplyCustomKeyboard = false;
+    aprsReplyCustom = "";
+    aprsReplyStatusUntilMs = 0;
+    aprsReplyLookupActive = false;
+    if (aprsReplyReturnToMenu) {
+      // Zamkniecie popupu otwartego z menu APRS Setting -> wroc do tego menu.
+      aprsReplyReturnToMenu = false;
+      inMenu = true;
+      drawAprsSortMenu();
+    } else if (aprsReplyFromAlert) {
+      aprsReplyFromAlert = false;
+      ALERT_Screen(aprsAlertScreenStation);
+    } else {
+      drawScreen(currentScreen);
+    }
     return;
   }
 }
@@ -9317,19 +10276,21 @@ void drawBrightnessMenu() {
                    langCodes[i], tftLanguage == (uint8_t)i);
   }
 
-  const int btnW = 86;
+  const int btnW = 73;
   const int btnH = 26;
   const int btnY = 190;
-  const int btnGap = 7;
+  const int btnGap = 5;
   const int saveX = 11;
   const int defaultX = saveX + btnW + btnGap;
   const int saverX = defaultX + btnW + btnGap;
   const int calibX = saverX + btnW + btnGap;
-  const int closeX = calibX + btnW + btnGap;
+  const int battX = calibX + btnW + btnGap;
+  const int closeX = battX + btnW + btnGap;
   drawFilterTile(saveX, btnY, btnW, btnH, tr(TR_SAVE), false);
   drawFilterTile(defaultX, btnY, btnW, btnH, tr(TR_DEFAULT), false);
   drawFilterTile(saverX, btnY, btnW, btnH, trStr("USPIENIE","SLEEP","SCHLAFEN","VEILLE","SUENO","SON"), false);
-  drawFilterTile(calibX, btnY, btnW, btnH, trStr("KALIBRACJA","CALIBRATION","KALIBRIERUNG","CALIBRATION","CALIBRACION","KALIBROVKA"), false);
+  drawFilterTile(calibX, btnY, btnW, btnH, trStr("DOTYK","TOUCH","TOUCH","TOUCH","TACTIL","TOUCH"), false);
+  drawFilterTile(battX, btnY, btnW, btnH, trStr("BATERIA","BATTERY","BATTERIE","BATTERIE","BATERIA","BATAREYA"), false);
   drawFilterTile(closeX, btnY, btnW, btnH, tr(TR_CLOSE), false);
 }
 
@@ -9620,15 +10581,16 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     return;
   }
 
-  const int btnW = 86;
+  const int btnW = 73;
   const int btnH = 26;
   const int btnY = 190;
-  const int btnGap = 7;
+  const int btnGap = 5;
   const int saveX = 11;
   const int defaultX = saveX + btnW + btnGap;
   const int saverX = defaultX + btnW + btnGap;
   const int calibX = saverX + btnW + btnGap;
-  const int closeX = calibX + btnW + btnGap;
+  const int battX = calibX + btnW + btnGap;
+  const int closeX = battX + btnW + btnGap;
 
   // Przełącznik "Auto noc" - WLACZ / WYLACZ (02.11.2026)
   const int nightTileW = 130;
@@ -9680,6 +10642,7 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   if (isPointInRect(x, y, saverX, btnY, btnW, btnH)) {
     brightnessMenuActive = false;  // Zamknij menu jasnoĹ›ci
     screenSleepMenuActive = true;
+    screenSleepMenuTimeoutMin = screenSleepTimeoutMin; // pokaz aktualna wartosc
     drawScreenSleepMenu();
     return;
   }
@@ -9687,6 +10650,130 @@ void handleBrightnessMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   // Kafelka KALIBRACJA - uruchom kalibracje ekranu dotykowego.
   if (isPointInRect(x, y, calibX, btnY, btnW, btnH)) {
     startTouchCalibration();
+    return;
+  }
+
+  // Kafelka BATERIA - otwórz menu kalibracji pomiaru napięcia (B2).
+  if (isPointInRect(x, y, battX, btnY, btnW, btnH)) {
+    batteryCalTempOffset = batteryVoltOffset;
+    batteryCalTempDiv = batteryDividerCal;
+    batteryCalMenuActive = true;
+    batteryCalMenuOpenedMs = millis();
+    drawBatteryCalMenu();
+    return;
+  }
+}
+
+// ===== Menu kalibracji baterii (B2) =====
+// Dostepne z menu jasnosci (przycisk BATERIA). Pokazuje zywy pomiar napiecia
+// oraz pozwala korygowac offset [V] i mnoznik dzielnika. Zapis sluzy od razu
+// (dla ulatwienia) na przyciskach '+/-'; SAVE zapisuje do NVS i zamyka,
+// ANULUJ przywraca poprzednie wartosci.
+void drawBatteryCalMenu() {
+  tft.fillScreen(TFT_BLACK);
+  uiMenuHeader("KALIBRACJA BATERII");
+
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setTextSize(1);
+  tft.setCursor(10, 50);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(10, 66);
+  tft.print("Pomiar:");
+  tft.setCursor(10, 86);
+  tft.print("Offset:");
+  tft.setCursor(10, 106);
+  tft.print("Dzielnik:");
+  tft.setCursor(10, 126);
+  tft.print("Obliczone V:");
+
+  #ifdef BATTERY_MONITORING_ENABLED
+  // Swiezy pomiar; batteryVoltage moga byc staty miedzy odswiezeniami, wiec
+  // przeliczenie na z zycia robimy uzywajac aktualnych temp.
+  float raw = readBatteryVoltageRaw();
+  #else
+  float raw = 0.0f;
+  #endif
+
+  tft.setTextColor(TFT_YELLOW);
+  tft.setCursor(130, 66);
+  tft.print(raw, 3);
+  tft.print(" V (surowy)");
+
+  tft.setTextColor(TFT_YELLOW);
+  tft.setCursor(130, 86);
+  char offStr[16];
+  snprintf(offStr, sizeof(offStr), "%+.3f V", batteryCalTempOffset);
+  tft.print(offStr);
+
+  tft.setTextColor(TFT_YELLOW);
+  tft.setCursor(130, 106);
+  tft.print(batteryCalTempDiv, 4);
+
+  float calcV = raw * batteryCalTempDiv + batteryCalTempOffset;
+  tft.setTextColor(TFT_RADIO_ORANGE);
+  tft.setCursor(130, 126);
+  tft.print(calcV, 3);
+  tft.print(" V");
+
+  // Przyciski korekty - Offset
+  const int bw = 130, bh = 32, gy = 12;
+  const int oy = 160;
+  drawFilterTile(10, oy, bw, bh, "OFFSET -0.01", false);
+  drawFilterTile(10 + bw + gy, oy, bw, bh, "OFFSET +0.01", false);
+  drawFilterTile(10 + (bw + gy) * 2, oy, bw, bh, "OFFSET -1", false);
+  const int oy2 = oy + bh + 8;
+  drawFilterTile(10, oy2, bw, bh, "OFFSET +1", false);
+
+  // Przyciski korekty - Dzielnik
+  const int dy = oy2 + bh + 10;
+  const int dw = 130, dh = 32;
+  drawFilterTile(10, dy, dw, dh, "DZIEL x0.99", false);
+  drawFilterTile(10 + dw + gy, dy, dw, dh, "DZIEL x1.01", false);
+
+  // Dolny rzad: ZAPISZ / ANULUJ
+  const int saveW = 100, saveH = 34;
+  const int saveY = 270;
+  const int startXs = (480 - (2 * saveW + 20)) / 2;
+  drawFilterTile(startXs, saveY, saveW, saveH, "ZAPISZ", false);
+  drawFilterTile(startXs + saveW + 20, saveY, saveW, saveH, "ANULUJ", false);
+}
+
+void handleBatteryCalMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
+  (void)isNewTap;
+  if (millis() - batteryCalMenuOpenedMs < 400) return;
+
+  const int bw = 130, bh = 32, gy = 12;
+  const int oy = 160;
+  if (isPointInRect(x, y, 10, oy, bw, bh)) { batteryCalTempOffset -= 0.01f; drawBatteryCalMenu(); return; }
+  if (isPointInRect(x, y, 10 + bw + gy, oy, bw, bh)) { batteryCalTempOffset += 0.01f; drawBatteryCalMenu(); return; }
+  if (isPointInRect(x, y, 10 + (bw + gy) * 2, oy, bw, bh)) { batteryCalTempOffset -= 1.0f; drawBatteryCalMenu(); return; }
+  const int oy2 = oy + bh + 8;
+  if (isPointInRect(x, y, 10, oy2, bw, bh)) { batteryCalTempOffset += 1.0f; drawBatteryCalMenu(); return; }
+
+  const int dy = oy2 + bh + 10;
+  const int dw = 130, dh = 32;
+  if (isPointInRect(x, y, 10, dy, dw, dh)) { batteryCalTempDiv *= 0.99f; drawBatteryCalMenu(); return; }
+  if (isPointInRect(x, y, 10 + dw + gy, dy, dw, dh)) { batteryCalTempDiv *= 1.01f; drawBatteryCalMenu(); return; }
+
+  // Zabezpieczenie zakresow
+  if (batteryCalTempDiv < 0.5f) batteryCalTempDiv = 0.5f;
+  if (batteryCalTempDiv > 2.0f) batteryCalTempDiv = 2.0f;
+  if (batteryCalTempOffset < -1.0f) batteryCalTempOffset = -1.0f;
+  if (batteryCalTempOffset > 1.0f) batteryCalTempOffset = 1.0f;
+
+  const int saveW = 100, saveH = 34, saveY = 270;
+  const int startXs = (480 - (2 * saveW + 20)) / 2;
+  if (isPointInRect(x, y, startXs, saveY, saveW, saveH)) {
+    batteryDividerCal = batteryCalTempDiv;
+    batteryVoltOffset = batteryCalTempOffset;
+    savePreferences();
+    batteryCalMenuActive = false;
+    drawBrightnessMenu();
+    return;
+  }
+  if (isPointInRect(x, y, startXs + saveW + 20, saveY, saveW, saveH)) {
+    batteryCalMenuActive = false;
+    drawBrightnessMenu();
     return;
   }
 }
@@ -9931,6 +11018,13 @@ void drawClockColorMenu() {
   drawFilterTile(saveX, btnY, btnW, btnH, tr(TR_SAVE), false);
   drawFilterTile(defX, btnY, btnW, btnH, tr(TR_DEFAULT), false);
   drawFilterTile(closeX, btnY, btnW, btnH, tr(TR_CLOSE), false);
+
+  // Tecza (kazda cyfra w innym kolorze) i Mix kolor (co minute z palety).
+  // Oba tryby wzajemnie sie wylaczaja w handleClockColorMenuTouch.
+  const char *rainbowLbl = clockRainbowActive ? "TECZA: WL" : "TECZA: WYL";
+  drawFilterTile(15, 288, 222, 26, rainbowLbl, clockRainbowActive);
+  const char *mixLbl = clockColorMixActive ? "MIX KOLOR: WL" : "MIX KOLOR: WYL";
+  drawFilterTile(243, 288, 222, 26, mixLbl, clockColorMixActive);
 }
 
 void openClockColorMenu() {
@@ -9977,10 +11071,44 @@ void handleClockColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
     return;
   }
 
+  // Przycisk TECZA (dolny lewy) - kazda cyfra w innym kolorze teczy.
+  if (isPointInRect(x, y, 15, 288, 222, 26)) {
+    clockRainbowActive = !clockRainbowActive;
+    if (clockRainbowActive) {
+      clockColorMixActive = false;  // tryby wzajemnie sie wylaczaja
+    }
+    savePreferences();
+    drawClockColorMenu();
+    return;
+  }
+  // Przycisk MIX KOLOR (dolny prawy) - zmiana koloru co minute z palety.
+  if (isPointInRect(x, y, 243, 288, 222, 26)) {
+    clockColorMixActive = !clockColorMixActive;
+    if (clockColorMixActive) {
+      clockRainbowActive = false;  // tryby wzajemnie sie wylaczaja
+      // Zacznij od kolejnego koloru po biezacym (lub bialym, gdy aktywny).
+      uint16_t cur = clockDigitsColor;
+      clockColorMixIndex = 0;
+      for (int i = 0; i < (int)CLOCK_MIX_COUNT; i++) {
+        if (CLOCK_MIX_PALETTE[i] == cur) { clockColorMixIndex = i; break; }
+      }
+      lastMixClockMinute = -1;  // wymus zmiane przy nastepnej rysowanej minucie
+      maybeMixClockColor();
+      savePreferences();
+    } else {
+      savePreferences();
+    }
+    drawClockColorMenu();
+    return;
+  }
+
   const int btnW = 110, btnH = 28, btnY = 250, gap = 15;
   const int saveX = 15, defX = saveX + btnW + gap, closeX = defX + btnW + gap;
 
   if (isPointInRect(x, y, saveX, btnY, btnW, btnH)) {
+    // Zapisanie recznie wybranego koloru wylacza tecze i mix (staly kolor).
+    clockColorMixActive = false;
+    clockRainbowActive = false;
     clockDigitsColor = hsv565(clockColorMenuHue, clockColorMenuSat, clockColorMenuVal);
     savePreferences();
     clockColorMenuActive = false;
@@ -9991,6 +11119,8 @@ void handleClockColorMenuTouch(uint16_t x, uint16_t y, bool isNewTap) {
   }
   if (isPointInRect(x, y, defX, btnY, btnW, btnH)) {
     clockDigitsColor = 0xFFFF;  // domyslny bialy (jak czcionka na poczatku bootu)
+    clockColorMixActive = false;
+    clockRainbowActive = false;
     clockColorMenuHue = 42;
     clockColorMenuSat = 100;
     clockColorMenuVal = 100;
@@ -10157,6 +11287,20 @@ void alarmStopMelody() {
 // Automat stanu "pip-pip-pip" bez blokowania. Dzieli pin z alarmem, wiec gdy
 // alarm dzwoni, beep jest wstrzymywany (alarm ma priorytet).
 
+// Ton APRS beep: przesuwa czestotliwosc o oktawy tak samo jak alarmTone(),
+// zeby melodie trafialy w pasmo rezonansu piezo (2-4 kHz, BUZZER_OCTAVE_UP).
+// Nut juz bedacych w pasmie (>=2000 Hz, np. domyslne 2000 Hz) nie ruszamy,
+// zeby nie wyjechac poza gorne pasmo piezo (2000<<2 = 8000 Hz -> zle).
+static void aprsBeepTone(uint32_t freq, uint32_t duty) {
+#if BUZZER_OCTAVE_UP
+  if (freq && freq < 2000) freq = (uint32_t)freq << BUZZER_OCTAVE_UP;
+#endif
+  // Suwak glosnosci APRS w menu (aprsBeepVolume) steruje wypelnieniem LEDC dla
+  // domyslnej duty; jawne duty z APRS_NOTE_D pozostaje bez zmian.
+  if (duty == APRS_BEEP_DUTY) duty = (uint32_t)aprsBeepVolume;
+  buzzerRawTone(freq, duty);
+}
+
 // Uruchamia sekwencje pipniec (wolane przy alercie APRS). Nie startuje, gdy
 // alarm wlasnie dzwoni ani w krotkim oknie po jego wyciszeniu (alarm ma priorytet).
 void aprsBeepPlay() {
@@ -10171,12 +11315,152 @@ void aprsBeepPlay() {
   aprsBeepActive = true;
   aprsBeepStep = 0;
   aprsBeepToneOn = true;
+  aprsBeepSeqTotal = 0;              // brak sekwencji -> update gra domyslne pip-pip
+  aprsBeepSeqPtr = 0;
   aprsBeepPhaseUntilMs = millis() + APRS_BEEP_ON_MS;
-  buzzerRawTone(APRS_BEEP_FREQ, APRS_BEEP_DUTY);
+  aprsBeepTone(APRS_BEEP_FREQ, APRS_BEEP_DUTY);
 #endif
 }
 
-// Wolane z petli glownej - wystawia kolejne pipniecia.
+// Sekwencja sygnalu APRS wg typu stacji. Kazda krotka melodia odtwarzana jest
+// nieblokujaco przez aprsBeepUpdate(): ton, pauza, ton, ...
+struct AprsBeepNote {
+  uint16_t freq;   // Hz; 0 = pauza (cisza)
+  uint16_t ms;     // czas trwania
+  uint8_t duty;    // wypelnienie LEDC (10 bitow; 0 = auto/domyslne)
+};
+
+#define APRS_NOTE(f, m)            { (uint16_t)(f), (uint16_t)(m), 0 }
+#define APRS_NOTE_D(f, m, d)       { (uint16_t)(f), (uint16_t)(m), (uint8_t)(d) }
+#define APRSNOTE_END               { 0, 0, 0 }
+
+// Wolane z petli glownej - wystawia kolejna nute sekwencji.
+struct AprsBeepSeq {
+  const AprsBeepNote *notes;
+  uint8_t count;
+};
+
+// Domino: rozpoznanie po symbolu (getAPRSSymbolShort). Sygnaly dobrane tak, by
+// sie rozroznialy sluchowo: niska/glucha, podwojne, trojki, "policyjne" itd.
+// Wszystkie utrzymuja sie w pasie rezonansu piezo (2-4 kHz, patrz BUZZER_OCTAVE_UP).
+static const AprsBeepNote notesHouse[] = {
+  APRS_NOTE(392, 60), APRS_NOTE(523, 60), APRS_NOTE(659, 60),   // "dom: idz w gore" C-E-G
+  APRSNOTE_END
+};
+static const AprsBeepNote notesCar[] = {
+  APRS_NOTE(880, 90), APRS_NOTE(880, 90), APRS_NOTE(392, 160),  // "mobil: du-du-duuu"
+  APRSNOTE_END
+};
+static const AprsBeepNote notesHuman[] = {
+  APRS_NOTE(660, 70), APRS_NOTE(660, 70), APRS_NOTE(660, 70),    // pieszy: kroki
+  APRSNOTE_END
+};
+static const AprsBeepNote notesBike[] = {
+  APRS_NOTE(523, 50), APRS_NOTE(587, 50), APRS_NOTE(659, 50), APRS_NOTE(784, 70),
+  APRSNOTE_END
+};
+static const AprsBeepNote notesWx[] = {
+  APRS_NOTE(440, 40), APRS_NOTE(0, 30), APRS_NOTE(440, 40), APRS_NOTE(0, 30), APRS_NOTE(440, 40),
+  APRSNOTE_END
+};
+static const AprsBeepNote notesDigi[] = {
+  APRS_NOTE(330, 70), APRS_NOTE(330, 70), APRS_NOTE(0, 40), APRS_NOTE(330, 70),
+  APRSNOTE_END
+};
+static const AprsBeepNote notesRepeater[] = {
+  APRS_NOTE(261, 80), APRS_NOTE(392, 80), APRS_NOTE(523, 80),
+  APRSNOTE_END
+};
+static const AprsBeepNote notesShip[] = {
+  APRS_NOTE(392, 120), APRS_NOTE(0, 40), APRS_NOTE(392, 120),
+  APRSNOTE_END
+};
+static const AprsBeepNote notesEmergency[] = {
+  APRS_NOTE(880, 60), APRS_NOTE(0, 40), APRS_NOTE(880, 60), APRS_NOTE(0, 40), APRS_NOTE(880, 60),
+  APRSNOTE_END
+};
+static const AprsBeepNote notesGlider[] = {
+  APRS_NOTE(659, 90), APRS_NOTE(784, 90), APRS_NOTE(659, 90),
+  APRSNOTE_END
+};
+static const AprsBeepNote notesTruck[] = {
+  APRS_NOTE(496, 90), APRS_NOTE(330, 90), APRS_NOTE(392, 90),
+  APRSNOTE_END
+};
+static const AprsBeepNote notesLora[] = {
+  APRS_NOTE(700, 40), APRS_NOTE(0, 30), APRS_NOTE(700, 40), APRS_NOTE(0, 30), APRS_NOTE(700, 40), APRS_NOTE(700, 70),
+  APRSNOTE_END
+};
+static const AprsBeepNote notesDefault[] = {
+  APRS_NOTE(2000, 120), APRS_NOTE(2000, 120), APRS_NOTE(2000, 120),
+  APRSNOTE_END
+};
+// Tryb "Buzzer NOC": jedna krotka, cicha nuta dla kazdego alertu APRS.
+// Niska glosnosc (duty ok. 200) - dyskretny sygnal w nocy.
+static const AprsBeepNote notesNocSingle[] = {
+  APRS_NOTE_D(2000, 90, 200),
+  APRSNOTE_END
+};
+
+// Policz nuty w tablicy (do napotkania APRSNOTE_END).
+static uint8_t aprsBeepCountNotes(const AprsBeepNote *notes) {
+  uint8_t n = 0;
+  while (notes[n].freq != 0 || notes[n].ms != 0) n++;
+  return n;
+}
+
+// Melodyjka do wybranego typu stacji (wg symbolu APRS).
+static void aprsBeepStartPattern(const AprsBeepNote *notes) {
+#if (BUZZER_PIN >= 0)
+  if (alarmRinging) {
+    aprsBeepMutedUntilMs = millis() + 1500UL;  // cisza po alarmie
+    return;
+  }
+  if (aprsBeepMutedUntilMs != 0 && (long)(millis() - aprsBeepMutedUntilMs) < 0) {
+    return;  // jeszcze trwa okno ciszy po alarmie
+  }
+  aprsBeepActive = true;
+  aprsBeepStep = 0;
+  aprsBeepToneOn = true;
+  aprsBeepSingleShot = false;   // domyslnie melodyjka zapetla sie (do ~3 s)
+  aprsBeepSeqTotal = aprsBeepCountNotes(notes);
+  aprsBeepSeqPtr = (const void *)notes;
+  aprsBeepStartedAtMs = millis();
+  aprsBeepPhaseUntilMs = millis() + notes[0].ms;
+  aprsBeepTone(notes[0].freq, notes[0].duty > 0 ? notes[0].duty : APRS_BEEP_DUTY);
+#endif
+}
+
+// Wybiera sekwencje wg symbolu stacji (patrz getAPRSSymbolShort).
+void aprsBeepPlayForStation(const APRSStation &station) {
+  // Tryb "Buzzer NOC": kazdy alert APRS gra jeden krotki pip (bez melodii wg
+  // typu stacji). Uzytkownik wybral to w menu APRS jako cichy sygnal nocny.
+  if (aprsBuzzerNoc) {
+    // Globalny cooldown: nawet przy gestym ruchu APRS (wiele stacji) NOC gra
+    // maks. 1 pik co 5 s - inaczej piszczalby prawie bez przerwy.
+    if ((long)(millis() - lastNocBeepMs) < (long)APRS_NOC_BEEP_GAP_MS) return;
+    lastNocBeepMs = millis();
+    aprsBeepStartPattern(notesNocSingle);
+    aprsBeepSingleShot = true;   // NOC: dokladnie jeden krotki pik
+    return;
+  }
+  String t = getAPRSSymbolShort(station);
+  if (t == "HOUSE")            return aprsBeepStartPattern(notesHouse);
+  if (t == "CAR" || t == "VAN") return aprsBeepStartPattern(notesCar);
+  if (t == "TRUCK")            return aprsBeepStartPattern(notesTruck);
+  if (t == "HUMAN" || t == "LAPTOP") return aprsBeepStartPattern(notesHuman);
+  if (t == "BIKE")             return aprsBeepStartPattern(notesBike);
+  if (t == "WX")               return aprsBeepStartPattern(notesWx);
+  if (t == "DIGI")             return aprsBeepStartPattern(notesDigi);
+  if (t == "REPEATER" || t == "NODE") return aprsBeepStartPattern(notesRepeater);
+  if (t == "SHIP")             return aprsBeepStartPattern(notesShip);
+  if (t == "AMBUL" || t == "FIRE" || t == "FIRETRK" || t == "HOSP") return aprsBeepStartPattern(notesEmergency);
+  if (t == "GLIDER")           return aprsBeepStartPattern(notesGlider);
+  if (t == "LORA")             return aprsBeepStartPattern(notesLora);
+  aprsBeepStartPattern(notesDefault);
+}
+
+// Wolane z petli glownej - wystawia kolejne nuty sekwencji (petla przez ~3 s).
 void aprsBeepUpdate() {
 #if (BUZZER_PIN >= 0)
   if (!aprsBeepActive) return;
@@ -10185,20 +11469,60 @@ void aprsBeepUpdate() {
   unsigned long now = millis();
   if ((long)(now - aprsBeepPhaseUntilMs) < 0) return;  // faza jeszcze trwa
 
-  if (aprsBeepToneOn) {
-    buzzerRawTone(0, 0);       // koniec pipniecia -> cisza
+  const AprsBeepNote *notes = (const AprsBeepNote *)aprsBeepSeqPtr;
+
+  // Calkowity czas sygnalu: ~3 s. Po uplywie - zatrzymaj.
+  if ((long)(now - aprsBeepStartedAtMs) >= (long)APRS_BEEP_TOTAL_MS) {
+    aprsBeepActive = false;
+    aprsBeepToneOn = false;
+    aprsBeepSingleShot = false;
+    buzzerRawTone(0, 0);
+    return;
+  }
+
+  if (!notes || aprsBeepSeqTotal == 0) {  // brak danych - domyslne pip-pip
+    if (aprsBeepToneOn) {
+      buzzerRawTone(0, 0);
+      aprsBeepToneOn = false;
+      aprsBeepPhaseUntilMs = now + APRS_BEEP_GAP_MS;
+    } else {
+      aprsBeepStep++;
+      if (aprsBeepStep >= APRS_BEEP_COUNT) aprsBeepStep = 0;
+      aprsBeepToneOn = true;
+      aprsBeepPhaseUntilMs = now + APRS_BEEP_ON_MS;
+      aprsBeepTone(APRS_BEEP_FREQ, APRS_BEEP_DUTY);
+    }
+    return;
+  }
+
+  if (aprsBeepToneOn) {            // ton sie skonczyl -> pauza miedzy nutami
+    buzzerRawTone(0, 0);
     aprsBeepToneOn = false;
     aprsBeepPhaseUntilMs = now + APRS_BEEP_GAP_MS;
-  } else {
-    aprsBeepStep++;
-    if (aprsBeepStep >= APRS_BEEP_COUNT) {
-      aprsBeepActive = false;  // koniec sekwencji
+    return;
+  }
+  // Nastepna nuta; po ostatniej - przewin na poczatek (sygnal gra ~3 s).
+  // Tryb NOC (aprsBeepSingleShot): po jednym piku konczymy - bez zapetlania.
+  aprsBeepStep++;
+  if (aprsBeepStep >= (int)aprsBeepSeqTotal) {
+    if (aprsBeepSingleShot) {
+      aprsBeepActive = false;
+      aprsBeepToneOn = false;
+      aprsBeepSingleShot = false;
+      buzzerRawTone(0, 0);
       return;
     }
-    aprsBeepToneOn = true;
-    aprsBeepPhaseUntilMs = now + APRS_BEEP_ON_MS;
-    buzzerRawTone(APRS_BEEP_FREQ, APRS_BEEP_DUTY);
+    aprsBeepStep = 0;
   }
+  const AprsBeepNote &n = notes[aprsBeepStep];
+  if (n.freq == 0) {               // pauza w sekwencji: cisza o zadanej dlugosci
+    aprsBeepToneOn = false;
+    aprsBeepPhaseUntilMs = now + (n.ms > 0 ? n.ms : APRS_BEEP_GAP_MS);
+    return;
+  }
+  aprsBeepToneOn = true;
+  aprsBeepPhaseUntilMs = now + (n.ms > 0 ? n.ms : APRS_BEEP_ON_MS);
+  aprsBeepTone(n.freq, n.duty > 0 ? n.duty : APRS_BEEP_DUTY);
 #endif
 }
 
@@ -10207,6 +11531,7 @@ void aprsBeepAbort() {
   if (aprsBeepActive) {
     aprsBeepActive = false;
     aprsBeepToneOn = false;
+    aprsBeepSingleShot = false;
     buzzerRawTone(0, 0);
   }
 }
@@ -10321,7 +11646,8 @@ void dismissAlarmRingScreen() {
   inMenu = alarmRingPrevInMenu;
   if (!tftInitialized) return;
   // Odtworz to, co bylo pod ekranem dzwonienia (menu albo ekran bazowy).
-  if (brightnessMenuActive)        drawBrightnessMenu();
+  if (batteryCalMenuActive)        drawBatteryCalMenu();
+  else if (brightnessMenuActive)    drawBrightnessMenu();
   else if (callsignColorMenuActive) drawCallsignColorMenu();
   else if (clockColorMenuActive)    drawClockColorMenu();
   else if (alarmMenuActive)         drawAlarmMenu();
@@ -10755,6 +12081,12 @@ uint32_t computeScreen6Signature() {
 
 void updateScreen6Data() {
   if (!tftInitialized || inMenu) {
+    return;
+  }
+  if (aprsAlertScreenActive || weatherAlertScreenActive) {
+    return;
+  }
+  if (aprsReplyPopupActive) {
     return;
   }
   if (currentScreen != SCREEN_APRS_IS && currentScreen != SCREEN_APRS_RADAR) {
@@ -11376,7 +12708,7 @@ bool fetchPropagationData() {
   client.setInsecure();
 
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   if (!http.begin(client, PROPAGATION_URL)) {
     propagationData.lastError = "HTTP begin failed";
     return false;
@@ -11399,6 +12731,259 @@ bool fetchPropagationData() {
   }
 
   return true;
+}
+
+// --------------------------------------------------------------------------
+// Mapa propagacji z propagation.dr2w.de (PNG 1091x501) - pobieranie i dekod.
+// PNG dekodujemy przez pngle bezposrednio do bufora RGB565 w PSRAM (480x216),
+// przeskalowane cover do obszaru mapy na ekranie. Potem rysujemy pushImage.
+// --------------------------------------------------------------------------
+static int      propPngW = 0, propPngH = 0;   // wymiary zrodlowe PNG
+static uint8_t  propPngScale = 1;             // skala (uproszczona, zwykle 1)
+
+static uint16_t imgRgb565(uint8_t r, uint8_t g, uint8_t b);
+
+static void propPngInit(pngle_t *pngle, uint32_t w, uint32_t h) {
+  (void)pngle;
+  propPngW = (int)w;
+  propPngH = (int)h;
+  propPngScale = 1;
+  // cover: skala tak, by pokryc PROP_MAP_W x PROP_MAP_H (nadmiar przyciety)
+  int sw = PROP_MAP_W * 8, sh = PROP_MAP_H * 8;   // x8 zeby uniknac float na ukladach bez FPU
+  while ((propPngScale * sw) / w < 8 && (propPngScale * sh) / h < 8) {
+    if (propPngScale >= 16) break;
+    propPngScale *= 2;
+  }
+}
+
+static void propPngDraw(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t rgba[4]) {
+  (void)pngle; (void)w; (void)h;
+  if (!propMapBuf) return;
+  if (rgba[3] < 128) return;  // przezroczysty -> zostaw tlo (czarne)
+
+  // Skala docelowa: PROP_MAP_W/1091 x PROP_MAP_H/501. Obliczamy w 32-bit.
+  // dst = src * PROP_MAP_W / pngW  (dla osi X), analogicznie Y.
+  int dx = (int)((uint32_t)x * PROP_MAP_W / (uint32_t)propPngW);
+  int dy = (int)((uint32_t)y * PROP_MAP_H / (uint32_t)propPngH);
+  if (dx < 0 || dx >= PROP_MAP_W || dy < 0 || dy >= PROP_MAP_H) return;
+  propMapBuf[dy * PROP_MAP_W + dx] = imgRgb565(rgba[0], rgba[1], rgba[2]);
+}
+
+// Pobiera mape propagacji dla aktualnego pasma/regionu i godziny UTC.
+// Dekoduje PNG do propMapBuf (PSRAM). Zwraca true gdy mapa gotowa.
+// Wywolywane z tasku tla (propMapFetchBgTask) - trzyma propMapMux,
+// zeby UI nie czytal bufora podczas nadpisywania.
+bool fetchPropagationMap() {
+  if (propMapMux && xSemaphoreTake(propMapMux, pdMS_TO_TICKS(100)) != pdTRUE) {
+    snprintf(propMapLastError, sizeof(propMapLastError), "%s", "mapa zajęta");
+    propMapFetching = false;
+    return false;
+  }
+
+  propMapLastError[0] = 0;
+  if (!propMapBuf) {
+    propMapBuf = (uint16_t*)heap_caps_malloc(sizeof(uint16_t) * PROP_MAP_W * PROP_MAP_H, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!propMapBuf) {
+      snprintf(propMapLastError, sizeof(propMapLastError), "%s", "Pamięć mapy (PSRAM)");
+      propMapFetching = false;
+      xSemaphoreGive(propMapMux);
+      return false;
+    }
+    memset(propMapBuf, 0, sizeof(uint16_t) * PROP_MAP_W * PROP_MAP_H);
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    snprintf(propMapLastError, sizeof(propMapLastError), "%s", "WiFi offline");
+    propMapFetching = false;
+    xSemaphoreGive(propMapMux);
+    return false;
+  }
+
+  // Guard pamieci: TLS + pngle potrzebuja ~40-45 KB DRAM. Gdy free heap spada
+  // (np. po dlugiej pracy, wiele taskow), start_ssl_client zwraca -32512
+  // "Memory allocation failed". Lepiej pominac probe i wrocic po cooldownie,
+  // niz zalewac logi bledami i marnowac energie.
+  if (ESP.getFreeHeap() < 45000) {
+    Serial.printf("[PROP] Heap za niski (%u B) - odraczam pobranie mapy.\n", (unsigned)ESP.getFreeHeap());
+    snprintf(propMapLastError, sizeof(propMapLastError), "RAM %u", (unsigned)ESP.getFreeHeap());
+    propMapFetching = false;
+    xSemaphoreGive(propMapMux);
+    return false;
+  }
+
+  int hour = propUtcHour();
+  if (hour < 0) hour = 12;  // brak RTC - uzyj poludnia jako bezpiecznej wartosci
+
+  // dr2w.de wymaga godziny z wiodacym zerem (dr2w_<pasmo>_HH.png, HH=00..23).
+  // Godzina jako int (np. 9) -> "dr2w_40M_9.png" = HTTP 404.
+  char hourStr[3];
+  snprintf(hourStr, sizeof(hourStr), "%02d", hour);
+  String url = String(PROP_MAP_URL_BASE) + PROP_MAP_REGIONS[propRegionIndex] + "/" +
+               PROP_MAP_BANDS[propBandIndex] + "/dr2w_" + PROP_MAP_BANDS[propBandIndex] + "_" + hourStr + ".png";
+  Serial.printf("[PROP] fetching: %s\n", url.c_str());
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(8000);
+  if (!http.begin(client, url)) {
+    snprintf(propMapLastError, sizeof(propMapLastError), "%s", "HTTP begin");
+    propMapFetching = false;
+    xSemaphoreGive(propMapMux);
+    return false;
+  }
+
+  int httpCode = http.GET();
+  Serial.printf("[PROP] GET -> HTTP %d\n", httpCode);
+  if (httpCode != HTTP_CODE_OK) {
+    snprintf(propMapLastError, sizeof(propMapLastError), "HTTP %d (h=%02d)", httpCode, hour);
+    http.end();
+    propMapFetching = false;
+    xSemaphoreGive(propMapMux);
+    return false;
+  }
+
+  // Dekoduj PNG przez pngle ze strumienia HTTP.
+  pngle_t *pngle = pngle_new();
+  if (!pngle) {
+    snprintf(propMapLastError, sizeof(propMapLastError), "%s", "pngle");
+    http.end();
+    propMapFetching = false;
+    xSemaphoreGive(propMapMux);
+    return false;
+  }
+  pngle_set_init_callback(pngle, propPngInit);
+  pngle_set_draw_callback(pngle, propPngDraw);
+
+  WiFiClient *stream = http.getStreamPtr();
+  bool ok = true;
+  static uint8_t buf[4096];
+  size_t remain = 0;
+  size_t got = 0;
+  int32_t total = http.getSize();  // Content-Length, -1 gdy brak
+  unsigned long timeoutMs = millis() + 15000;
+  while (total > 0 ? (int32_t)got < total : (stream->connected() || remain > 0)) {
+    if ((long)(millis() - timeoutMs) > 0) {
+      ok = false;
+      break;
+    }
+    // Czytamy tyle, ile stream ma w buforze (dane przychodza porcjami TCP).
+    while (stream->available() && remain < sizeof(buf)) {
+      int len = stream->read(buf + remain, sizeof(buf) - remain);
+      if (len <= 0) break;
+      remain += (size_t)len;
+      got += (size_t)len;
+    }
+    if (remain == 0) {
+      if (total > 0 && (int32_t)got >= total) break;  // odebrano calosc
+      if (!stream->connected()) break;
+      delay(5);   // poczekaj na kolejna porcje (timeout czuwa)
+      continue;
+    }
+    int fed = pngle_feed(pngle, buf, remain);
+    if (fed < 0) {
+      ok = false;
+      break;
+    }
+    if (fed > 0 && (size_t)fed < remain) {
+      memmove(buf, buf + fed, remain - (size_t)fed);
+    }
+    remain -= (size_t)fed;
+  }
+  http.end();
+  pngle_destroy(pngle);
+
+  propMapFetching = false;
+  if (!ok) {
+    snprintf(propMapLastError, sizeof(propMapLastError), "%s", "Zły PNG / timeout");
+    propMapReady = false;
+    xSemaphoreGive(propMapMux);
+    return false;
+  }
+  propMapReady = true;
+  propMapUtcHour = hour;
+  propMapRegionUsed = propRegionIndex;
+  xSemaphoreGive(propMapMux);
+  return true;
+}
+
+// Zadanie tla: pobiera/dekoduje mape propagacji poza UI_Task (inaczej dotyk
+// i wyjscie z ekranu zamieralyby na czas TLS+168 kB+pngle). Wzorzec jak
+// sondeFetchBgTask. UI tylko ustawia propMapFetchReq i czeka na propMapFetchDone.
+static void propMapFetchBgTask(void *param) {
+  (void)param;
+  for (;;) {
+    while (!propMapFetchReq) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    propMapFetchReq = false;
+    // Nie ruszaj WiFi gdy przychodzi alert APRS / tryb budzenia / modal -
+    // pobieranie mapy jest niskopriorytetowe i moze poczekac.
+    while ((aprsAlertScreenActive || screenSleepActive || alarmRinging) && !propMapFetchReq) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    if (propMapFetchReq) continue;   // pojawilo sie nowe zadanie - pobierzesz je
+    propMapFetchBusy = true;
+    propMapFetchDone = false;
+    bool fetchOk = fetchPropagationMap();   // ustawia propMapReady/LastError/Fetching
+    if (!fetchOk) propMapLastFailAtMs = millis();
+    propMapFetchDone = true;
+    propMapFetchBusy = false;
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+// Obszary dotykowe przyciskow na ekranie PROPAGACJA. Geometria identyczna jak
+// w drawSunSpotsBody(). Returns: 1=zmieniono pasmo/region, 0=nietrafione.
+bool handlePropagationTouch(uint16_t x, uint16_t y) {
+  if (inMenu) return false;
+
+  // Pasek regionow (y 252..264)
+  if (y >= 252 && y <= 264) {
+    int gap = 3;
+    int total = PROP_MAP_REGIONS_COUNT;
+    int rw = (480 - 8 - gap * (total - 1)) / total;
+    for (int i = 0; i < total; i++) {
+      int rx = 4 + i * (rw + gap);
+      if (x >= rx && x <= (rx + rw)) {
+        if (propRegionIndex != i) {
+          propRegionIndex = i;
+          propRegionManualSelect = true;
+          propMapReady = false;
+          propMapFetching = true;
+          propMapLastFailAtMs = 0;  // reczna zmiana regionu - natychmiastowy retry
+          propMapFetchReq = true;   // task tla pobierze nowa mape
+          drawScreen(SCREEN_SUN_SPOTS);   // natychmiastowa odpowiedz: nowe podswietlenie + status
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Pasek pasm (y 268..280)
+  if (y >= 268 && y <= 280) {
+    int gap = 3;
+    int total = PROP_MAP_BANDS_COUNT;
+    int bw = (480 - 8 - gap * (total - 1)) / total;
+    for (int i = 0; i < total; i++) {
+      int bx = 4 + i * (bw + gap);
+      if (x >= bx && x <= (bx + bw)) {
+        if (propBandIndex != i) {
+          propBandIndex = i;
+          propMapReady = false;
+          propMapFetching = true;
+          propMapLastFailAtMs = 0;  // reczna zmiana pasma - natychmiastowy retry
+          propMapFetchReq = true;   // task tla pobierze nowa mape
+          drawScreen(SCREEN_SUN_SPOTS);   // natychmiastowa odpowiedz: nowe podswietlenie + status
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  return false;
 }
 
 void updateScreen3Clock() {
@@ -11427,6 +13012,22 @@ uint32_t computeScreen3Signature() {
     }
   }
 
+  // Stan mapy propagacji - zmiana wymusza przerysowanie.
+  hash ^= (uint32_t)propMapReady;
+  hash *= fnvPrime;
+  hash ^= (uint32_t)(uint8_t)propBandIndex;
+  hash *= fnvPrime;
+  hash ^= (uint32_t)(uint8_t)propRegionIndex;
+  hash *= fnvPrime;
+  hash ^= (uint32_t)(uint8_t)propMapUtcHour;
+  hash *= fnvPrime;
+  hash ^= (uint32_t)propMapFetching;
+  hash *= fnvPrime;
+  for (size_t i = 0; i < strlen(propMapLastError); i++) {
+    hash ^= (uint8_t)propMapLastError[i];
+    hash *= fnvPrime;
+  }
+
   return hash;
 }
 
@@ -11440,70 +13041,122 @@ static uint16_t conditionColor(String cond) {
 }
 
 void drawSunSpotsBody() {
-  const int bodyTop = 32;
-  const int bodyBottom = 220;
-  tft.fillRect(0, bodyTop, 480, bodyBottom - bodyTop, TFT_BLACK);
+  // Obszar mapy: prawie caly ekran (PROP_MAP_TOP..PROP_MAP_BOTTOM).
+  tft.fillRect(0, PROP_MAP_TOP, PROP_MAP_W, PROP_MAP_H, TFT_BLACK);
 
-  String sfiText = propagationData.valid && propagationData.sfi.length() ? propagationData.sfi : "--";
-  String kText = propagationData.valid && propagationData.kindex.length() ? propagationData.kindex : "--";
-  String aText = propagationData.valid && propagationData.aindex.length() ? propagationData.aindex : "--";
-  String updatedText = propagationData.valid && propagationData.updated.length() ? propagationData.updated : "--";
+  if (propMapReady && propMapBuf) {
+    // Mapa gotowa -> wyluzuj caly bufor. Trzymaj mutex, by task tla nie
+    // nadpisywal bufora w trakcie czytania (tft.pushImage).
+    if (propMapMux && xSemaphoreTake(propMapMux, pdMS_TO_TICKS(200)) == pdTRUE) {
+      const bool oldSwap = tft.getSwapBytes();
+      tft.setSwapBytes(true);
+      tft.pushImage(0, PROP_MAP_TOP, PROP_MAP_W, PROP_MAP_H, propMapBuf);
+      tft.setSwapBytes(oldSwap);
+      xSemaphoreGive(propMapMux);
+    }
+  } else {
+    // Mapa niedostepna: wyswietl status ladowania / blad.
+    int hour = propUtcHour();
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_LIGHTGREY);
+    tft.setCursor(20, 90);
+    tft.print("PROPAGACJA MAPA");
+    tft.setTextColor(TFT_DARKGREY);
+    tft.setCursor(20, 108);
+    tft.print("pasmo: ");
+    tft.print(PROP_MAP_BANDS[propBandIndex]);
+    tft.print("  region: ");
+    tft.print(PROP_MAP_REGIONS_FULL[propRegionIndex]);
+    tft.setCursor(20, 126);
+    tft.print("UTC ");
+    if (hour >= 0) tft.print(hour); else tft.print("--");
 
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_DARKGREY);
-  tft.setCursor(10, 52);
-  tft.print("SFI");
-
-  tft.setTextSize(4);
-  tft.setTextColor(TFT_GREEN);
-  int sfiWidth = sfiText.length() * 24;
-  tft.setCursor(460 - sfiWidth, 44);
-  tft.print(sfiText);
-
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_DARKGREY);
-  tft.setCursor(10, 100);
-  tft.print("K-INDEX");
-
-  float kVal = kText.length() ? kText.toFloat() : -1.0f;
-  uint16_t kColor = TFT_LIGHTGREY;
-  if (kVal >= 0.0f) {
-    kColor = (kVal < 4.0f) ? TFT_GREEN : (kVal < 6.0f) ? TFT_ORANGE : TFT_RED;
+    if (propMapFetching) {
+      tft.setTextColor(TFT_YELLOW);
+      tft.setCursor(20, 150);
+      tft.print("LADOWANIE...");
+    } else if (strlen(propMapLastError)) {
+      tft.setTextColor(TFT_RED);
+      tft.setCursor(20, 150);
+      tft.print(sanitizePolishToAscii(String(tr(TR_ERROR_PREFIX))));
+      tft.print(propMapLastError);
+    } else {
+      tft.setTextColor(TFT_DARKGREY);
+      tft.setCursor(20, 150);
+      tft.print("Dotknij pasma / regionu");
+    }
   }
-  tft.setTextSize(4);
-  tft.setTextColor(kColor);
-  int kWidth = kText.length() * 24;
-  tft.setCursor(460 - kWidth, 92);
-  tft.print(kText);
 
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_DARKGREY);
-  tft.setCursor(10, 148);
-  tft.print("A-INDEX");
+  // --- Pasek regionow (y 252..264) ---
+  int gap = 3;
+  int totalR = PROP_MAP_REGIONS_COUNT;
+  int rw = (PROP_MAP_W - 8 - gap * (totalR - 1)) / totalR;
+  int ry = 252, rh = 12;
+  for (int i = 0; i < totalR; i++) {
+    int rx = 4 + i * (rw + gap);
+    if (i == propRegionIndex) {
+      tft.fillRoundRect(rx, ry, rw, rh, 3, TFT_CYAN);
+      tft.drawRoundRect(rx, ry, rw, rh, 3, TFT_WHITE);
+      tft.setTextColor(TFT_BLACK);
+    } else {
+      tft.fillRoundRect(rx, ry, rw, rh, 3, 0x1082);  // ciemna karta
+      tft.drawRoundRect(rx, ry, rw, rh, 3, 0x4208);
+      tft.setTextColor(TFT_LIGHTGREY);
+    }
+    const uint8_t *cl2 = vlwFontCached(ROBOTO_FONT12_FILE);
+    if (cl2) tft.loadFont(cl2);
+    else tft.setTextSize(1);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString(PROP_MAP_REGIONS_LBL[i], rx + rw / 2, ry + rh / 2);
+    if (cl2) tft.unloadFont();
+    tft.setTextDatum(TL_DATUM);
+  }
 
-  tft.setTextSize(4);
-  tft.setTextColor(TFT_CYAN);
-  int aWidth = aText.length() * 24;
-  tft.setCursor(460 - aWidth, 140);
-  tft.print(aText);
+  // --- Pasek pasm (y 268..280) ---
+  int totalB = PROP_MAP_BANDS_COUNT;
+  int bw = (PROP_MAP_W - 8 - gap * (totalB - 1)) / totalB;
+  int by = 268, bh = 12;
+  for (int i = 0; i < totalB; i++) {
+    int bx = 4 + i * (bw + gap);
+    if (i == propBandIndex) {
+      tft.fillRoundRect(bx, by, bw, bh, 3, TFT_CYAN);
+      tft.drawRoundRect(bx, by, bw, bh, 3, TFT_WHITE);
+      tft.setTextColor(TFT_BLACK);
+    } else {
+      tft.fillRoundRect(bx, by, bw, bh, 3, 0x1082);
+      tft.drawRoundRect(bx, by, bw, bh, 3, 0x4208);
+      tft.setTextColor(TFT_LIGHTGREY);
+    }
+    const uint8_t *clb = vlwFontCached(ROBOTO_FONT12_FILE);
+    if (clb) tft.loadFont(clb);
+    else tft.setTextSize(1);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString(PROP_MAP_BANDS[i], bx + bw / 2, by + bh / 2);
+    if (clb) tft.unloadFont();
+    tft.setTextDatum(TL_DATUM);
+  }
 
+  // Pasek pod przyciskami - status/podpowiedz
+  const uint16_t bg = uiStyleClassic() ? TFT_BLACK : UI_COL_BG;
+  tft.fillRect(0, 282, 480, 12, bg);
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY);
-  tft.setCursor(10, 190);
-  tft.print("UPDATED");
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_LIGHTGREY);
-  tft.setCursor(10, 202);
-  tft.print(updatedText);
-
-  if (!propagationData.valid) {
-    tft.setTextSize(1);
-    tft.setTextColor(TFT_RED);
-    tft.setCursor(10, 176);
-    String err = propagationData.lastError.length() ? propagationData.lastError : tr(TR_NO_DATA);
-    tft.print(sanitizePolishToAscii(String(tr(TR_ERROR_PREFIX))));
-    tft.print(err);
+  tft.setCursor(10, 284);
+  if (propMapFetching) {
+    tft.print("LADOWANIE MAPY...");
+  } else if (strlen(propMapLastError)) {
+    tft.print("BLAD: ");
+    tft.fillRect(46, 284, 400, 8, bg);
+    tft.setCursor(46, 284);
+    tft.print(propMapLastError);
+  } else if (propMapReady) {
+    tft.print("UTC ");
+    if (propMapUtcHour >= 0) tft.print(propMapUtcHour);
+    tft.print("  •  dotknij pasmo / region");
+  } else {
+    tft.print("wybierz pasmo / region");
   }
+  tft.setTextSize(1);
 }
 
 void updateScreen3Data() {
@@ -11525,6 +13178,19 @@ void updateScreen3Data() {
 
 void drawSunSpots() {
   // ekran czysci drawScreen (wspolny styl ISS)
+
+  // Przy wejsciu na ekran - zainicjuj pobieranie mapy propagacji (jesli trzeba).
+  // Wazne: ustaw tez propMapFetchReq - task tla (propMapFetchBgTask) czeka
+  // wlasnie na ta flage; bez niej mapa wisialaby na "LADOWANIE..." bez konca.
+  // Cooldown PROP_MAP_RETRY_MS po bledzie zapobiega natychmiastowemu restartowi
+  // fetcha w petli (drawSunSpots -> drawScreen -> drawSunSpots) i migotaniu ekranu.
+  if (!propMapReady && !propMapFetching &&
+      (long)(millis() - propMapLastFailAtMs) >= (long)PROP_MAP_RETRY_MS) {
+    propMapFetching = true;
+    if (propMapFetchTaskHandle != nullptr) {
+      propMapFetchReq = true;
+    }
+  }
 
 
 
@@ -11548,6 +13214,7 @@ void drawSunSpots() {
   drawSunSpotsBody();
 
   // StrzaĹ‚ki nawigacyjne - duĹĽe, blisko krawÄ™dzi (takie same na wszystkich ekranach)
+  drawSwitchScreenFooter();
   tft.setTextSize(1);
 }
 
@@ -11595,33 +13262,42 @@ void drawBandInfoBody() {
   const int bodyBottom = 280;
   tft.fillRect(0, bodyTop, 480, bodyBottom - bodyTop, TFT_BLACK);
 
-  // === GĂ“RNA SEKCJA - INDEKSY SĹONECZNE (3 kolumny) ===
-  int yPos = bodyTop + 5;
-  int lineHeight = 22;
+  // Ladne czcionki Inter (VLW z LittleFS) - duze cyfry/litery indeksow slonecznych.
+  const uint8_t *vlw20 = vlwFontCached(ROBOTO_FONT20_FILE);
+  const uint8_t *vlw12 = vlwFontCached(ROBOTO_FONT12_FILE);
 
-  // Pierwsza linia: SFI | A-idx | MUF (w ramce)
-  tft.setTextSize(2);
+  // === GĂ“RNA SEKCJA - INDEKSY SĹONECZNE (3 kolumny) ===
+  int yPos = bodyTop + 8;
+  int lineHeight = 30;
+
+  if (vlw20) tft.loadFont(vlw20);
+  else tft.setTextSize(2);
 
   // SFI
   tft.setTextColor(TFT_CYAN);
   tft.setCursor(10, yPos);
   tft.print("SFI:");
   tft.setTextColor(TFT_WHITE);
+  tft.setCursor(90, yPos);
   tft.print(propagationData.sfi.length() ? propagationData.sfi : "--");
 
-  // A-idx (Ĺ›rodek)
+  // A-idx (srodek)
   tft.setTextColor(TFT_CYAN);
-  tft.setCursor(130, yPos);
-  tft.print("A-idx:");
+  tft.setCursor(180, yPos);
+  tft.print("A:");
   tft.setTextColor(TFT_WHITE);
+  tft.setCursor(280, yPos);
   tft.print(propagationData.aindex.length() ? propagationData.aindex : "--");
 
-  // MUF w niebieskiej ramce z ĹĽĂłĹ‚tym tekstem
-  tft.fillRect(280, yPos - 2, 145, 22, TFT_BLUE);
+  // MUF w niebieskiej ramce z zoltym tekstem (prawa strona)
+  tft.fillRect(290, yPos - 6, 180, 26, TFT_BLUE);
   tft.setTextColor(TFT_YELLOW);
-  tft.setCursor(290, yPos);
-  String mufText = propagationData.muf.length() ? propagationData.muf : "--";
-  tft.print("MUF:" + mufText + "MHz");
+  tft.setCursor(298, yPos);
+  tft.print("MUF:");
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(360, yPos);
+  tft.print(propagationData.muf.length() ? propagationData.muf : "--");
+  tft.print("MHz");
 
   // Druga linia: SSN | K-idx | X-Ray (w ramce)
   yPos += lineHeight;
@@ -11631,31 +13307,39 @@ void drawBandInfoBody() {
   tft.setCursor(10, yPos);
   tft.print("SSN:");
   tft.setTextColor(TFT_WHITE);
+  tft.setCursor(90, yPos);
   tft.print(propagationData.ssn.length() ? propagationData.ssn : "--");
 
-  // K-idx (Ĺ›rodek)
+  // K-idx (srodek)
   tft.setTextColor(TFT_CYAN);
-  tft.setCursor(130, yPos);
-  tft.print("K-idx:");
+  tft.setCursor(180, yPos);
+  tft.print("K:");
   tft.setTextColor(TFT_WHITE);
+  tft.setCursor(280, yPos);
   tft.print(propagationData.kindex.length() ? propagationData.kindex : "--");
 
-  // X-Ray w niebieskiej ramce z ĹĽĂłĹ‚tym tekstem
-  tft.fillRect(280, yPos - 2, 100, 22, TFT_BLUE);
+  // X-Ray w niebieskiej ramce z zoltym tekstem (prawa strona)
+  tft.fillRect(290, yPos - 6, 180, 26, TFT_BLUE);
   tft.setTextColor(TFT_YELLOW);
-  tft.setCursor(290, yPos);
-  String xrayText = propagationData.xray.length() ? propagationData.xray : "--";
-  tft.print("X-Ray:" + xrayText);
+  tft.setCursor(298, yPos);
+  tft.print("X:");
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(360, yPos);
+  tft.print(propagationData.xray.length() ? propagationData.xray : "--");
+
+  if (vlw20) tft.unloadFont();
+  else tft.setTextSize(1);
 
   // === ĹšRODKOWA SEKCJA - TABELA PASMA (lewa strona) ===
-  yPos += lineHeight + 10;
+  yPos += lineHeight + 4;
   int tableTop = yPos;
 
   // Ramka wokĂłĹ‚ tabeli
   tft.drawRoundRect(10, tableTop - 5, 260, 140, 5, TFT_DARKGREY);
 
   // NagĹ‚Ăłwki tabeli
-  tft.setTextSize(2);
+  if (vlw12) tft.loadFont(vlw12);
+  else tft.setTextSize(2);
   tft.setTextColor(TFT_YELLOW);
   tft.setCursor(15, yPos);
   tft.print("HF BAND");
@@ -11665,18 +13349,19 @@ void drawBandInfoBody() {
   tft.setCursor(175, yPos);
   tft.print("NIGHT");
   tft.drawFastHLine(12, yPos + 16, 256, TFT_DARKGREY);
+  if (vlw12) tft.unloadFont();
 
-  yPos += 22;
+  yPos += 24;
 
   // Wiersze tabeli (4 pasma)
   int rowHeight = 30;
+  if (vlw20) tft.loadFont(vlw20);
+  else tft.setTextSize(2);
   for (int i = 0; i < 4; i++) {
     // PodĹ›wietlenie co drugi wiersz (w ramce)
     if (i % 2 == 0) {
-      tft.fillRect(12, yPos - 2, 256, rowHeight - 2, 0x1082); // Ciemnoszary
+      tft.fillRect(12, yPos - 4, 256, rowHeight - 2, 0x1082); // Ciemnoszary
     }
-
-    tft.setTextSize(2);
 
     // BAND label
     tft.setTextColor(TFT_WHITE);
@@ -11705,7 +13390,8 @@ void drawBandInfoBody() {
   int iconSize = 50; // ZakĹ‚adamy rozmiar ikony 50x50
 
   // S/N - wyĹ›rodkowane nad ikonÄ…
-  tft.setTextSize(2);
+  if (vlw20) tft.loadFont(vlw20);
+  else tft.setTextSize(2);
   tft.setTextColor(TFT_CYAN);
   String snText = "S/N:";
   String snVal = "S1-S2";
@@ -11726,6 +13412,8 @@ void drawBandInfoBody() {
   tft.print(auroraText);
   tft.setTextColor(TFT_WHITE);
   tft.print(auroraVal);
+  if (vlw20) tft.unloadFont();
+  else tft.setTextSize(1);
 
   // === IKONA PROPAGACJI (sĹ‚oĹ„ce/chmura) ===
   int kIndexVal = propagationData.kindex.toInt();
@@ -11753,21 +13441,22 @@ void drawBandInfoBody() {
     tft.setTextDatum(TL_DATUM);
   }
 
-  // === DOLNA SEKCJA - INFO O ZAMKNIÄTYCH PASMACH ===
-  yPos = tableTop + 145; // Pod tabelÄ…
-  tft.setTextSize(1);
+  // === DOLNA SEKCJA - INFO O ZAMKNIETYCH PASMACH ===
+  yPos = tableTop + 145; // Pod tabela
+  if (vlw12) tft.loadFont(vlw12);
+  else tft.setTextSize(1);
   tft.setTextColor(TFT_RED);
   tft.setCursor(10, yPos);
-  tft.print("Very High Band Closed");
+  tft.print("VHF Band Closed");
   tft.setCursor(155, yPos);
   tft.print("Es Europe Band Closed");
 
-  yPos += 14;
+  yPos += 16;
   tft.setCursor(10, yPos);
   tft.print("Es Asia Band Closed");
   tft.setCursor(155, yPos);
   tft.print("Es Afr Band Closed");
-
+  if (vlw12) tft.unloadFont();
   // === STATUS BĹÄDU ===
   if (!propagationData.valid) {
     tft.setTextSize(1);
@@ -11867,7 +13556,7 @@ bool fetchWeatherData() {
                  "&appid=" + weatherApiKey + "&units=metric&lang=" + langParam;
 
     HTTPClient http;
-    http.setTimeout(10000);
+    http.setTimeout(4000);
     if (!http.begin(client, url)) {
       weatherData.lastError = "HTTP begin failed";
       weatherData.valid = false;
@@ -11974,7 +13663,7 @@ bool fetchWeatherForecast(double lat, double lon) {
                "&appid=" + weatherApiKey + "&units=metric&lang=" + langParam + "&cnt=40";
 
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   if (!http.begin(client, url)) {
     return false;
   }
@@ -12211,7 +13900,7 @@ bool fetchAirPollutionData(double lat, double lon) {
                "&appid=" + weatherApiKey;
 
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   if (!http.begin(client, url)) {
     return false;
   }
@@ -12501,6 +14190,9 @@ void drawWeatherIcon(int x, int y, int weatherId, String desc) {
 }
 
 // GĹ‚Ăłwna funkcja ciaĹ‚a ekranu pogodowego
+static uint16_t mix565(uint16_t a, uint16_t b, int t);
+static int getAqiIndex(float pm25);
+
 void drawWeatherBody() {
   const int bodyTop = 32;
   const int bodyBottom = 220;
@@ -12508,105 +14200,127 @@ void drawWeatherBody() {
   // Czyszczenie obszaru roboczego
   tft.fillRect(0, bodyTop, 480, bodyBottom - bodyTop, TFT_BLACK);
 
+  const uint8_t *vlw24 = vlwFontCached(ROBOTO_FONT24_FILE);
+  const uint8_t *vlw20 = vlwFontCached(ROBOTO_FONT20_FILE);
+  const uint8_t *vlw12 = vlwFontCached(ROBOTO_FONT12_FILE);
+
   if (!weatherData.valid) {
     tft.setTextColor(TFT_RED);
-    tft.setTextSize(2);
-    tft.setCursor(50, 110);
-    tft.print("WAITING FOR DATA...");
+    if (vlw20) {
+      tft.loadFont(vlw20);
+      tft.setCursor((480 - tft.textWidth("WAITING FOR DATA...")) / 2, 110);
+      tft.print("WAITING FOR DATA...");
+      tft.unloadFont();
+    } else {
+      tft.setTextSize(2);
+      tft.setCursor(50, 110);
+      tft.print("WAITING FOR DATA...");
+    }
     return;
   }
 
   // 1. IKONA I OPIS (Prawa strona) - dostosowane do 480px
   drawWeatherIcon(400, 70, weatherData.weatherId, weatherData.description);
 
-  // Opis pogody z polskimi znakami, czcionka VLW 20px
-  bool fontLoaded = false;
-  int descY = 105;
-  int descX = 400; // PrzesuniÄ™te bardziej w prawo dla 480px
-  const uint8_t *vlw12 = vlwFontCached(ROBOTO_FONT12_FILE);
+  // Opis pogody (pod ikona) - Inter-Regular12
   if (vlw12) {
     tft.loadFont(vlw12);
-    fontLoaded = true;
     tft.setTextColor(TFT_LIGHTGREY);
     tft.setTextDatum(MC_DATUM);
-    tft.drawString(foldToAscii(weatherData.description), descX, descY);
-    tft.setCursor(20, 120);
-    tft.print(tr(TR_HUMIDITY));  // Font VLW obsĹ‚uguje polskie znaki
-    tft.setCursor(20, 144);
-    tft.print(tr(TR_PRESSURE));
-    tft.setCursor(20, 168);
-    tft.print(tr(TR_WIND));
+    tft.drawString(foldToAscii(weatherData.description), 400, 110);
+    tft.setTextDatum(TL_DATUM);
     tft.unloadFont();
   } else {
     tft.setTextSize(1);
     tft.setTextColor(TFT_LIGHTGREY);
     String descAscii = foldToAscii(weatherData.description);
-    int fallbackX = descX - (descAscii.length() * 3);
-    tft.setCursor(fallbackX, descY);
+    int fallbackX = 400 - (descAscii.length() * 3);
+    tft.setCursor(fallbackX, 105);
     tft.print(descAscii);
+  }
+
+  // 2. TEMPERATURA (Lewa strona) - Inter-Regular24, z ikona w centrum
+  int tempY = 72;
+  if (vlw20) {
+    tft.loadFont(vlw20);
+    tft.setTextColor(TFT_DARKGREY);
+    tft.setCursor(20, 40);
+    tft.print(foldToAscii(String(tr(TR_TEMPERATURE))));
+    tft.unloadFont();
+    tft.loadFont(vlw24);
+    tft.setTextColor(TFT_CYAN);
+    tft.setCursor(20, tempY);
+    tft.print(String(weatherData.tempC, 1));
+    tft.setTextColor(TFT_LIGHTGREY);
+    tft.print(" C");
+    tft.unloadFont();
+  } else {
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_DARKGREY);
+    tft.setCursor(20, 45);
+    tft.print(sanitizePolishToAscii(String(tr(TR_TEMPERATURE))));
+    tft.setTextSize(6);
+    tft.setTextColor(TFT_CYAN);
+    tft.setCursor(20, 70);
+    tft.print(String(weatherData.tempC, 1));
+    tft.setTextSize(3);
+    tft.print(" C");
+  }
+
+  // 3. PARAMETRY SZCZEGĂ“ĹOWE - Inter-Regular12 etykiety / Inter-Regular20 wartosci
+  int startY = 118;
+  int valueX = 180;
+  int labX = 12;
+
+  if (vlw12) {
+    tft.loadFont(vlw12);
+    // Etykiety: w kolumnie lewej, dopasowane szerokosc
+    tft.setTextColor(TFT_YELLOW);
+    tft.setCursor(labX, startY);
+    tft.print(foldToAscii(String(tr(TR_HUMIDITY))));
+    tft.setCursor(labX, startY + 30);
+    tft.print(foldToAscii(String(tr(TR_PRESSURE))));
+    tft.setCursor(labX, startY + 60);
+    tft.print(foldToAscii(String(tr(TR_WIND))));
+    tft.setCursor(labX, startY + 90);
+    tft.print("PM2.5");
+    tft.setCursor(labX, startY + 120);
+    tft.print("PM10");
+    tft.unloadFont();
+  } else {
     tft.setTextSize(1);
     tft.setTextColor(TFT_DARKGREY);
-    tft.setCursor(20, 120);
+    tft.setCursor(20, startY);
     tft.print(sanitizePolishToAscii(String(tr(TR_HUMIDITY))));
-    tft.setCursor(20, 145);
+    tft.setCursor(20, startY + 30);
     tft.print(sanitizePolishToAscii(String(tr(TR_PRESSURE))));
-    tft.setCursor(20, 170);
+    tft.setCursor(20, startY + 60);
     tft.print(sanitizePolishToAscii(String(tr(TR_WIND))));
   }
 
-  // 2. TEMPERATURA (Lewa strona) - wiÄ™ksza dla 480px
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_DARKGREY);
-  tft.setCursor(20, 45);
-  tft.print(sanitizePolishToAscii(String(tr(TR_TEMPERATURE))));
+  if (vlw20) {
+    tft.loadFont(vlw20);
+    tft.setTextColor(TFT_WHITE);
+    tft.setCursor(valueX, startY);
+    tft.print(String(weatherData.humidity) + "%");
+    tft.setCursor(valueX, startY + 30);
+    tft.print(String(weatherData.pressure) + " hPa");
+    tft.setTextColor(getWindColor(weatherData.windMs));
+    tft.setCursor(valueX, startY + 60);
+    tft.print(String(weatherData.windMs, 1) + " m/s");
+    tft.unloadFont();
+  } else {
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_WHITE);
+    tft.setCursor(valueX, startY);
+    tft.print(String(weatherData.humidity) + "%");
+    tft.setCursor(valueX, startY + 30);
+    tft.print(String(weatherData.pressure) + " hPa");
+    tft.setTextColor(getWindColor(weatherData.windMs));
+    tft.setCursor(valueX, startY + 60);
+    tft.print(String(weatherData.windMs, 1) + " m/s");
 
-  tft.setTextSize(6); // WiÄ™ksza temperatura
-  tft.setTextColor(TFT_CYAN);
-  tft.setCursor(20, 70);
-  tft.print(String(weatherData.tempC, 1));
-  tft.setTextSize(3);
-  tft.print(" C");
-
-  // 3. PARAMETRY SZCZEGĂ“ĹOWE - dostosowane do 480px
-  int startY = 120;
-  int valueX = 180; // WiÄ™cej miejsca na wartoĹ›ci
-  
-  // WILGOTNOĹšÄ†
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(valueX, startY);
-  tft.print(String(weatherData.humidity) + "%");
-
-  // CIĹšNIENIE
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(valueX, startY + 30);
-  tft.print(String(weatherData.pressure) + " hPa");
-
-  // WIATR
-  tft.setTextSize(2);
-  tft.setTextColor(getWindColor(weatherData.windMs));
-  tft.setCursor(valueX, startY + 60);
-  tft.print(String(weatherData.windMs, 1) + " m/s");
-
-  // PM2.5 i PM10 - lepsze rozmieszczenie dla 480px (przesuniÄ™te bardziej w prawo)
-  tft.setTextSize(2);
-  
-  // PM2.5
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(300, startY);
-  tft.print("PM2.5: ");
-  uint16_t pm25Color = getPM25Color(weatherData.pm25);
-  tft.setTextColor(pm25Color);
-  tft.print(String(weatherData.pm25, 1));
-  
-  // PM10
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(300, startY + 30);
-  tft.print("PM10: ");
-  uint16_t pm10Color = getPM10Color(weatherData.pm10);
-  tft.setTextColor(pm10Color);
-  tft.print(String(weatherData.pm10, 1));
+    }
 
 }
 
@@ -12683,12 +14397,12 @@ void drawWeatherDetailPage() {
   String headers[WeatherData::DETAIL_COLS];
   buildWeatherDetailHeaders(headers);
 
-  const int yHeader = 38;
-  const int yTemp = 78;
-  const int yNight = 98;
-  const int yHum = 121;
-  const int yWind = 152;
-  const int yIcon = 192;
+  const int yHeader = 40;
+  const int yTemp = 82;
+  const int yNight = 106;
+  const int yHum = 128;
+  const int yWind = 144;
+  const int yIcon = 196;
 
   tft.fillRect(bodyLeft, bodyTop + 2, bodyRight - bodyLeft + 1, 31, TFT_TABLE_ALT_ROW_COLOR);
 
@@ -12697,29 +14411,70 @@ void drawWeatherDetailPage() {
     tft.drawFastVLine(vx, bodyTop + 2, bodyBottom - bodyTop - 4, TFT_DARKGREY);
   }
 
+  const uint8_t *vlw20 = vlwFontCached(ROBOTO_FONT20_FILE);
+  const uint8_t *vlw12 = vlwFontCached(ROBOTO_FONT12_FILE);
+
   for (int i = 0; i < colCount; i++) {
     int colX = bodyLeft + i * colW;
     int cx = colX + (colW / 2);
 
-    String hdr = sanitizePolishToAscii(headers[i]);
-    tft.setTextSize(2);
-    int hdrW = hdr.length() * 12;
-    tft.setTextColor(TFT_LIGHTGREY);
-    tft.setCursor(cx - hdrW / 2, yHeader);
-    tft.print(hdr);
-
-    tft.setTextSize(1);
+    // Naglowek kolumny - Inter-Regular12, wysrodkowany
+    String hdr = foldToAscii(headers[i]);
+    if (vlw12) {
+      tft.loadFont(vlw12);
+      tft.setTextColor(TFT_LIGHTGREY);
+      tft.setCursor(cx - tft.textWidth(hdr) / 2, yHeader);
+      tft.print(hdr);
+      tft.unloadFont();
+    } else {
+      tft.setTextSize(2);
+      tft.setTextColor(TFT_LIGHTGREY);
+      tft.setCursor(cx - ((int)hdr.length() * 6), yHeader);
+      tft.print(hdr);
+    }
 
     if (!weatherData.detailValid[i]) {
       tft.setTextColor(TFT_DARKGREY);
-      tft.setCursor(cx - 6, yTemp);
-      tft.print("--");
-      tft.setCursor(cx - 6, yNight);
-      tft.print("--");
-      tft.setCursor(cx - 6, yHum);
-      tft.print("--");
-      tft.setCursor(cx - 6, yWind);
-      tft.print("--");
+      if (vlw20) {
+        tft.loadFont(vlw20);
+        tft.setCursor(cx - tft.textWidth("--") / 2, yTemp);
+        tft.print("--");
+        tft.unloadFont();
+      } else {
+        tft.setTextSize(1);
+        tft.setCursor(cx - 6, yTemp);
+        tft.print("--");
+      }
+      if (vlw12) {
+        tft.loadFont(vlw12);
+        tft.setCursor(cx - tft.textWidth("--") / 2, yNight);
+        tft.print("--");
+        tft.unloadFont();
+      } else {
+        tft.setTextSize(1);
+        tft.setCursor(cx - 6, yNight);
+        tft.print("--");
+      }
+      if (vlw20) {
+        tft.loadFont(vlw20);
+        tft.setCursor(cx - tft.textWidth("--") / 2, yHum);
+        tft.print("--");
+        tft.unloadFont();
+      } else {
+        tft.setTextSize(1);
+        tft.setCursor(cx - 6, yHum);
+        tft.print("--");
+      }
+      if (vlw12) {
+        tft.loadFont(vlw12);
+        tft.setCursor(cx - tft.textWidth("--") / 2, yWind);
+        tft.print("--");
+        tft.unloadFont();
+      } else {
+        tft.setTextSize(1);
+        tft.setCursor(cx - 6, yWind);
+        tft.print("--");
+      }
       continue;
     }
 
@@ -12727,79 +14482,167 @@ void drawWeatherDetailPage() {
     String humText = String(weatherData.detailHumidity[i]) + "%";
     String windText = String(weatherData.detailWindMs[i], 1) + "m/s";
 
-    tft.setTextSize(2);
-    tft.setTextColor(TFT_CYAN);
-    int tempX = cx - ((int)tempText.length() * 6);
-    tft.setCursor(tempX, yTemp);
-    tft.print(tempText);
-    tft.drawCircle(tempX + ((int)tempText.length() * 12) + 3, yTemp + 3, 2, TFT_CYAN);
-
-    tft.setTextSize(1);
-    tft.setTextColor(TFT_LIGHTGREY);
-    String nightText = "--";
-    if (i >= 2 && i <= 3 && weatherData.nightTempValid[i - 2]) {
-      nightText = String(weatherData.nightTempC[i - 2], 1) + "C";
+    // Temperatura - Inter-Regular20 cyan + kropka stopnia
+    if (vlw20) {
+      tft.loadFont(vlw20);
+      tft.setTextColor(TFT_CYAN);
+      int tempX = cx - (tft.textWidth(tempText) + 8) / 2;
+      tft.setCursor(tempX, yTemp);
+      tft.print(tempText);
+      tft.drawCircle(tempX + tft.textWidth(tempText) + 4, yTemp + 3, 2, TFT_CYAN);
+      tft.unloadFont();
+    } else {
+      tft.setTextSize(2);
+      tft.setTextColor(TFT_CYAN);
+      int tempX = cx - ((int)tempText.length() * 6);
+      tft.setCursor(tempX, yTemp);
+      tft.print(tempText);
+      tft.drawCircle(tempX + ((int)tempText.length() * 12) + 3, yTemp + 3, 2, TFT_CYAN);
     }
-    tft.setCursor(cx - ((int)nightText.length() * 3), yNight);
-    tft.print(nightText);
 
-    tft.setTextSize(2);
-    tft.setTextColor(TFT_WHITE);
-    tft.setCursor(cx - ((int)humText.length() * 6), yHum);
-    tft.print(humText);
+    // Nocna temperatura - Inter-Regular12
+    if (vlw12) {
+      tft.loadFont(vlw12);
+      tft.setTextColor(TFT_LIGHTGREY);
+      String nightText = "--";
+      if (i >= 2 && i <= 3 && weatherData.nightTempValid[i - 2]) {
+        nightText = String(weatherData.nightTempC[i - 2], 1) + "C";
+      }
+      tft.setCursor(cx - tft.textWidth(nightText) / 2, yNight);
+      tft.print(nightText);
+      tft.unloadFont();
+    } else {
+      tft.setTextSize(1);
+      tft.setTextColor(TFT_LIGHTGREY);
+      String nightText = "--";
+      if (i >= 2 && i <= 3 && weatherData.nightTempValid[i - 2]) {
+        nightText = String(weatherData.nightTempC[i - 2], 1) + "C";
+      }
+      tft.setCursor(cx - ((int)nightText.length() * 3), yNight);
+      tft.print(nightText);
+    }
 
-    tft.setTextSize(1);
-    tft.setTextColor(getWindColor(weatherData.detailWindMs[i]));
-    tft.setCursor(cx - ((int)windText.length() * 3), yWind);
-    tft.print(windText);
+    // Wilgotnosc - Inter-Regular20 biala
+    if (vlw20) {
+      tft.loadFont(vlw20);
+      tft.setTextColor(TFT_WHITE);
+      tft.setCursor(cx - tft.textWidth(humText) / 2, yHum);
+      tft.print(humText);
+      tft.unloadFont();
+    } else {
+      tft.setTextSize(2);
+      tft.setTextColor(TFT_WHITE);
+      tft.setCursor(cx - ((int)humText.length() * 6), yHum);
+      tft.print(humText);
+    }
+
+    // Wiatr - Inter-Regular12 kolorowy
+    if (vlw12) {
+      tft.loadFont(vlw12);
+      tft.setTextColor(getWindColor(weatherData.detailWindMs[i]));
+      tft.setCursor(cx - tft.textWidth(windText) / 2, yWind);
+      tft.print(windText);
+      tft.unloadFont();
+    } else {
+      tft.setTextSize(1);
+      tft.setTextColor(getWindColor(weatherData.detailWindMs[i]));
+      tft.setCursor(cx - ((int)windText.length() * 3), yWind);
+      tft.print(windText);
+    }
 
     drawWeatherDetailIconCell(cx, yIcon, weatherData.detailWeatherId[i], weatherData.detailIconCode[i]);
   }
 }
 
+// Liniowa interpolacja koloru RGB565 (do paska skali AQI). t w 0..255.
+static uint16_t mix565(uint16_t a, uint16_t b, int t) {
+  int ar = (a >> 11) & 0x1F, ag = (a >> 5) & 0x3F, ab = a & 0x1F;
+  int br = (b >> 11) & 0x1F, bg = (b >> 5) & 0x3F, bb = b & 0x1F;
+  int r = ar + ((br - ar) * t >> 8);
+  int g = ag + ((bg - ag) * t >> 8);
+  int bl = ab + ((bb - ab) * t >> 8);
+  return (uint16_t)((r << 11) | (g << 5) | bl);
+}
+
+// Uproszczony indeks AQI na podstawie PM2.5 (liniowa mapa 0..200).
+static int getAqiIndex(float pm25) {
+  if (pm25 <= 12)
+    return (int)(pm25 / 12.0f * 50.0f + 0.5f);
+  if (pm25 <= 35)
+    return (int)(50.0f + (pm25 - 12) / 23.0f * 50.0f + 0.5f);
+  if (pm25 <= 55)
+    return (int)(100.0f + (pm25 - 35) / 20.0f * 50.0f + 0.5f);
+  if (pm25 <= 150)
+    return (int)(150.0f + (pm25 - 55) / 95.0f * 50.0f + 0.5f);
+  return 200;
+}
+
 static void drawWeatherFooterArea(ScreenType screenId) {
-  tft.fillRect(0, 220, 480, 20, TFT_BLACK);
+  tft.fillRect(0, 220, 480, 60, TFT_BLACK);
 
   if (isTableNavFooterVisible(screenId)) {
     drawSwitchScreenFooter();
     return;
   }
 
-  // WIZUALIZACJA JAKOĹšCI POWIETRZA (AQI) - nad napisem lokalizacji
-  if (weatherData.valid) {
-    const int barY = 222; // Pozycja paska AQI (nad tekstem lokalizacji)
-    const int barWidth = 100;
-    const int barHeight = 6;
-    const int barX = 240 - (barWidth / 2); // WyĹ›rodkowane
-
-    // Kolor na podstawie PM2.5 (gorsze zanieczyszczenie decyduje)
+  // Rysuj dopiero gdy PM faktycznie doszed³ z sieci (fetchAirPollutionData jest OSTATNIM
+  // z 3 zapytaÅ„ HTTPS) - inaczej pokazywa³y siÄ™ zera, a za chwilÄ™ prawdziwe wartoÅ›ci
+  // (wraÅ¼enie "wolnego Å‚adowania AQI"). DopĂłki brak PM: tylko tekst lokalizacji.
+  if (weatherData.valid && (weatherData.pm25 > 0.0f || weatherData.pm10 > 0.0f)) {
+    const int pm25v = (int)(weatherData.pm25 + 0.5f);
+    const int pm10v = (int)(weatherData.pm10 + 0.5f);
     uint16_t aqiColor = getPM25Color(weatherData.pm25);
-    String aqiLabel = "AQI: ";
-    if (weatherData.pm25 <= 12) aqiLabel += "DOBRA";
-    else if (weatherData.pm25 <= 35) aqiLabel += "UMIARK.";
-    else if (weatherData.pm25 <= 55) aqiLabel += "NIEZDROWA";
-    else aqiLabel += "SZKODLIWA";
+    String aqiLabel;
+    if (weatherData.pm25 <= 12) aqiLabel = "DOBRA";
+    else if (weatherData.pm25 <= 35) aqiLabel = "UMIARK.";
+    else if (weatherData.pm25 <= 55) aqiLabel = "NIEZDROWA";
+    else aqiLabel = "SZKODLIWA";
+    int aqiVal = getAqiIndex(weatherData.pm25);
 
-    // Rysuj pasek jakoĹ›ci powietrza
-    tft.fillRect(barX, barY, barWidth, barHeight, TFT_DARKGREY);
-    tft.fillRect(barX + 1, barY + 1, barWidth - 2, barHeight - 2, aqiColor);
-
-    // Etykieta AQI po lewej stronie paska
+    // Wiersz 1: PM2.5 / PM10 (wyzej)
     tft.setTextSize(1);
+    tft.setTextColor(getPM25Color(weatherData.pm25));
+    tft.setCursor(322, 222);
+    tft.print("PM2.5:" + String(pm25v));
+    tft.setTextColor(getPM10Color(weatherData.pm10));
+    tft.setCursor(410, 222);
+    tft.print("PM10:" + String(pm10v));
+
+    // Wiersz 2 (poniżej PM): cala linia AQI - kropka + "AQI" + wartosc + pasek
+    const int aqiTextY = 238;
+    const int aqiDotY = 240;
+    // Kolorowa kropka - wskaznik jakosci
+    tft.fillCircle(12, aqiDotY, 4, TFT_LIGHTGREY);
+    tft.fillCircle(12, aqiDotY, 3, aqiColor);
+
+    // "AQI" + wartosc + etykieta
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_LIGHTGREY);
+    tft.setCursor(22, aqiTextY);
+    tft.print("AQI");
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(5, barY);
+    tft.setCursor(48, aqiTextY);
+    tft.print(String(aqiVal));
+    tft.setTextColor(aqiColor);
+    tft.setCursor(76, aqiTextY);
     tft.print(aqiLabel);
 
-    // WartoĹ›ci PM2.5/PM10 po prawej stronie (przesuniÄ™te bardziej w prawo)
-    tft.setTextColor(getPM25Color(weatherData.pm25));
-    tft.setCursor(365, barY);
-    tft.print("PM2.5:" + String(weatherData.pm25, 0));
-    tft.setTextColor(getPM10Color(weatherData.pm10));
-    tft.setCursor(435, barY);
-    tft.print("PM10:" + String(weatherData.pm10, 0));
+    // Gradientowy pasek skali (zielony->zolty->pomarancz->czerwony) ze znacznikiem
+    const int bx = 148, by = aqiDotY, bw = 160, bh = 4;
+    for (int i = 0; i < bw; i++) {
+      float t = (float)i / (bw - 1);
+      uint16_t c;
+      if (t < 0.25f)      c = mix565(TFT_GREEN, TFT_YELLOW,    (int)(t / 0.25f * 255.0f));
+      else if (t < 0.5f)  c = mix565(TFT_YELLOW, TFT_ORANGE,   (int)((t - 0.25f) / 0.25f * 255.0f));
+      else if (t < 0.75f) c = mix565(TFT_ORANGE, TFT_RED,      (int)((t - 0.5f) / 0.25f * 255.0f));
+      else                c = mix565(TFT_RED, 0xF800,          (int)((t - 0.75f) / 0.25f * 255.0f));
+      tft.drawFastVLine(bx + i, by, bh, c);
+    }
+    float frac = (weatherData.pm25 < 0) ? 0.0f : (weatherData.pm25 > 200.0f ? 1.0f : weatherData.pm25 / 200.0f);
+    tft.drawFastVLine(bx + (int)(bw * frac), by - 2, bh + 3, TFT_WHITE);
   }
 
-  // Tekst lokalizacji (niĹĽej, y=230 zamiast 226 aby zrobiÄ‡ miejsce na AQI)
+  // Tekst lokalizacji (na dole stopki, nad strzalkami nawigacji)
   String cityLabel = weatherData.cityName;
   cityLabel.trim();
   if (cityLabel.length() == 0) {
@@ -12825,7 +14668,7 @@ static void drawWeatherFooterArea(ScreenType screenId) {
   if (footerX < 2) {
     footerX = 2;
   }
-  tft.setCursor(footerX, 230);
+  tft.setCursor(footerX, 258);
   tft.print(footerLabel);
 }
 
@@ -13502,8 +15345,9 @@ static void sysInfoUpdateDynamic(float currentTemp) {
   tft.setTextColor(SYS_COL_TEXT, SYS_COL_CARD);
   tft.setCursor(350, 122);
   if (conn) {
-    // Ten sam prog co paski w naglowku (rssiToBars) - "N/4" ulatwia korelacje.
-    snprintf(b, sizeof(b), "%d dBm %d/4", rssi, rssiToBars(rssi));
+    // Ta sama wygladzona liczba belek co paski w naglowku (getFilteredWifiBars)
+    // - "N/4" bez migania przy granicach progow, jak na ikonie.
+    snprintf(b, sizeof(b), "%d dBm %d/4", rssi, getFilteredWifiBars());
     tft.print(b);
   }
   else tft.print("---");
@@ -13728,7 +15572,7 @@ static bool drawBmpFromFS(const String &filename, int16_t x, int16_t y) {
   // ikona pogodowa trafiajÄ…ca w "unknown.bmp" o zĹ‚ych wymiarach) mĂłgĹ‚
   // przepeĹ‚niÄ‡ stos i zawiesiÄ‡ urzÄ…dzenie (crash "StoreProhibited" pod
   // adresem 0x0 - dokĹ‚adnie to, co byĹ‚o widoczne w logu). Wszystkie
-  // obrazy uĹĽywane w tym projekcie (splash 480x320, ikony 50x50) mieszczÄ…
+  // obrazy uĹĽywane w tym projekcie (mapa 480x320, ikony 50x50) mieszczÄ…
   // siÄ™ duĹĽo poniĹĽej szerokoĹ›ci ekranu, wiÄ™c to bezpieczny, hojny limit.
   if (w == 0 || h == 0 || w > tft.width() || h > 1000) {
     Serial.printf("[BMP] Odrzucono plik o niewiarygodnych wymiarach: %ux%u (%s)\n", w, h, filename.c_str());
@@ -14784,6 +16628,53 @@ static void drawAprsAlertCloseButton() {
                APRS_ALERT_CLOSE_BTN_X + 7, APRS_ALERT_CLOSE_BTN_Y + APRS_ALERT_CLOSE_BTN_H - 7, TFT_BLACK);
 }
 
+// Przycisk REPLY (RX -> TX): odpowiedz do stacji z ekranu alertu APRS.
+static void drawAprsAlertReplyButton() {
+  const bool classic = uiStyleClassic();
+  const uint16_t fg = classic ? TFT_BLACK : UI_COL_BG;
+  const uint16_t fill = classic ? TFT_RADIO_ORANGE : 0x07E0;
+  const uint16_t border = classic ? TFT_WHITE : UI_COL_ACCENT2;
+  tft.fillRoundRect(APRS_ALERT_REPLY_BTN_X, APRS_ALERT_REPLY_BTN_Y,
+                    APRS_ALERT_REPLY_BTN_W, APRS_ALERT_REPLY_BTN_H, 6, fill);
+  tft.drawRoundRect(APRS_ALERT_REPLY_BTN_X, APRS_ALERT_REPLY_BTN_Y,
+                    APRS_ALERT_REPLY_BTN_W, APRS_ALERT_REPLY_BTN_H, 6, border);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(fg);
+  tft.setTextSize(2);
+  tft.drawString("REPLY", APRS_ALERT_REPLY_BTN_X + APRS_ALERT_REPLY_BTN_W / 2,
+                 APRS_ALERT_REPLY_BTN_Y + APRS_ALERT_REPLY_BTN_H / 2 - 1);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextSize(1);
+}
+
+static bool isAprsAlertReplyButtonHit(uint16_t x, uint16_t y) {
+  return x >= APRS_ALERT_REPLY_BTN_X && x <= APRS_ALERT_REPLY_BTN_X + APRS_ALERT_REPLY_BTN_W &&
+         y >= APRS_ALERT_REPLY_BTN_Y && y <= APRS_ALERT_REPLY_BTN_Y + APRS_ALERT_REPLY_BTN_H;
+}
+
+// Przycisk HISTORIA (B3): podglad ostatnich wiadomosci APRS RX/TX.
+static void drawAprsAlertHistoryButton() {
+  const bool classic = uiStyleClassic();
+  const uint16_t fg = classic ? TFT_BLACK : UI_COL_BG;
+  const uint16_t fill = classic ? TFT_RADIO_ORANGE : 0x5AFE;
+  const uint16_t border = classic ? TFT_WHITE : UI_COL_ACCENT2;
+  tft.fillRoundRect(APRS_ALERT_HIST_BTN_X, APRS_ALERT_HIST_BTN_Y,
+                    APRS_ALERT_HIST_BTN_W, APRS_ALERT_HIST_BTN_H, 6, fill);
+  tft.drawRoundRect(APRS_ALERT_HIST_BTN_X, APRS_ALERT_HIST_BTN_Y,
+                    APRS_ALERT_HIST_BTN_W, APRS_ALERT_HIST_BTN_H, 6, border);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(fg);
+  tft.setTextSize(1);
+  tft.drawString("HISTORIA", APRS_ALERT_HIST_BTN_X + APRS_ALERT_HIST_BTN_W / 2,
+                 APRS_ALERT_HIST_BTN_Y + APRS_ALERT_HIST_BTN_H / 2);
+  tft.setTextDatum(TL_DATUM);
+}
+
+static bool isAprsAlertHistoryButtonHit(uint16_t x, uint16_t y) {
+  return x >= APRS_ALERT_HIST_BTN_X && x < APRS_ALERT_HIST_BTN_X + APRS_ALERT_HIST_HIT_W &&
+         y >= APRS_ALERT_HIST_BTN_Y && y < APRS_ALERT_HIST_BTN_Y + APRS_ALERT_HIST_HIT_H;
+}
+
 static bool isAprsAlertCloseButtonHit(uint16_t x, uint16_t y) {
   int hitX = APRS_ALERT_CLOSE_BTN_X + ((APRS_ALERT_CLOSE_BTN_W - APRS_ALERT_CLOSE_HIT_W) / 2);
   int hitY = APRS_ALERT_CLOSE_BTN_Y + ((APRS_ALERT_CLOSE_BTN_H - APRS_ALERT_CLOSE_HIT_H) / 2);
@@ -14855,20 +16746,27 @@ static void applyLedAlertBlinkMs(int blinkMs) {
   ledAlertBlinkMs = normalizeLedAlertBlinkMs(blinkMs);
 }
 
-static void triggerAprsRgbLedAlert() {
-  if (!enableLedAlert) {
-    return;
-  }
-
+static void triggerAprsRgbLedAlert(const APRSStation &station) {
+  // Osobne wylaczniki: dioda RGB i buzzer sa teraz niezalezne.
   unsigned long nowMs = millis();
-  rgbBlueAprsAlertActive = true;
-  rgbBlueAprsAlertUntilMs = nowMs + (unsigned long)ledAlertDurationMs;
-  rgbBlueAprsLastToggleMs = nowMs;
-  rgbBlueAprsStateOn = true;
-  applyRgbLedState(false, false, true);
+  if (enableLedAlert) {
+    rgbBlueAprsAlertActive = true;
+    rgbBlueAprsAlertUntilMs = nowMs + (unsigned long)ledAlertDurationMs;
+    rgbBlueAprsLastToggleMs = nowMs;
+    rgbBlueAprsStateOn = true;
+    applyRgbLedState(false, false, true);
+  } else {
+    rgbBlueAprsAlertActive = false;
+    rgbBlueAprsStateOn = false;
+  }
   // Krotki "pip-pip-pip" na wspolnym piezo (BUZZER_PIN). Alarm ma priorytet -
-  // aprsBeepPlay() sam sie wstrzyma, gdy alarm dzwoni.
-  aprsBeepPlay();
+  // aprsBeepPlay() sam sie wstrzyma, gdy alarm dzwoni. Sygnal dobierany wg typu
+  // stacji (dom/mobil/pieszy/...); bez stacji - domyslna sekwencja pippip.
+  // "Buzzer NOC" tez wymaga glosnika - wlaczenie NOC nie wylacza enableBuzzerAlert;
+  // aprsBeepPlayForStation sam wybiera cicha, pojedyncza nute dla NOC.
+  if (enableBuzzerAlert || aprsBuzzerNoc) {
+    aprsBeepPlayForStation(station);
+  }
 }
 
 static void updateStatusRgbLed() {
@@ -15194,8 +17092,9 @@ static void drawAprsAlertModern(const APRSStation &station) {
     aprsModernWxChip(356, 114, "CISN",
                      wx.hasPressure ? String(wx.pressureHpa, 0) + " hPa" : "--", TEXT);
   } else {
-    tft.fillRoundRect(10, 278, 460, 32, 7, CARD);
-    tft.drawRoundRect(10, 278, 460, 32, 7, BORDER);
+    // Pasek statusu skrocony, by zrobic miejsce na przycisk REPLY (350..468).
+    tft.fillRoundRect(10, 278, 328, 32, 7, CARD);
+    tft.drawRoundRect(10, 278, 328, 32, 7, BORDER);
     // Kropka statusu: zielona = dane kompletne (symbol + pozycja), zolta = czesciowe.
     String symRaw = getAPRSSymbolRaw(station);
     if (symRaw.length() == 0) symRaw = "-";
@@ -15203,7 +17102,7 @@ static void drawAprsAlertModern(const APRSStation &station) {
     tft.fillCircle(24, 294, 5, dataOk ? 0x07E0 : WARN);
     tft.setTextSize(1);
     tft.setTextColor(TEXT);
-    tft.setCursor(38, 284);
+    tft.setCursor(38, 287);
     tft.print(String("SYMBOL: ") + symRaw + "   |   " +
               (station.hasLatLon ? "POZYCJA: OK" : "POZYCJA: BRAK"));
     // Ostatnia aktualizacja (czas UTC) - czas odebrania ramki.
@@ -15211,11 +17110,13 @@ static void drawAprsAlertModern(const APRSStation &station) {
     struct tm utcTm;
     gmtime_r(&nowEpoch, &utcTm);
     char utcBuf[28];
-    strftime(utcBuf, sizeof(utcBuf), "AKTUALIZACJA: %H:%M:%SZ", &utcTm);
+    strftime(utcBuf, sizeof(utcBuf), "AKT %H:%M:%SZ", &utcTm);
     tft.setTextColor(FAINT);
-    tft.setCursor(38, 295);
+    tft.setCursor(38, 300);
     tft.print(utcBuf);
   }
+  drawAprsAlertHistoryButton();
+  drawAprsAlertReplyButton();
 }
 
 // Punkt wejscia ekranu alertu - wybiera styl wg ustawienia ekranow.
@@ -15369,8 +17270,121 @@ static void drawAprsAlertClassic(const APRSStation &station) {
   int descX = iconCenterX - ((int)iconDesc.length() * 12) / 2;
   tft.setCursor(descX, iconCenterY + 55);
   tft.print(iconDesc);
+
+  drawAprsAlertHistoryButton();
+  drawAprsAlertReplyButton();
 }
 
+
+// ================== HISTORIA WIADOMOSCI APRS (B3) ==================
+// Zamyka historie i wraca do tego, co bylo pod nia (alert albo ekran bazowy).
+void dismissAprsHistoryScreen() {
+  if (!aprsMsgHistoryActive) return;
+  aprsMsgHistoryActive = false;
+  const bool wasAlert = aprsMsgHistoryWasAlert;
+  const bool hadPrev = aprsMsgHistoryHadPrevScreen;
+  const ScreenType prevScreen = aprsMsgHistoryPrevScreen;
+  aprsMsgHistoryWasAlert = false;
+  aprsMsgHistoryHadPrevScreen = false;
+  aprsMsgHistoryPrevScreen = SCREEN_OFF;
+  if (!tftInitialized) return;
+  if (wasAlert && aprsAlertScreenActive) {
+    ALERT_Screen(aprsAlertScreenStation);
+  } else if (hadPrev) {
+    drawScreen(prevScreen);
+  } else {
+    drawScreen(currentScreen);
+  }
+}
+
+// Rysuje ekran historii wiadomosci APRS: lista RX (zielone) / TX (niebieskie).
+// Scroll: nacisniecie strzalek / pasek.  Rysuje tez przycisk X i tytul.
+void drawAprsHistoryScreen() {
+  if (!tftInitialized) return;
+  tft.fillScreen(UI_COL_BG);
+  tft.fillRect(0, 0, 480, 40, TFT_NAVY);
+  tft.setTextColor(TFT_WHITE, TFT_NAVY);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString("HISTORIA APRS (RX/TX)", 240, 20, 2);
+  // Przycisk X (zamknij) - ten sam obszar dotykowy co alert.
+  tft.fillRoundRect(APRS_ALERT_CLOSE_BTN_X, APRS_ALERT_CLOSE_BTN_Y, APRS_ALERT_CLOSE_BTN_W, APRS_ALERT_CLOSE_BTN_H, 5, TFT_RADIO_ORANGE);
+  tft.drawRoundRect(APRS_ALERT_CLOSE_BTN_X, APRS_ALERT_CLOSE_BTN_Y, APRS_ALERT_CLOSE_BTN_W, APRS_ALERT_CLOSE_BTN_H, 5, TFT_BLACK);
+  tft.drawLine(APRS_ALERT_CLOSE_BTN_X + 7, APRS_ALERT_CLOSE_BTN_Y + 7,
+               APRS_ALERT_CLOSE_BTN_X + APRS_ALERT_CLOSE_BTN_W - 8, APRS_ALERT_CLOSE_BTN_Y + APRS_ALERT_CLOSE_BTN_H - 8, TFT_BLACK);
+  tft.drawLine(APRS_ALERT_CLOSE_BTN_X + APRS_ALERT_CLOSE_BTN_W - 8, APRS_ALERT_CLOSE_BTN_Y + 7,
+               APRS_ALERT_CLOSE_BTN_X + 7, APRS_ALERT_CLOSE_BTN_Y + APRS_ALERT_CLOSE_BTN_H - 8, TFT_BLACK);
+  tft.setTextDatum(TL_DATUM);
+
+  if (aprsMsgHistoryHead == 0) {
+    tft.setTextColor(UI_COL_FAINT);
+    tft.drawString("Brak wiadomosci", 20, 80, 2);
+    return;
+  }
+
+  const int maxRows = APRS_HISTORY_MAX_ROWS;
+  const int rowH = 22;
+  const int startY = 48;
+  const int scrollLimit = (aprsMsgHistoryHead > maxRows) ? (aprsMsgHistoryHead - maxRows) : 0;
+  if (aprsMsgHistoryScroll > scrollLimit) aprsMsgHistoryScroll = scrollLimit;
+  if (aprsMsgHistoryScroll < 0) aprsMsgHistoryScroll = 0;
+
+  // Wyswietl wpisy od najnowszego.
+  const int total = aprsMsgHistoryHead;
+  const int visible = (total > maxRows) ? maxRows : total;
+  for (int i = 0; i < visible; i++) {
+    const int idx = (aprsMsgHistoryWrite - 1 - (i + aprsMsgHistoryScroll) + APRSA_MSG_HISTORY_MAX * 10) % APRSA_MSG_HISTORY_MAX;
+    if (idx < 0) continue;
+    const AprsMsgHistoryEntry &e = aprsMsgHistory[idx];
+    const int y = startY + i * rowH;
+    const uint16_t txtCol = e.rx ? TFT_GREEN : TFT_SKYBLUE;
+    tft.setTextColor(txtCol, UI_COL_BG);
+    tft.setCursor(8, y);
+    tft.print(e.rx ? "RX" : "TX");
+    tft.setTextColor(TFT_WHITE, UI_COL_BG);
+    tft.setCursor(38, y);
+    tft.print(e.callsign.length() > 9 ? e.callsign.substring(0, 9) : e.callsign);
+    String body = e.text;
+    if (body.length() > 42) body = body.substring(0, 42);
+    tft.setCursor(120, y);
+    tft.print(body);
+  }
+
+  // Pasek przewijania.
+  if (total > maxRows) {
+    int barTop = APRS_HISTORY_SCROLL_Y_TOP;
+    int barBot = APRS_HISTORY_SCROLL_Y_BOTTOM;
+    int barLen = barBot - barTop;
+    int thumbLen = barLen * maxRows / total;
+    if (thumbLen < 14) thumbLen = 14;
+    int thumbPos = barTop + (barLen - thumbLen) * aprsMsgHistoryScroll / (scrollLimit > 0 ? scrollLimit : 1);
+    tft.fillRoundRect(APRS_HISTORY_SCROLL_X, barTop, APRS_HISTORY_SCROLL_W, barLen, 4, TFT_DARKGREY);
+    tft.fillRoundRect(APRS_HISTORY_SCROLL_X, thumbPos, APRS_HISTORY_SCROLL_W, thumbLen, 4, TFT_SKYBLUE);
+    tft.drawString("^", APRS_HISTORY_SCROLL_X - 4, barTop - 14, 1);
+    tft.drawString("v", APRS_HISTORY_SCROLL_X - 4, barBot + 4, 1);
+  }
+}
+
+// Obsluga dotyku ekranu historii APRS.
+void handleAprsHistoryTouch(uint16_t x, uint16_t y, bool isNewTap) {
+  if (!isNewTap) return;
+  // Zamknij (X w rogu / gora).
+  if (isAprsAlertCloseButtonHit(x, y)) {
+    dismissAprsHistoryScreen();
+    return;
+  }
+  // Przewijanie (strzalki / pasek).
+  if (x >= 455 && x <= 480 && ((y >= 36 && y <= 52) || (y >= 296 && y <= 312))) {
+    const int total = aprsMsgHistoryHead;
+    const int maxRows = APRS_HISTORY_MAX_ROWS;
+    const int scrollLimit = (total > maxRows) ? (total - maxRows) : 0;
+    if (y <= 52) {   // ^
+      if (aprsMsgHistoryScroll > 0) aprsMsgHistoryScroll--;
+    } else {         // v
+      if (aprsMsgHistoryScroll < scrollLimit) aprsMsgHistoryScroll++;
+    }
+    drawAprsHistoryScreen();
+  }
+}
 
 // ================== ALERTY POGODOWE / BURZOWE (open-meteo) ==================
 // Kody WMO 95-99 to burza (w tym z gradem). 96/99 = grad.
@@ -15687,7 +17701,7 @@ bool fetchOpenMeteoAlerts() {
                "&forecast_days=2&timezone=UTC";
 
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   if (!http.begin(client, url)) {
     return false;
   }
@@ -16237,7 +18251,9 @@ static void gpsParseNmea(const String &line) {
       gpsLastFixMs = millis();
       gpsLocator = latLonToLocator(gpsLat, gpsLon, 6);
     } else {
+      // Fix sie skonczyl (GGA quality=0): przestan pokazywac stara pozycje.
       gpsFix = false;
+      gpsHasPosition = false;
     }
   } else if (type == "RMC") {
     if (n < 10) return;
@@ -16423,6 +18439,176 @@ static void gpsSendConfigureSequence() {
   Serial.println("[GPS] Sekwencja konfiguracyjna wyslana");
 }
 
+// ========== BLE UART (Nordic UART Service) ==========
+// ESP32-S3 ma wyłącznie BLE (bez BT Classic/SPP), więc jedyny sensowny BT to
+// serwer BLE z usługą NUS (6E400001-B5A3-F393-E0A9-E50E24DCCA9E). Telefon
+// łączy się aplikacją typu "Serial Bluetooth Terminal" (tryb BLE), "nRF Connect"
+// albo "BLE Terminal". Moduł jest opcjonalny (NVS "ble_en", domyślnie OFF) i
+// nie koliduje z WiFi/GPS/KISS - BLE i WiFi dzielą radio, ale przy zwykłym
+// użytkowaniu oba działają (obsługa zdarzeń BLE dzieje się w tle).
+bool bleEnabled = false;
+const char *NVS_KEY_BLE_EN = "ble_en";
+BLECharacteristic *bleTxChar = nullptr;          // ESP32 -> telefon (WRITE/Notify)
+BLECharacteristic *bleRxChar = nullptr;          // telefon -> ESP32 (WRITE)
+bool bleConnected = false;
+String bleInputBuf = "";                          // bufor linii z telefonu
+// Nazwa urządzenia w skanerach BLE (do 20 znaków); drugi parametr to nowa
+// nazwa po wybudzeniu (krótsza, żeby zmieścić się w limicie adv).
+const char *BLE_DEVICE_NAME = "ESP32-HAM-CLOCK";
+const char *BLE_DEVICE_NAME2 = "ESP32-HAM-CLK";
+
+// UUID-y standardowej usługi Nordic UART Service (NUS) - rozpoznawane przez
+// wszystkie aplikacje "Serial Bluetooth Terminal" / "nRF Connect".
+#define BLE_SERVICE_UUID ((uint16_t)0x1800)   // Generic Access (standard)
+static BLEUUID bleSvcUuid("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+static BLEUUID bleRxUuid("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
+static BLEUUID bleTxUuid("6E400003-B5A3-F393-E0A9-E50E24DCCA9E");
+
+class BleServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer *srv) override {
+    bleConnected = true;
+    Serial.println("[BLE] Polaczono");
+  }
+  void onDisconnect(BLEServer *srv) override {
+    bleConnected = false;
+    bleInputBuf = "";
+    Serial.println("[BLE] Rozlaczono");
+    // Niektore aplikacje po rozlaczeniu nie wznawiaja skanowania; po chwili
+    // wracamy do rozgloszenia, zeby mozna bylo sie ponownie polaczyc.
+    delay(200);
+    if (bleEnabled && srv) {
+      BLEDevice::startAdvertising();
+    }
+  }
+};
+
+class BleRxCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *c) override {
+    std::string v = c->getValue();
+    for (size_t i = 0; i < v.size(); i++) {
+      char ch = (char)v[i];
+      if (ch == '\n' || ch == '\r') {
+        if (bleInputBuf.length() > 0) {
+          handleBleLine(bleInputBuf);
+          bleInputBuf = "";
+        }
+      } else {
+        bleInputBuf += ch;
+      }
+    }
+  }
+};
+
+// Inicjalizuje BLE (NUS). Bezpieczna - wolno ją wywołać raz przy starcie
+// (również gdy BLE jest wyłączone, wtedy po prostu nie startujemy).
+void bleInit() {
+  if (!bleEnabled) return;
+  if (bleTxChar != nullptr) return;   // już zainicjowane (albo błąd)
+  BLEDevice::init(BLE_DEVICE_NAME2);  // krótka nazwa - mieści się w ADV
+  BLEServer *server = BLEDevice::createServer();
+  server->setCallbacks(new BleServerCallbacks());
+  BLEService *svc = server->createService(bleSvcUuid);
+  // RX (telefon -> ESP32): właściwość WRITE_NR, żeby telefon mógł pisać.
+  bleRxChar = svc->createCharacteristic(bleRxUuid, BLECharacteristic::PROPERTY_WRITE_NR);
+  bleRxChar->setCallbacks(new BleRxCallbacks());
+  // TX (ESP32 -> telefon): WRITE_NR + NOTIFY (aplikacje subskrybują notyfikacje).
+  bleTxChar = svc->createCharacteristic(bleTxUuid,
+      BLECharacteristic::PROPERTY_WRITE_NR | BLECharacteristic::PROPERTY_NOTIFY);
+  bleTxChar->addDescriptor(new BLE2902());
+  svc->start();
+  BLEAdvertising *adv = BLEDevice::getAdvertising();
+  adv->addServiceUUID(bleSvcUuid);
+  // Tryb CONNECTABLE + GENERAL_DISC, żeby telefon widział urządzenie w skanerze.
+  adv->setScanResponse(true);
+  BLEDevice::startAdvertising();
+  Serial.println("[BLE] UART (NUS) aktywny - szukaj 'ESP32-HAM-CLOCK' w aplikacji BT");
+}
+
+// Wysyla tekst do podlaczonego telefonu (odpowiednik Serial.print).
+void bleSend(const char *s) {
+  if (!bleEnabled || !bleConnected || bleTxChar == nullptr) return;
+  size_t len = strlen(s);
+  size_t off = 0;
+  // Notyfikacja BLE ma limit ok. 20-100 B; wysylamy w porcjach <=20.
+  while (off < len) {
+    size_t chunk = len - off;
+    if (chunk > 20) chunk = 20;
+    bleTxChar->setValue((uint8_t *)(s + off), chunk);
+    bleTxChar->notify();
+    off += chunk;
+  }
+}
+
+void bleSendln(const char *s) { bleSend(s); bleSend("\r\n"); }
+void blePrintf(const char *fmt, ...) {
+  if (!bleEnabled || !bleConnected) return;
+  char buf[160];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  bleSend(buf);
+}
+
+// Linia poleceń z telefonu (prosty mostek: komendy tekstowe).
+// Rozpoznajemy tylko kilka rzeczowych poleceń; reszta trafia do UART2 (GPS),
+// dzięki czemu telefon może sterować modułem GPS (np. "AT" -> NMEA).
+void handleBleLine(const String &l) {
+  String c = l;
+  c.trim();
+  if (c.length() == 0) return;
+  if (c == "?") {
+    bleSendln("ESP32-HAM-CLOCK BLE bridge");
+    bleSendln("Komendy: INFO, RESTART, GPS?, UART2-<tekst>");
+    return;
+  }
+  if (c.equalsIgnoreCase("INFO")) {
+    bleSendln("ESP32-HAM-CLOCK v" FIRMWARE_VERSION);
+    bleSendln(("WiFi: " + WiFi.localIP().toString()).c_str());
+    if (gpsEnabled) {
+      bleSendln(("GPS: " + String(gpsEnabled ? "ON" : "OFF") + (gpsFix ? " FIX " + String(gpsSats) + " sat" : " brak FIX")).c_str());
+    } else {
+      bleSendln("GPS: OFF");
+    }
+    return;
+  }
+  if (c.equalsIgnoreCase("RESTART")) {
+    bleSendln("Restart...");
+    delay(100);
+    ESP.restart();
+    return;
+  }
+  if (c.equalsIgnoreCase("GPS?")) {
+    bleSendln(gpsEnabled ? (gpsFix ? "FIX" : "NOFIX") : "GPS OFF");
+    return;
+  }
+  // "UART2-<tekst>" -> wyślij surowy tekst do UART2 (jeśli GPS używa UART2).
+  if (c.startsWith("UART2-")) {
+    String payload = c.substring(6);
+    if (gpsSerialBegun) {
+      gpsSerial.print(payload);
+      gpsSerial.print("\r\n");
+      bleSendln(("UART2> " + payload).c_str());
+    } else {
+      bleSendln("UART2 nieaktywny");
+    }
+    return;
+  }
+  bleSendln(("Nieznana komenda: " + c + " (wpisz '?' )").c_str());
+}
+
+// Wywolywane z loop(): sprawdza, czy BLE wymaga inicjalizacji po wlaczeniu
+// w WWW (bez restartu) i pompuje ewentualny tekst z telefonu.
+void blePoll() {
+  static unsigned long lastInitTry = 0;
+  if (bleEnabled && bleTxChar == nullptr) {
+    if (millis() - lastInitTry > 2000) {
+      lastInitTry = millis();
+      bleInit();
+    }
+  }
+}
+
 // (Re)inicjalizacja UART2 dla modulu GPS. Idempotentna - wywolywana po zmianie
 // ustawien w WWW bez restartu.
 void gpsApplyConfig() {
@@ -16478,9 +18664,12 @@ void gpsUpdate() {
       gpsParseNmea(line);
     }
   }
-  // Brak ramek przez 5 s = modul nie odpowiada -> gas FIX (nie pokazuj starych danych).
+  // Brak ramek przez 5 s = modul nie odpowiada -> gas FIX i pozycje (nie pokazuj
+// starych danych jako aktualnych). gpsApplyPosition() przywroci pozycje reczna.
   if (gpsFix && millis() - gpsLastFixMs > 5000) {
     gpsFix = false;
+    gpsHasPosition = false;
+    gpsSatCount = 0;
   }
   // Zegar z NMEA (dziala bez NTP/internetu).
   gpsApplyTime();
@@ -16514,6 +18703,11 @@ void gpsApplyPosition() {
     userLocator = userLocatorManual;
     gpsPositionOverrideActive = false;
   }
+  // Automatyczny domyslny region mapy propagacji wg aktualnej pozycji
+  // (tez z GPS), dopoki uzytkownik nie wybral regionu recznie.
+  if (!propRegionManualSelect && userLocator.length() >= 4) {
+    propRegionIndex = propRegionForLocator(userLocator);
+  }
 }
 
 bool gpsModuleDetected() {
@@ -16524,6 +18718,11 @@ void updateUserLatLonFromLocator() {
   if (userLocator.length() >= 4) {
     locatorToLatLon(userLocator, userLat, userLon);
     userLatLonValid = true;
+    // Automatyczny domyslny region mapy propagacji wg lokatora
+    // (nie nadpisuje recznego wyboru uzytkownika).
+    if (!propRegionManualSelect) {
+      propRegionIndex = propRegionForLocator(userLocator);
+    }
   } else {
     userLat = 0.0;
     userLon = 0.0;
@@ -17203,7 +19402,7 @@ bool ensureQrzSession(String &sessionKey) {
   Serial.println("[QRZ DEBUG] Encoded pass preview: " + passPreview + " (total len=" + String(encodedPass.length()) + ")");
   
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   static WiFiClientSecure qrzSessionClient;
   qrzSessionClient.setInsecure();
   http.begin(qrzSessionClient, url);
@@ -17292,7 +19491,7 @@ bool fetchHamDbCallsignInfo(const String &callsign, String &outGrid, String &out
   String url = "http://api.hamdb.org/v1/" + call + "/json/esp32hamclock";
   WiFiClient hamdbClient;
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   http.begin(hamdbClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -17423,7 +19622,7 @@ bool fetchCallookCallsignInfo(const String &callsign, String &outGrid, String &o
   static WiFiClientSecure callookClient;
   callookClient.setInsecure();
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   http.begin(callookClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -17744,7 +19943,7 @@ bool fetchHamQthCallsignInfo(const String &callsign, String &outGrid, String &ou
   static WiFiClientSecure hamqthClient;
   hamqthClient.setInsecure();
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   http.begin(hamqthClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -17880,7 +20079,7 @@ bool fetchQrzCallsignInfo(const String &callsign, String &outGrid, String &outCo
   static WiFiClientSecure qrzLookupClient;
   qrzLookupClient.setInsecure();
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   http.begin(qrzLookupClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -18438,7 +20637,7 @@ bool fetchPotaApi() {
   static WiFiClientSecure potaClient;
   potaClient.setInsecure();
   HTTPClient http;
-  http.setTimeout(15000);
+  http.setTimeout(5000);
   if (!http.begin(potaClient, potaApiUrl)) {
     Serial.println("[POTA] http.begin failed");
     return false;
@@ -18693,7 +20892,7 @@ bool fetchQrzRawXml(const String &callsign, String &body) {
   static WiFiClientSecure qrzRawClient;
   qrzRawClient.setInsecure();
   HTTPClient http;
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   http.begin(qrzRawClient, url);
   int code = http.GET();
   if (code != 200) {
@@ -19953,6 +22152,76 @@ bool isAprsTxCallValid(const String &call) {
   return c.length() > 0 && c != "NOCALL";
 }
 
+// Wysyla wiadomosc APRS (Message) do podanego znaku przez APRS-IS.
+// Format: CALL>APRS,TCPIP*::DSTCALL   :tresc{msgid
+// DST to docelowy znak (moze zawierac SSID). Zwraca true gdy wyslano.
+bool sendAprsMessage(const String &dstRaw, const String &message) {
+  // Gdy TNC-KISS (LoRa) jest aktywny, wiadomosc leci przez radio zamiast APRS-IS.
+  if (aprsKissEnabled) {
+    return kissSendAprsMessage(dstRaw, message);
+  }
+  if (!aprsConnected || !aprsClient.connected() || !aprsLoginSent) {
+    Serial.println("[APRS] TX wiadomosci pominiete - brak polaczenia APRS-IS");
+    return false;
+  }
+  String dst = dstRaw;
+  dst.trim();
+  dst.toUpperCase();
+  if (dst.length() == 0 || !isAprsTxCallValid(dst)) {
+    Serial.println("[APRS] TX wiadomosci - nieprawidlowy adresat");
+    return false;
+  }
+  String txCallsign = getAprsTxCallsignWithSsid();
+  txCallsign.trim();
+  if (!isAprsTxCallValid(txCallsign)) {
+    Serial.println("[APRS] TX wiadomosci - ustaw znak w konfiguracji APRS");
+    return false;
+  }
+  txCallsign.toUpperCase();
+
+  // Obetnij tresc do 67 znakow (max dla ramki wiadomosci APRS) i usun
+  // niedozwolone znaki (tylko drukowalne ASCII).
+  String text = message;
+  text.replace("\r", " ");
+  text.replace("\n", " ");
+  String clean = "";
+  for (size_t i = 0; i < text.length(); i++) {
+    char c = text.charAt(i);
+    if (c >= 32 && c <= 126) clean += c;
+    if (clean.length() >= 67) break;
+  }
+
+  // APRS-IS doda msgid (licznik), jesli go podamy; inaczej rozglasza bez id.
+  static uint16_t aprsMsgSeq = 1;
+  String frame = txCallsign + ">" + aprsToCall + ",TCPIP*::";
+  frame += dst;
+  if (dst.indexOf('-') < 0) frame += "-0";   // cel z SSID, wymagany przez APRS-IS
+  frame += "   :";                            // separator
+  frame += clean;
+  // APRS-IS message: {NNN - identyfikator wiadomosci (3 cyfry), aby odbiorca
+  // mogl wyslac ACK/DACK. Generujemy sekwencyjnie.
+  frame += "{";
+  if (aprsMsgSeq > 999) aprsMsgSeq = 1;
+  frame += String(aprsMsgSeq);
+  aprsMsgSeq++;
+
+  aprsClient.println(frame);
+  Serial.print("[APRS] TX wiadomosc: ");
+  Serial.println(frame);
+  aprsHistoryAdd(false, dst, clean);
+  return true;
+}
+
+// Wysyla wiadomosc APRS z odpowiedzia (tekst uzytkownika) do stacji.
+// Uzywana z UI dotykowego (ekran APRS-IS). Jest to wlasciwa "odpowiedz" na
+// ramke APRS - wywoluje ja handler dotyku (nie musi byc w petli).
+void sendAprsReplyMessage(const String &dst, const String &reply) {
+  if (sendAprsMessage(dst, reply)) {
+    // Krotkie potwierdzenie dzwiekowe.
+    if (enableBuzzerAlert) aprsBeepPlayForStation(APRSStation{});
+  }
+}
+
 // Walidacja masek filtrow APRS po uruchomieniu (i po zapisie z WWW). Sprawdza,
 // czy tokeny listy alertow/blokad sa poprawne; usuwa puste i loguje odrzucone.
 static void validateAprsFilterMasks() {
@@ -20178,6 +22447,86 @@ void kissSendBeacon() {
   Serial.printf("[KISS] TX beacon AX.25 (%u B), path=%s\n", (unsigned)len, aprsKissPath.c_str());
 }
 
+// Buduje pelna ramke AX.25 wiadomosci APRS (message): dest=adresat,
+// src=moj znak, digipeatery z aprsKissPath, info=::DEST:tresc{id
+static size_t buildAx25MessageFrame(const String &dstRaw, const String &text,
+                                    uint8_t *buf, size_t bufMax) {
+  String srcCall = getAprsBaseCallsign();
+  if (!isAprsTxCallValid(srcCall)) return 0;
+
+  String pathParts[8];
+  int pathCount = 0;
+  {
+    String p = aprsKissPath;
+    p.trim();
+    int start = 0;
+    while (start <= (int)p.length() && pathCount < 8) {
+      int comma = p.indexOf(',', start);
+      int end = (comma >= 0) ? comma : p.length();
+      String seg = p.substring(start, end);
+      seg.trim();
+      if (seg.length() > 0) pathParts[pathCount++] = seg;
+      if (comma < 0) break;
+      start = comma + 1;
+    }
+  }
+
+  size_t pos = 0;
+  // W wiadomosciach APRS destination (AX.25 to-call) to docelowy znak stacji,
+  // a nie TOCALL - wiec uzyjemy adresatu.
+  ax25AppendAddress(buf, pos, dstRaw, 0, false);
+  ax25AppendAddress(buf, pos, srcCall, aprsSsid, pathCount == 0);
+  for (int i = 0; i < pathCount; i++) {
+    String seg = pathParts[i];
+    int ssid = 0;
+    int dash = seg.indexOf('-');
+    if (dash > 0) { ssid = seg.substring(dash + 1).toInt(); seg = seg.substring(0, dash); }
+    if (ssid < 0) ssid = 0; if (ssid > 15) ssid = 15;
+    ax25AppendAddress(buf, pos, seg, ssid, (i == pathCount - 1));
+  }
+  buf[pos++] = 0x03;  // Control (UI)
+  buf[pos++] = 0xF0;  // PID (no layer 3)
+
+  String info = "::" + dstRaw + "   :" + text;
+  for (size_t i = 0; i < info.length() && pos < bufMax - 1; i++) {
+    buf[pos++] = (uint8_t)info.charAt(i);
+  }
+  return pos;
+}
+
+// Wysyla wiadomosc APRS (message) przez TNC-KISS (LoRa).
+bool kissSendAprsMessage(const String &dstRaw, const String &message) {
+  if (!aprsKissEnabled || !aprsKissClient.connected()) {
+    Serial.println("[KISS] TX wiadomosci pominiete - brak polaczenia TNC");
+    return false;
+  }
+  String dst = dstRaw;
+  dst.trim();
+  dst.toUpperCase();
+  if (dst.length() == 0 || !isAprsTxCallValid(dst)) {
+    Serial.println("[KISS] TX wiadomosci - nieprawidlowy adresat");
+    return false;
+  }
+  String txCallsign = getAprsBaseCallsign();
+  if (!isAprsTxCallValid(txCallsign)) {
+    Serial.println("[KISS] TX wiadomosci - ustaw znak w konfiguracji APRS");
+    return false;
+  }
+  String clean = message;
+  clean.replace("\r", " ");
+  clean.replace("\n", " ");
+  if (clean.length() > 67) clean = clean.substring(0, 67);
+
+  uint8_t frame[340];
+  size_t len = buildAx25MessageFrame(dst, clean, frame, sizeof(frame));
+  if (len == 0) return false;
+  kissSendDataFrame(frame, len);
+  aprsKissLastTxMs = millis();
+  Serial.printf("[KISS] TX wiadomosc AX.25 (%u B) do %s\n", (unsigned)len, dst.c_str());
+  aprsHistoryAdd(false, dst, clean);
+  return true;
+}
+
 // Sekwencja startowa KISS: KISS ON po 30 s od polaczenia, RESTART 1 s pozniej.
 void kissHandleStartupSequence() {
   if (!aprsKissEnabled || !aprsKissClient.connected() || aprsKissConnectMs == 0) return;
@@ -20274,8 +22623,22 @@ static void kissDecodeAx25Frame(const uint8_t *frame, size_t len) {
   APRSStation station;
   if (parseAPRSFrame(tnc2Line, station)) {
     addAPRSStation(station);
+
+    // Wiadomosc APRS (format ::) - zapisz do historii B3 (takze z TNC-KISS).
+    int msgDoubleColon = tnc2Line.indexOf("::");
+    if (msgDoubleColon > 0) {
+      String addr = tnc2Line.substring(msgDoubleColon + 2);
+      int textSep = addr.indexOf(':');
+      String dstAddr = (textSep >= 0) ? addr.substring(0, textSep) : addr;
+      String text = (textSep >= 0) ? addr.substring(textSep + 1) : "";
+      dstAddr.trim();
+      text.trim();
+      if (text.endsWith("{")) text = text.substring(0, text.length() - 1);
+      aprsHistoryAdd(true, station.callsign, text.length() > 0 ? text : dstAddr);
+    }
+
     if (aprsAlertEnabled && shouldTriggerAprsAlert(station)) {
-      triggerAprsRgbLedAlert();
+      triggerAprsRgbLedAlert(station);
 #ifdef ENABLE_TFT_DISPLAY
       portENTER_CRITICAL(&aprsAlertPendingMux);
       aprsAlertPendingStation = station;
@@ -20664,6 +23027,17 @@ bool parseAPRSFrame(String line, APRSStation &station) {
   return true;
 }
 
+// Dopisz wiadomosc APRS do historii (RX lub TX). Pojemnik kolowy.
+void aprsHistoryAdd(bool rx, const String &callsign, const String &text) {
+  const int idx = aprsMsgHistoryWrite;
+  aprsMsgHistory[idx].rx = rx;
+  aprsMsgHistory[idx].callsign = callsign;
+  aprsMsgHistory[idx].text = text;
+  aprsMsgHistory[idx].whenMs = millis();
+  aprsMsgHistoryWrite = (idx + 1) % APRSA_MSG_HISTORY_MAX;
+  if (aprsMsgHistoryHead < APRSA_MSG_HISTORY_MAX) aprsMsgHistoryHead++;
+}
+
 // Dodaj nowÄ‚â€žĂ˘â‚¬Â¦ stacjÄ‚â€žĂ˘â€žË APRS do tablicy (bez duplikatĂ„â€šĹ‚w - aktualizuje istniejÄ‚â€žĂ˘â‚¬Â¦ce)
 void addAPRSStation(APRSStation station) {
   compactAprsStationStrings(station);
@@ -20750,10 +23124,23 @@ void handleAPRSData() {
         if (parseAPRSFrame(line, station)) {
           addAPRSStation(station);
 
+          // Wiadomosc APRS (format ::) - zapisz do historii B3.
+          int msgDoubleColon = line.indexOf("::");
+          if (msgDoubleColon > 0) {
+            String addr = line.substring(msgDoubleColon + 2);
+            int textSep = addr.indexOf(':');
+            String dstAddr = (textSep >= 0) ? addr.substring(0, textSep) : addr;
+            String text = (textSep >= 0) ? addr.substring(textSep + 1) : "";
+            dstAddr.trim();
+            text.trim();
+            if (text.endsWith("{")) text = text.substring(0, text.length() - 1);
+            aprsHistoryAdd(true, station.callsign, text.length() > 0 ? text : dstAddr);
+          }
+
           if (aprsAlertEnabled && shouldTriggerAprsAlert(station)) {
             Serial.print("[APRS ALERT] stacja wykryta opisana w formacie tnc: ");
             Serial.println(line);
-            triggerAprsRgbLedAlert();
+            triggerAprsRgbLedAlert(station);
             #ifdef ENABLE_TFT_DISPLAY
             portENTER_CRITICAL(&aprsAlertPendingMux);
             aprsAlertPendingStation = station;
@@ -20818,6 +23205,25 @@ void startAPMode() {
 // pokazujemy SSID/haslo/IP, bo bez monitora szeregowego nie da sie ich odczytac.
 static bool apPortalActive() {
   return !wifiConnected && (WiFi.getMode() & WIFI_AP);
+}
+
+// AP rownolegly do polaczenia STA (WIFI_AP_STA). Dzieki temu http://192.168.4.1
+// dziala zawsze (telefon laczy sie bezposrednio z ESP), a internet/APRS/mapa
+// propagacji dzialaja przez domowa siec. Routery z izolacja klientow (AP
+// isolation) nie blokuja tego, bo polaczenie jest bezposrednie AP<->klient.
+bool startConcurrentAP() {
+  // Z AWSZE wywolujemy softAP() - nie da sie niezawodnie wykryc "czy AP nadaje"
+  // przez softAPIP()/softAPSSID()/getMode(): po connectToWiFi() (WIFI_OFF ->
+  // WIFI_STA) config AP zostaje w sterowniku, ale softAP NIE nadaje. Ponowne
+  // softAP() jest bezpieczne i gwarantuje dzialajacy AP pod http://192.168.4.1.
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
+  bool apOk = WiFi.softAP(AP_SSID, AP_PASSWORD, 0, 0, 4);  // kanal 0 = dopasuj do STA
+  Serial.printf("Concurrent AP: softAP() = %s\n", apOk ? "OK" : "BLAD");
+  if (apOk) {
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  }
+  return apOk;
 }
 
 // Zwiezla informacja o trybie AP do dolnej belki ekranu zegara.
@@ -20890,6 +23296,10 @@ static bool wifiAttemptAtPower(const String &ssid, const String &pass, int chann
   delay(200);
   WiFi.mode(WIFI_STA);
   delay(50);
+  // Czulosc WiFi: staly odbior (bez beacon-sleep) + pelna moc TX.
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+  esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20); // HT20 = szerszy zasieg niz HT40
   WiFi.setTxPower(power);
   if (channel > 0 && bssid != nullptr) {
     WiFi.begin(ssid.c_str(), pass.c_str(), channel, (uint8_t *)bssid);
@@ -21013,12 +23423,10 @@ bool connectToWiFi() {
     // praktyce; pelna drabinka mocy ponizej tylko gdy szybka proba padnie.
     if (channel > 0) {
       Serial.printf("[WIFI] Szybkie laczenie: kanal=%d\n", channel);
-      // SOFT-START: pierwsza proba na nizszej mocy TX (11 dBm) - mniejszy pik
-      // pradu przy wlaczaniu WiFi, dzieki czemu podswietlenie mniej "siada"
-      // (spadek napiecia) i litery podczas startu nie szarzeja. Pelna moc
-      // pozostaje w drabince ponizej jako fallback.
+      // Pelna moc na poczatku (19.5 dBm) - gdy sygnal jest slaby, taniej jest
+      // od razu nadac z maksymalna sila niz ponawiac na slabszej mocy.
       if (wifiAttemptAtPower(cred.ssid, cred.pass, channel, bssid,
-                             WIFI_POWER_11dBm, 6000)) {
+                             WIFI_POWER_19_5dBm, 9000)) {
         return true;
       }
       Serial.printf("[WIFI] Szybka proba nieudana, reason=%d\n", (int)g_lastWifiReason);
@@ -21161,10 +23569,11 @@ void wifiReconfigure() {
   if (connectToWiFi()) {
     Serial.println("[WIFI] STA OK. " );
     if (apActive) {
-      Serial.println("[WIFI] Wylaczam AP po polaczeniu STA.");
-      WiFi.softAPdisconnect(true);
-      WiFi.mode(WIFI_STA);
+      // AP zostaje po polaczeniu STA (WIFI_AP_STA) - http://192.168.4.1
+      // jest dostepny zawsze; internet/idzie przez STA.
+      WiFi.mode(WIFI_AP_STA);
     }
+    startConcurrentAP();
     updateNTPTime();
     connectToCluster();
     connectToPotaCluster();
@@ -22977,15 +25386,17 @@ static void drawLoggerForm() {
     tft.drawString("(brak wpisow - zapisz pierwsze QSO)", 18, 198);
   }
 
-  // Dolny panel przyciskow dotykowych.
-  const int by = 248, bh = 38, bw = 111;
-  int bx[4] = {8, 125, 242, 359};
-  const char *bt[4] = {"SAVE QSO", "CLEAR", "EXPORT ADIF", "SETTINGS"};
-  uint16_t bc[4] = {(uint16_t)(classic ? TFT_GREEN : UI_COL_ACCENT),
+  // Dolny panel przyciskow dotykowych. Menu ustawien TFT dostepne jest tylko
+  // z ekranu zegara (przytrzymanie 3 s), wiec logger ma 3 akcje (bez SETTINGS).
+  const int by = 248, bh = 38;
+  const int gapX = 10;
+  const int bw = (480 - 16 - 2 * gapX) / 3;
+  int bx[3] = {8, 8 + bw + gapX, 8 + 2 * (bw + gapX)};
+  const char *bt[3] = {"SAVE QSO", "CLEAR", "EXPORT ADIF"};
+  uint16_t bc[3] = {(uint16_t)(classic ? TFT_GREEN : UI_COL_ACCENT),
                     (uint16_t)(classic ? TFT_ORANGE : 0xFD20),
-                    (uint16_t)(classic ? TFT_CYAN : UI_COL_ACCENT2),
-                    (uint16_t)(classic ? TFT_DARKGREY : UI_COL_BORDER)};
-  for (int i = 0; i < 4; i++) {
+                    (uint16_t)(classic ? TFT_CYAN : UI_COL_ACCENT2)};
+  for (int i = 0; i < 3; i++) {
     tft.fillRoundRect(bx[i], by, bw, bh, 8, bc[i]);
     tft.drawRoundRect(bx[i], by, bw, bh, 8, classic ? TFT_WHITE : UI_COL_FAINT);
     tft.setTextDatum(MC_DATUM);
@@ -23147,20 +25558,6 @@ static void loggerHandleKeyboardKey(uint16_t x, uint16_t y) {
   }
 }
 
-// Otwiera ekran ustawien urzadzenia (wspolne menu jasnosci/tematu).
-static void loggerOpenSettings() {
-  brightnessMenuPrevScreen = currentScreen;
-  brightnessMenuPrevInMenu = inMenu;
-  brightnessMenuPrevBacklight = backlightPercent;
-  brightnessMenuPrevThemeHue = menuThemeHue;
-  brightnessMenuPrevClockColor = clockDigitsColor;
-  brightnessMenuActive = true;
-  brightnessMenuValue = backlightPercent;
-  brightnessMenuOpenedMs = millis();
-  inMenu = true;
-  drawBrightnessMenu();
-}
-
 void drawLoggerScreen() {
   tft.setTextDatum(TL_DATUM);
   loggerEnsureBuffer();
@@ -23178,10 +25575,12 @@ void handleLoggerTouch(uint16_t x, uint16_t y) {
     return;
   }
 
-  // Dolny panel przyciskow.
-  const int by = 248, bh = 38, bw = 111;
-  int bx[4] = {8, 125, 242, 359};
-  for (int i = 0; i < 4; i++) {
+  // Dolny panel przyciskow (3 akcje; menu ustawien TFT tylko z ekranu zegara).
+  const int by = 248, bh = 38;
+  const int gapX = 10;
+  const int bw = (480 - 16 - 2 * gapX) / 3;
+  int bx[3] = {8, 8 + bw + gapX, 8 + 2 * (bw + gapX)};
+  for (int i = 0; i < 3; i++) {
     if (x >= bx[i] && x <= bx[i] + bw && y >= by && y <= by + bh) {
       if (i == 0) {            // SAVE QSO
         loggerSaveCurrentQso();
@@ -23189,7 +25588,7 @@ void handleLoggerTouch(uint16_t x, uint16_t y) {
       } else if (i == 1) {     // CLEAR
         loggerClearForm();
         drawLoggerForm();
-      } else if (i == 2) {     // EXPORT ADIF
+      } else {                 // EXPORT ADIF
         if (loggerSaveAll()) {
           String ip = WiFi.localIP().toString();
           loggerStatus = "ADIF: http://" + ip + "/qso.adi (" + String(logbookCount) + " QSO)";
@@ -23197,8 +25596,6 @@ void handleLoggerTouch(uint16_t x, uint16_t y) {
           loggerStatus = "Blad eksportu ADIF";
         }
         drawLoggerForm();
-      } else {                 // SETTINGS
-        loggerOpenSettings();
       }
       return;
     }
@@ -23472,7 +25869,6 @@ void handleScreenSleepMenuTouch(uint16_t x, uint16_t y) {
   const int saveY = 240;
   if (isPointInRect(x, y, saveX, saveY, saveW, saveH)) {
     screenSleepTimeoutMin = screenSleepMenuTimeoutMin;
-    screenSleepEnabled = true;
     screenSleepLastActivityMs = millis();
     preferences->putInt("sleep_timeout", screenSleepTimeoutMin);
     preferences->putBool("sleep_en", screenSleepEnabled);
@@ -23491,22 +25887,122 @@ void handleScreenSleepMenuTouch(uint16_t x, uint16_t y) {
     return;
   }
 }
+// Ladny zegar wyswietlany w trybie uspienia ekranu (na srodku ekranu).
+// Cala klatka rysowana do pelnoekranowego sprite (16bpp w PSRAM) i wypchana
+// jednym pushSprite(). Punkty: brak migotania (tekst nie znika przy
+// odswierzaniu) i mniej pojedynczych operacji SPI niz bezposrednie rysowanie.
+static bool sleepClockSpriteInitTried = false;
+static bool sleepClockSpriteReady = false;
+static TFT_eSprite sleepClockSprite = TFT_eSprite(&tft);
+
+static bool ensureSleepClockSprite() {
+  if (sleepClockSpriteReady) return true;
+  if (sleepClockSpriteInitTried) return false;
+  sleepClockSpriteInitTried = true;
+  sleepClockSprite.setColorDepth(16);
+  sleepClockSpriteReady = (sleepClockSprite.createSprite(480, 320) != nullptr);
+  if (!sleepClockSpriteReady) {
+    Serial.println("[SS] Brak sprite 480x320 (PSRAM?) - zegar uspienia bez bufora");
+  }
+  return sleepClockSpriteReady;
+}
+
+void drawSleepClock() {
+  static unsigned long lastSleepClockDrawMs = 0;
+  unsigned long nowMs = millis();
+  // Odswiezaj max co 500 ms - zegar sekundowy i tak nie potrzebuje wiecej.
+  if (nowMs - lastSleepClockDrawMs < 500) return;
+  lastSleepClockDrawMs = nowMs;
+
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 1)) return;
+
+  const bool useSprite = ensureSleepClockSprite();
+  // Rysujemy do sprite (tryb uspienia nie wymaga mutexa z UI_Task - oba robia
+  // pushSprite, ale zegar uspienia rysuje sie tylko gdy sleep jest aktywny, a
+  // wtedy UI_Task nie wypycha zadnych klatek na TFT).
+  TFT_eSPI *out = useSprite ? (TFT_eSPI *)&sleepClockSprite : (TFT_eSPI *)&tft;
+
+  // Tlo: pelne wyczyszczenie bufora (lub ekranu, gdy brak sprite).
+  out->fillScreen(TFT_BLACK);
+
+  const int cx = 240;
+  const int cy = 160;
+
+  // Delikatna neonowa ramka
+  out->drawRect(8, 8, 464, 304, 0x3186);
+  out->drawRect(12, 12, 456, 296, 0x2104);
+
+  // Naglowek
+  out->setTextSize(1);
+  out->setTextColor(0x7BEF);
+  out->setCursor(cx - 28, 30);
+  out->print("STANDBY");
+
+  // Linia dekoracyjna pod naglowkiem
+  out->drawFastHLine(cx - 60, 44, 120, 0x2104);
+
+  // Duzy zegar HH:MM - wycentrowany
+  char timeStr[16];
+  snprintf(timeStr, sizeof(timeStr), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+  out->setTextSize(6);
+  int timeW = ((int)strlen(timeStr)) * 6 * 6;
+
+  // Cien najpierw (ciemny, z offsetem 2px), potem jasny tekst na wierzchu.
+  out->setTextColor(0x04D0);
+  out->setCursor(cx - timeW / 2 + 2, cy - 48);
+  out->print(timeStr);
+
+  out->setTextColor(0x07FF);  // neonowy cyjan
+  out->setCursor(cx - timeW / 2, cy - 50);
+  out->print(timeStr);
+
+  // Sekundy - mniejsze, ponizej
+  char secStr[8];
+  snprintf(secStr, sizeof(secStr), "%02d", timeinfo.tm_sec);
+  out->setTextSize(2);
+  out->setTextColor(0x4A69);
+  int secW = ((int)strlen(secStr)) * 6 * 2;
+  out->setCursor(cx - secW / 2, cy + 20);
+  out->print(secStr);
+
+  // Data na dole
+  char dateStr[16];
+  snprintf(dateStr, sizeof(dateStr), "%02d.%02d.%04d", timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
+  out->setTextSize(2);
+  int dateW = out->textWidth(dateStr);
+  out->setTextColor(0xFFE0);  // zloty
+  out->setCursor(cx - dateW / 2, cy + 70);
+  out->print(dateStr);
+
+  if (useSprite) {
+    // Jedno pushSprite() = cale klatka naraz, bez migotania.
+    sleepClockSprite.pushSprite(0, 0);
+  }
+}
 
 void enterScreenSleep() {
   if (!screenSleepEnabled || screenSleepActive) return;
+  // Nie usypiaj podczas menu/ustawien - inaczej ekran gashnie uzytkownikowi
+  // w trakcie konfigurowania i nie da sie wygodnie wylaczyc uspienia.
+  if (inMenu || screenSleepMenuActive || brightnessMenuActive) return;
   // Bez dzialajacego dotyku nie ma jak obudzic ekranu - nie usypiamy go,
   // zeby nie zostawic uzytkownika z czarnym ekranem i wlaczonym podswietleniem.
   if (!touchReady) return;
 
-  Serial.println("[SS] USYPIENIE EKRANU (screenSleep) - writeBacklightDuty(0)");
+  Serial.println("[SS] USYPIENIE EKRANU (screenSleep) - delikatne podswietlenie");
   screenSleepActive = true;
   screenSleepPrevScreen = currentScreen;
 
-  // WyĹ‚Ä…cz podĹ›wietlenie
-  writeBacklightDuty(0);
+  // Zamiast pelnego wygaszenia PWM (writeBacklightDuty(0)) zostawiamy
+  // delikatne podswietlenie SCREEN_SLEEP_BACKLIGHT_PERCENT - na srodku ekranu
+  // bedzie sie wyswietlal ladny zegar (rysowany w petli glownej z drawSleepClock).
+  uint32_t sleepDutyMax = (1U << BACKLIGHT_PWM_RES_BITS) - 1U;
+  writeBacklightDuty(((uint32_t)SCREEN_SLEEP_BACKLIGHT_PERCENT * sleepDutyMax) / 100U);
 
-  // WyczyĹ›Ä‡ ekran
+  // Tlo zegara
   tft.fillScreen(TFT_BLACK);
+  drawSleepClock();
 }
 
 void wakeUpFromSleep() {
@@ -23576,6 +26072,26 @@ void loadPreferences() {
   preferences->begin("dxcluster", false);
   yield();
 
+  // Geometria ekranu po pierwszym uruchomieniu nowego firmware: jeśli NVS nie
+  // ma jeszcze klucza tft_pref_v2 (czysty flash / aktualizacja z wersji <1.2e),
+  // zapisujemy fabryczne ustawienia użytkownika, aby boot (również pierwszy)
+  // od razu działał z poprawną orientacją: rotacja 3, inwersja true (normalne
+  // kolory ILI9488), dotyk rotacja 3 + obrót 180° (swap + invert obu osi).
+  if (!preferences->isKey("tft_pref_v2")) {
+    // Orientacja ekranu jak w eksporcie użytkownika (tft_rotation=3,
+    // tft_invert=true, touch_rotation=3, touch_swap_mode="both").
+    preferences->putUChar("tft_rot", 3);
+    preferences->putUChar("touch_rot", 3);
+    preferences->putBool("tft_inv", true);
+    preferences->putBool("touch_swap", false);
+    preferences->putBool("touch_invx", true);
+    preferences->putBool("touch_invy", true);
+    preferences->putBool("tft_pref_v2", true);
+    preferences->end();
+    preferences->begin("dxcluster", false);
+    Serial.println("[TFT] Pierwsze uruchomienie: ustawiono orientację 3 / inwersja true / touch 'both'.");
+  }
+
   // KolejnoĹ›Ä‡ ekranĂłw
   loadDefaultScreenOrder();
   size_t bytesRead = preferences->getBytes("screen_order", screenOrder, sizeof(screenOrder));
@@ -23635,6 +26151,8 @@ void loadPreferences() {
   yield();
   gpsEnabled = preferences->getBool("gps_en", false);
   yield();
+  bleEnabled = preferences->getBool(NVS_KEY_BLE_EN, false);
+  yield();
   uart2ConnectedModule = preferences->getString("uart2_mod", gpsEnabled ? "gps" : "none");
   yield();
   gpsUseForPosition = preferences->getBool("gps_use", false);
@@ -23646,6 +26164,7 @@ void loadPreferences() {
   yield();
   gpsTxPin = preferences->getInt("gps_tx", 17);
   yield();
+  gpsSanitizePins();
   gpsModuleProfile = preferences->getString(NVS_KEY_GPS_PROFILE, "auto");
   gpsModuleProfile.toLowerCase();
   yield();
@@ -23752,11 +26271,10 @@ void loadPreferences() {
     preferences->putBool("tft_panel_br", false);
     Serial.println("[TFT] Wylaczono stale rozjasnienie panelu (gamma/VCOM) - fabryczna krzywa = maksymalny kontrast bieli");
   }
-  // Domyślna inwersja OFF: panel uzytkownika dzialal z OFF (log 08:07 -> 0x20),
-  // a TFT_INVERSION_ON w tft_setup.h wlaczal ja po czystym flash, przez co biale
-  // tlo bootu robilo sie CZARNE (ciemnienie liter). Startuj zawsze z OFF;
-  // uzytkownik moze wlaczyc przez WWW (tft_invert).
-  tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", false));
+  // Inwersja kolorow. Dla paneli ILI9488 wlaczonych przez TFT_INVERSION_ON
+  // wartosc true (0x21) = normalne kolory (czarny ekran), false (0x20) = negatyw.
+  // Domyślnie true, zgodnie z tft_setup.h; uzytkownik moze przełączyc w WWW.
+  tftInvertColors = sanitizeTftInvertSetting(preferences->getBool("tft_inv", true));
   tftLanguage = preferences->getUChar("tft_lang", TFT_LANG_PL);
   if (tftLanguage >= TFT_LANG_COUNT) tftLanguage = TFT_LANG_PL;
   dxTableSizeMode = preferences->getUChar("tft_tbl_size", DX_TABLE_SIZE_NORMAL);
@@ -23793,23 +26311,9 @@ void loadPreferences() {
   }
   clockFontIndex = (uint8_t)preferences->getInt("clock_font", 0);
   if (clockFontIndex > CLOCK_FONT_COUNT) clockFontIndex = 0;
-  // CZYSTO BIAŁA, GRUBA CZCIONKA JAK NA BOOT (08.11.2026): uzytkownik zgłasza
-  // "szare litery" na HAM CLOCK mimo PWM 100% i fabrycznej gamy. Przyczyna:
-  // kolor zegara (clock_color) / znaku (callsign_color) zapisany w NVS jako
-  // jasnoszary ...E73C/itd. LUB czcionka VLW (clock_font>0), ktora przez
-  // antyaliasing wyglada na ciemniejsza niz gruba wbudowana czcionka bootu.
-  // Wymuszamy biel i domyslna czcionke przy KAZDYM starcie (wpis do NVS),
-  // dopoki uzytkownik swiadomie nie zmieni koloru/czcionki po starcie.
-  if (clockDigitsColor != 0xFFFF) {
-    Serial.printf("[BL] clock_color=%d -> wymuszenie 0xFFFF (czysta biel, jak boot)\n", clockDigitsColor);
-    clockDigitsColor = 0xFFFF;
-    preferences->putUInt("clock_color", clockDigitsColor);
-  }
-  if (clockFontIndex != 0) {
-    Serial.printf("[BL] clock_font=%d -> wymuszenie 0 (wbudowana gruba czcionka, jak boot)\n", clockFontIndex);
-    clockFontIndex = 0;
-    preferences->putInt("clock_font", 0);
-  }
+  clockColorMixActive = preferences->getBool("mix_color", false);
+  clockColorMixIndex = 0;
+  clockRainbowActive = preferences->getBool("rainbow_color", false);
   touchXMin = preferences->getInt("touch_xmin", TOUCH_X_MIN);
   touchXMax = preferences->getInt("touch_xmax", TOUCH_X_MAX);
   touchYMin = preferences->getInt("touch_ymin", TOUCH_Y_MIN);
@@ -23906,6 +26410,14 @@ void loadPreferences() {
   if (screenSaverTimeoutMin > 60) screenSaverTimeoutMin = 60;
   screenSaverLastActivityMs = millis();
   screenSaverActive = false;
+
+  // Konfiguracja uspienia ekranu
+  screenSleepEnabled = preferences->getBool("sleep_en", false);
+  screenSleepTimeoutMin = preferences->getInt("sleep_timeout", DEFAULT_SCREEN_SLEEP_TIMEOUT_MIN);
+  if (screenSleepTimeoutMin < 1) screenSleepTimeoutMin = 1;
+  screenSleepMenuTimeoutMin = screenSleepTimeoutMin;
+  screenSleepLastActivityMs = millis();
+  screenSleepActive = false;
   
   // Wczytaj typ wygaszacza
   int savedType = preferences->getInt("saver_type", 0);
@@ -23940,6 +26452,7 @@ void loadPreferences() {
   String aprsSymPref = preferences->getString("aprs_symbol", aprsSymbolTwoChar);
   applyAprsSymbol(aprsSymPref);
   aprsUserComment = preferences->getString("aprs_comment", "");
+  aprsQthName = preferences->getString("aprs_qth", "");
   aprsAlertCsv = sanitizeAprsAlertList(preferences->getString("aprs_alert", ""));
   aprsAlertEnabled = preferences->getBool("aprs_alert_en", true);
   applyAprsAlertMinSeconds(preferences->getInt(NVS_KEY_APRS_ALERT_MIN_SEC, DEFAULT_APRS_ALERT_MIN_SEC));
@@ -23976,7 +26489,15 @@ void loadPreferences() {
   if (weatherIconWindPath.length() == 0) weatherIconWindPath = "/icon50/wiatr.bmp";
   if (weatherAlertWindThresholdMs < 1.0f) weatherAlertWindThresholdMs = 1.0f;
   if (weatherAlertWindThresholdMs > 60.0f) weatherAlertWindThresholdMs = 60.0f;
+  // Tapeta ekranu glownego: zapamietana sciezka + flag wlaczenia.
+  wallpaperEnabled = preferences->getBool(NVS_KEY_WALLPAPER_ENABLED, true);
+  wallpaperPath = preferences->getString(NVS_KEY_WALLPAPER_PATH, "");
+  if (wallpaperPath.length() > 0 && !LittleFS.exists(wallpaperPath)) {
+    wallpaperPath = findWallpaperPath();   // plik usuniety/sprzatniety - znajdz inny
+  }
   applyAprsAlertDistanceKm(preferences->getFloat(NVS_KEY_APRS_ALERT_DISTANCE_KM, DEFAULT_APRS_ALERT_DISTANCE_KM));
+  enableBuzzerAlert = preferences->getBool(NVS_KEY_ENABLE_BUZZER_ALERT, DEFAULT_ENABLE_BUZZER_ALERT);
+  aprsBuzzerNoc = preferences->getBool(NVS_KEY_APRS_BUZZER_NOC, false);
   enableLedAlert = preferences->getBool(NVS_KEY_ENABLE_LED_ALERT, DEFAULT_ENABLE_LED_ALERT);
   applyLedAlertDurationMs(preferences->getInt(NVS_KEY_LED_ALERT_DURATION_MS, DEFAULT_LED_ALERT_DURATION_MS));
   applyLedAlertBlinkMs(preferences->getInt(NVS_KEY_LED_ALERT_BLINK_MS, DEFAULT_LED_ALERT_BLINK_MS));
@@ -23992,6 +26513,8 @@ void loadPreferences() {
   if (alarmDaysMask == 0) alarmDaysMask = 0x7F;
   if (alarmMelody < 0 || alarmMelody >= ALARM_MELODY_COUNT) alarmMelody = 0;
   if (alarmVolume < ALM_VOL_MIN || alarmVolume > ALM_VOL_MAX) alarmVolume = ALM_VOL_DEFAULT;
+  aprsBeepVolume = preferences->getInt("aprs_beep_vol", ALM_VOL_DEFAULT);
+  if (aprsBeepVolume < ALM_VOL_MIN || aprsBeepVolume > ALM_VOL_MAX) aprsBeepVolume = ALM_VOL_DEFAULT;
   resetAprsAlertCooldownState();
   int storedIntervalMin = preferences->getInt(NVS_KEY_APRS_INTERVAL_MIN, DEFAULT_APRS_INTERVAL_MIN);
   applyAprsIntervalMinutes(storedIntervalMin);
@@ -24053,6 +26576,7 @@ void savePreferences() {
   preferences->putInt("timezone", timezoneHours);
   preferences->putBool("dst_auto", autoDst);
   preferences->putBool("gps_en", gpsEnabled);
+  preferences->putBool(NVS_KEY_BLE_EN, bleEnabled);
   preferences->putString("uart2_mod", uart2ConnectedModule);
   preferences->putBool("gps_use", gpsUseForPosition);
   preferences->putInt("gps_baud", gpsBaud);
@@ -24094,6 +26618,8 @@ void savePreferences() {
   preferences->putUInt("callsign_color", callsignColor);
   preferences->putUInt("clock_color", clockDigitsColor);
   preferences->putInt("clock_font", clockFontIndex);
+  preferences->putBool("mix_color", clockColorMixActive);
+  preferences->putBool("rainbow_color", clockRainbowActive);
   preferences->putInt("tft_sw_sec", tftAutoSwitchTimeSec);
   preferences->putInt("touch_xmin", touchXMin);
   preferences->putInt("touch_xmax", touchXMax);
@@ -24151,6 +26677,7 @@ void savePreferences() {
   preferences->putBool("aprs_beacon", aprsBeaconEnabled);
   preferences->putString("aprs_symbol", aprsSymbolTwoChar);
   preferences->putString("aprs_comment", aprsUserComment);
+  preferences->putString("aprs_qth", aprsQthName);
   preferences->putString("aprs_alert", aprsAlertCsv);
   preferences->putBool("aprs_alert_en", aprsAlertEnabled);
   preferences->putInt(NVS_KEY_APRS_ALERT_MIN_SEC, aprsAlertMinSeconds);
@@ -24173,7 +26700,11 @@ void savePreferences() {
   preferences->putString(NVS_KEY_OPENMETEO_URL, openMeteoUrl);
   preferences->putString(NVS_KEY_WX_ICON_STORM, weatherIconStormPath);
   preferences->putString(NVS_KEY_WX_ICON_WIND, weatherIconWindPath);
+  preferences->putBool(NVS_KEY_WALLPAPER_ENABLED, wallpaperEnabled);
+  preferences->putString(NVS_KEY_WALLPAPER_PATH, wallpaperPath);
   preferences->putFloat(NVS_KEY_APRS_ALERT_DISTANCE_KM, aprsAlertDistanceKm);
+  preferences->putBool(NVS_KEY_ENABLE_BUZZER_ALERT, enableBuzzerAlert);
+  preferences->putBool(NVS_KEY_APRS_BUZZER_NOC, aprsBuzzerNoc);
   preferences->putBool(NVS_KEY_ENABLE_LED_ALERT, enableLedAlert);
   preferences->putInt(NVS_KEY_LED_ALERT_DURATION_MS, ledAlertDurationMs);
   preferences->putInt(NVS_KEY_LED_ALERT_BLINK_MS, ledAlertBlinkMs);
@@ -24184,6 +26715,7 @@ void savePreferences() {
   preferences->putInt("alarm_days", (int)alarmDaysMask);
   preferences->putInt("alarm_mel", alarmMelody);
   preferences->putInt("alarm_vol", alarmVolume);
+  preferences->putInt("aprs_beep_vol", aprsBeepVolume);
   preferences->putInt(NVS_KEY_APRS_INTERVAL_MIN, aprsIntervalMinutes);
   // Ograniczenie promienia do 1-50 km przed zapisem
   int radiusToSave = aprsFilterRadius;
@@ -24336,30 +26868,30 @@ String getManualPL() {
   return String(
     "ESP32-HAM-CLOCK v1.2e BETA (06.11.2026)\n"
     "Autor oprogramowania: Tomasz SP9TNV\n"
-    "Na podstawie projektu: Konrad Wisniewski SP3KON (z uĹĽyciem AI)\n"
+    "Na podstawie projektu: Konrad Wisniewski SP3KON (z użyciem AI)\n"
     "Kontakt: SP9TNV@gmail.com\n\n"
-    "Wgrywanie przez przeglÄ…darkÄ™ (ESP Web Tools)\n"
+    "Wgrywanie przez przeglądarkę (ESP Web Tools)\n"
     "- Strona: https://tom50505050.github.io/esp32-ham-clock-s3/flash/\n"
     "- Wymagany Chrome lub Edge (WebSerial).\n"
-    "- Pliki znajdujÄ… siÄ™ w folderze: build\\esp32s3\\\n"
+    "- Pliki znajdują się w folderze: build\\esp32s3\\\n"
     "- Dotyczy: ESP32-S3-WROOM-1 N16R8 (16MB flash, 8MB PSRAM, tablica partycji partitions.csv).\n\n"
     "Wgrywanie:\n"
     "1. bootloader.bin    0x0\n"
     "2. partitions.bin    0x8000\n"
     "3. firmware.bin      0x10000\n"
     "4. littlefs.bin      0x400000\n\n"
-    "Po starcie urzÄ…dzenie tworzy AP: SSID ESP32-HAM-CLOCK, hasĹ‚o 1234567890\n"
-    "(jeĹ›li brak konfiguracji WiFi).\n\n"
+    "Po starcie urządzenie tworzy AP: SSID ESP32-HAM-CLOCK, hasło 1234567890\n"
+    "(jeśli brak konfiguracji WiFi).\n\n"
     "Konfiguracja WWW:\n"
-    "- WejdĹş na /config\n"
-    "- WiFi: dwa zestawy SSID/hasĹ‚o (podstawowe i zapasowe)\n"
-    "- DX Cluster: host/port + opcje filtrĂłw\n"
+    "- Wejdź na /config\n"
+    "- WiFi: dwa zestawy SSID/hasło (podstawowe i zapasowe)\n"
+    "- DX Cluster: host/port + opcje filtrów\n"
     "- POTA: External POTA API Link\n"
-    "- HAMALERT: telnet host, port, login i hasĹ‚o\n"
+    "- HAMALERT: telnet host, port, login i hasło\n"
     "- QRZ.com: username i password\n"
     "- OpenWeather: klucz API\n"
-    "- TFT: jasnoĹ›Ä‡, jÄ™zyk, rozmiar tabel, AUTO-SWITCH\n\n"
-    "WiÄ™cej informacji: https://github.com/Tom50505050/esp32-ham-clock\n"
+    "- TFT: jasność, język, rozmiar tabel, AUTO-SWITCH\n\n"
+    "Więcej informacji: https://github.com/Tom50505050/esp32-ham-clock\n"
   );
 }
 
@@ -24372,8 +26904,7 @@ String getManualPL() {
 //  WWW wysyla plik jako surowe cialo z naglowkami X-Filename i X-Upload-Target.
 // ============================================================================
 static String rawUploadPath = "";       // sciezka docelowa w LittleFS
-static String rawUploadTarget = "";     // "splash"/"welcome"/"mapa"/"wxicon_*"
-static bool   rawUploadIsSplash = false;
+static String rawUploadTarget = "";     // "mapa"/"wallpaper"/"wxicon_*"
 static bool   rawUploadActive = false;
 static bool   uploadNoSpace = false; // brak miejsca -> odpowiedz 507 zamiast 200
 static size_t rawSpaceLeft = 0;      // budzet bajtow na biezacy upload (O(1) kontrola)
@@ -24387,16 +26918,16 @@ static String uploadExtOf(const String &name) {
   return (dot >= 0) ? lc.substring(dot) : String("");
 }
 
-// Zwraca sciezke docelowa lub "" gdy format nieobslugiwany.
-// target: "mapa" -> mapa PSK, "welcome" -> ekran powitalny, inaczej splash.
+// Zwraca sciezke docelowa lub "" gdy format nieobslugiwany albo target nieznany.
 static String resolveUploadTarget(const String &target, const String &fname) {
   String ext = uploadExtOf(fname);
   if (ext != ".bmp" && ext != ".png" && ext != ".jpg" && ext != ".jpeg") return "";
   if (target == "mapa") return String(PSK_MAP_BMP_PATH);
-  if (target == "welcome") return "/welcome" + ext;
+  if (target == "wallpaper") return String("/wall") + ext;
+  if (target == "welcome") return String("/welcome") + ext;
   if (target == "wxicon_storm") return String("/wxicon_storm") + ext;
   if (target == "wxicon_wind") return String("/wxicon_wind") + ext;
-  return "/splash" + ext;
+  return "";
 }
 
 // Usuwa stare warianty ikony alertu pogodowego (rozne rozszerzenia), zeby
@@ -24410,33 +26941,12 @@ static void removeOldWxIconVariants(bool storm) {
   }
 }
 
-// Usuwa stare warianty ekranu startowego (rozne nazwy/rozszerzenia), zeby
-// firmware nie wczytal starego pliku o wyzszym priorytecie.
-static void removeOldSplashVariants() {
-  static const char *oldSplashes[] = {
-    "/splash.png", "/splash.jpg", "/splash.jpeg", "/splash.bmp",
-    "/splash_16bit.bmp", "/splash16.bmp", "/icon50/splash.bmp",
-    "/boot.bmp", "/boot.png", "/logo.bmp", "/logo.png",
-    "/start.bmp", "/start.png"};
-  for (const char *o : oldSplashes) {
-    if (LittleFS.exists(o)) LittleFS.remove(o);
-  }
-}
 
-// Usuwa stare warianty ekranu powitalnego (zastepowanego grafika).
-static void removeOldWelcomeVariants() {
-  static const char *oldWelcome[] = {
-    "/welcome.png", "/welcome.jpg", "/welcome.jpeg", "/welcome.bmp"};
-  for (const char *o : oldWelcome) {
-    if (LittleFS.exists(o)) LittleFS.remove(o);
-  }
-}
 
 static void rawUploadReset() {
   if (rawUploadFile) rawUploadFile.close();
   rawUploadPath = "";
   rawUploadTarget = "";
-  rawUploadIsSplash = false;
   rawUploadActive = false;
   uploadNoSpace = false;
   rawSpaceEnforce = false;
@@ -24457,9 +26967,18 @@ static void rawUploadFinish() {
   } else if (sz > 0 && rawUploadTarget == "wxicon_wind") {
     weatherIconWindPath = rawUploadPath;
     if (preferences) preferences->putString(NVS_KEY_WX_ICON_WIND, weatherIconWindPath);
+  } else if (sz > 0 && rawUploadTarget == "wallpaper") {
+    // Nowa tapeta: wlacz i zapamietaj sciezke (NVS), ekran zegara odswiezy tlo.
+    wallpaperPath = rawUploadPath;
+    wallpaperEnabled = true;
+    if (preferences) {
+      preferences->putBool(NVS_KEY_WALLPAPER_ENABLED, wallpaperEnabled);
+      preferences->putString(NVS_KEY_WALLPAPER_PATH, wallpaperPath);
+    }
+    Serial.printf("[WALL] Upload tapety: %s (%d B) - aktualizuje ekran glownego\n",
+                  wallpaperPath.c_str(), (int)sz);
+    if (currentScreen == SCREEN_HAM_CLOCK) clockMonoGeneration = 0; // wymus pelne przerysowanie
   }
-  // Nie odswiezamy tu ekranu startowego - WWW po uploadzie robi redirect (GET /),
-  // ktory i tak rysuje splash. Odswiezanie tutaj powodowalo miganie ekranu.
   if (currentScreen == SCREEN_PSK_MAP && tftLock(0)) { drawPskMap(); tftUnlock(); }
 }
 
@@ -24470,6 +26989,12 @@ static void rawUploadFinish() {
 // "TypeError: Failed to fetch" zamiast czytelnego bledu braku miejsca.
 static void rawUploadAbortNoSpace(const char *why) {
   Serial.printf("[UPLOAD] Brak miejsca w LittleFS (RAW, %s) - przerywam upload\n", why);
+  // Diagnostyka: realne wolne miejsce i budzet w chwili bledu - pozwala
+  // odroznic fizycznie pelny FS od problemu fragmentacji/BDZ na large files.
+  Serial.printf("[UPLOAD] DIAG: free=%u B (total=%u used=%u), rawSpaceLeft=%u B, plik=%d B\n",
+                (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()),
+                (unsigned)LittleFS.totalBytes(), (unsigned)LittleFS.usedBytes(),
+                (unsigned)rawSpaceLeft, (int)(rawUploadFile ? rawUploadFile.size() : -1));
   String path = rawUploadPath;
   if (rawUploadFile) rawUploadFile.close();
   rawUploadReset();                 // czysci rawUploadActive i uploadNoSpace
@@ -24479,15 +27004,13 @@ static void rawUploadAbortNoSpace(const char *why) {
 
 // Stan uploadu multipart (stara sciezka - zachowana dla kompatybilnosci).
 static String mpUploadPath = "";
-static bool   mpUploadIsSplash = false;
 static bool   mpUploadActive = false;
 
 // Wspolna obsluga uploadu. Rozpoznaje tryb po naglowku Content-Type:
 //  - multipart/form-data -> klasyczna sciezka WebServer::upload()
 //  - cokolwiek innego    -> RAW (surowe cialo wg Content-Length) - szybkie i
 //    niezawodne dla duzych plikow binarnych.
-// targetForced: "mapa", "welcome" lub "splash"; naglowek X-Upload-Target ma
-// pierwszenstwo nad ta wartoscia, a gdy oba puste - domyslnie "splash".
+// targetForced: "mapa"; naglowek X-Upload-Target moze go nadpisac.
 static void handleUpload(const String &targetForced) {
   if (!server) return;
   String ctype = server->header("Content-Type");
@@ -24498,18 +27021,14 @@ static void handleUpload(const String &targetForced) {
       mpUploadActive = false;
       uploadNoSpace = false;
       if (!littleFsReady) return;
-      // Naglowek X-Upload-Target ma pierwszenstwo nad celem wymuszonym przez
-      // trase - inaczej upload na /upload_splash z naglowkiem "splash" trafialby
-      // do celu domyslnego ("welcome").
       String target = server->header("X-Upload-Target");
       if (target.length() == 0) target = targetForced;
-      if (target.length() == 0) target = "splash";
       String path = resolveUploadTarget(target, upload.filename);
       if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format"); return; }
-      if (target == "welcome") removeOldWelcomeVariants();
-      else if (target == "wxicon_storm") removeOldWxIconVariants(true);
+      if (target == "wxicon_storm") removeOldWxIconVariants(true);
       else if (target == "wxicon_wind") removeOldWxIconVariants(false);
-      else if (target != "mapa") removeOldSplashVariants();
+      else if (target == "wallpaper") removeOldWallpaperVariants();
+      else if (target == "welcome") removeOldWelcomeVariants();
       if (target == "mapa") pskMapBgInvalidate();  // nowa mapa - przebuduj tlo w PSRAM
       // Kontrola wolnego miejsca (patrz sciezka RAW): zapis do pelnego LittleFS
       // konczy sie bledem, a w skrajnym przypadku panicem (IntegerDivideByZero)
@@ -24530,7 +27049,6 @@ static void handleUpload(const String &targetForced) {
       if (!f) { Serial.println("[UPLOAD] Nie moge otworzyc pliku"); return; }
       f.close();
       mpUploadPath = path;
-      mpUploadIsSplash = (target != "mapa");
       mpUploadActive = true;
       Serial.printf("[UPLOAD] multipart: %s -> %s\n", upload.filename.c_str(), path.c_str());
     } else if (upload.status == UPLOAD_FILE_WRITE) {
@@ -24541,7 +27059,6 @@ static void handleUpload(const String &targetForced) {
       if (!mpUploadActive) return;
       mpUploadActive = false;
       Serial.printf("[UPLOAD] multipart koniec: %s (%d B)\n", mpUploadPath.c_str(), (int)upload.totalSize);
-      // Splash odswiezy GET / po przekierowaniu (patrz /upload_splash) - bez podwojnego rysowania.
       if (currentScreen == SCREEN_PSK_MAP && tftLock(0)) { drawPskMap(); tftUnlock(); }
     } else if (upload.status == UPLOAD_FILE_ABORTED) {
       mpUploadActive = false;
@@ -24555,17 +27072,16 @@ static void handleUpload(const String &targetForced) {
     rawUploadReset();
     if (!littleFsReady) return;
     String fname = server->header("X-Filename");
-    if (fname.length() == 0) fname = (targetForced == "mapa") ? "Mapa swiata.bmp" : "splash.bmp";
+    if (fname.length() == 0) fname = (targetForced == "mapa") ? "Mapa swiata.bmp" : "grafika.bmp";
     // Naglowek X-Upload-Target ma pierwszenstwo nad celem wymuszonym przez trase.
     String target = server->header("X-Upload-Target");
     if (target.length() == 0) target = targetForced;
-    if (target.length() == 0) target = "splash";
     String path = resolveUploadTarget(target, fname);
     if (path.length() == 0) { Serial.println("[UPLOAD] Nieobslugiwany format (RAW)"); return; }
-    if (target == "welcome") removeOldWelcomeVariants();
-    else if (target == "wxicon_storm") removeOldWxIconVariants(true);
+    if (target == "wxicon_storm") removeOldWxIconVariants(true);
     else if (target == "wxicon_wind") removeOldWxIconVariants(false);
-    else if (target != "mapa") removeOldSplashVariants();
+    else if (target == "wallpaper") removeOldWallpaperVariants();
+    else if (target == "welcome") removeOldWelcomeVariants();
     if (target == "mapa") pskMapBgInvalidate();  // nowa mapa - przebuduj tlo w PSRAM
     // Kontrola wolnego miejsca: zapis do pelnego LittleFS konczy sie bledem, a w
     // skrajnym przypadku panicem (IntegerDivideByZero) w littlefs i restartem ESP.
@@ -24597,7 +27113,6 @@ static void handleUpload(const String &targetForced) {
     if (!rawUploadFile) { Serial.println("[UPLOAD] Nie moge otworzyc pliku (RAW)"); return; }
     rawUploadPath = path;
     rawUploadTarget = target;
-    rawUploadIsSplash = (target != "mapa");
     rawUploadActive = true;
     Serial.printf("[UPLOAD] RAW: %s -> %s\n", fname.c_str(), path.c_str());
   } else if (raw.status == RAW_WRITE) {
@@ -24671,7 +27186,7 @@ static String loggerUploadToQrzLogbook() {
   client.setInsecure();
   HTTPClient http;
   if (!http.begin(client, "https://logbook.qrz.com/api")) return "ERR: HTTP begin";
-  http.setTimeout(15000);
+  http.setTimeout(5000);
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
   String body = "KEY=" + urlEncode(qrzApiKey) + "&ACTION=INSERT&ADIF=" + urlEncode(adif);
   int code = http.POST(body);
@@ -24744,7 +27259,7 @@ static String loggerUploadToHrdLog() {
     String rec = loggerBuildAdifRecord(logbook[i]);
     HTTPClient http;
     if (!http.begin(client, "https://robot.hrdlog.net/newentry.aspx")) { fail++; break; }
-    http.setTimeout(15000);
+    http.setTimeout(5000);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     String body = "Code=" + urlEncode(hrdlogCode) +
                   "&Callsign=" + urlEncode(hrdlogCallsign) +
@@ -24783,7 +27298,7 @@ static String loggerUploadToHamQth() {
     String rec = loggerBuildAdifRecord(logbook[i]);
     HTTPClient http;
     if (!http.begin(client, "https://www.hamqth.com/qso_realtime.php")) { fail++; break; }
-    http.setTimeout(15000);
+    http.setTimeout(5000);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     String body = "u=" + urlEncode(hamqthUser) +
                   "&p=" + urlEncode(hamqthPassword) +
@@ -24824,7 +27339,7 @@ static String loggerUploadToHamLog() {
     String rec = loggerBuildAdifRecord(logbook[i]);
     HTTPClient http;
     if (!http.begin(client, "https://hamlog.online/api/agent/")) { fail++; break; }
-    http.setTimeout(15000);
+    http.setTimeout(5000);
     http.addHeader("Content-Type", "application/json");
     String body = "{\"ADIFADD\":{\"APIKEY\":\"" + hamlogApiKey + "\",\"ADIFDATA\":\"" + jsonEscape(rec) + "\"}}";
     int code = http.POST(body);
@@ -24886,7 +27401,7 @@ static String loggerTestConnection(const String &service) {
     if (qrzApiKey.length() == 0) return "ERR: brak klucza API QRZ";
     HTTPClient http;
     if (!http.begin(client, "https://logbook.qrz.com/api")) return "ERR: HTTP begin";
-    http.setTimeout(15000);
+    http.setTimeout(5000);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     int code = http.POST("KEY=" + urlEncode(qrzApiKey) + "&ACTION=STATUS");
     String resp = (code > 0) ? http.getString() : String("");
@@ -24924,7 +27439,7 @@ static String loggerTestConnection(const String &service) {
       return "ERR: brak danych Club Log";
     HTTPClient http;
     if (!http.begin(client, "https://clublog.org/realtime.php")) return "ERR: HTTP begin";
-    http.setTimeout(15000);
+    http.setTimeout(5000);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     String body = "email=" + urlEncode(clublogEmail) +
                   "&password=" + urlEncode(clublogPassword) +
@@ -24943,7 +27458,7 @@ static String loggerTestConnection(const String &service) {
       return "ERR: brak danych HRDLog";
     HTTPClient http;
     if (!http.begin(client, "https://robot.hrdlog.net/newentry.aspx")) return "ERR: HTTP begin";
-    http.setTimeout(15000);
+    http.setTimeout(5000);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     int code = http.POST("Code=" + urlEncode(hrdlogCode) + "&Callsign=" + urlEncode(hrdlogCallsign) + "&ADIFData=");
     String resp = (code > 0) ? http.getString() : String("");
@@ -24959,7 +27474,7 @@ static String loggerTestConnection(const String &service) {
       return "ERR: brak loginu/hasla HamQTH";
     HTTPClient http;
     if (!http.begin(client, "https://www.hamqth.com/qso_realtime.php")) return "ERR: HTTP begin";
-    http.setTimeout(15000);
+    http.setTimeout(5000);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     int code = http.POST("u=" + urlEncode(hamqthUser) + "&p=" + urlEncode(hamqthPassword) +
                          "&c=" + urlEncode(hamqthCallsign.length() ? hamqthCallsign : hamqthUser) +
@@ -24976,7 +27491,7 @@ static String loggerTestConnection(const String &service) {
     if (hamlogApiKey.length() == 0) return "ERR: brak klucza API HAMLOG";
     HTTPClient http;
     if (!http.begin(client, "https://hamlog.online/api/agent/")) return "ERR: HTTP begin";
-    http.setTimeout(15000);
+    http.setTimeout(5000);
     http.addHeader("Content-Type", "application/json");
     int code = http.POST("{\"KEYSTATUS\":{\"APIKEY\":\"" + hamlogApiKey + "\"}}");
     String resp = (code > 0) ? http.getString() : String("");
@@ -25008,7 +27523,7 @@ static String loggerUploadToClubLog() {
     String rec = loggerBuildAdifRecord(logbook[i]);
     HTTPClient http;
     if (!http.begin(client, "https://clublog.org/realtime.php")) { fail++; break; }
-    http.setTimeout(15000);
+    http.setTimeout(5000);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     String body = "email=" + urlEncode(clublogEmail) +
                   "&password=" + urlEncode(clublogPassword) +
@@ -25287,8 +27802,8 @@ void setupWebServer() {
     html += ".back-btn:hover{background:#0055aa;text-decoration:none;}";
     html += "</style></head><body>";
 
-    html += "<h1>đź“» ESP32-HAM-CLOCK - Instrukcja MontaĹĽu i Wgrania</h1>";
-    html += "<a href='/' class='back-btn'>â† PowrĂłt do gĹ‚Ăłwnej</a>";
+    html += "<h1>📻 ESP32-HAM-CLOCK - Instrukcja Montażu i Wgrania</h1>";
+    html += "<a href='/' class='back-btn'>← Powrót do głównej</a>";
 
     // Sekcja montażu (zaktualizowana dla ESP32-S3 N16R8 + ILI9488 IPS)
     html += "<h2>Montaż - schemat połączeń</h2>";
@@ -25399,17 +27914,17 @@ void setupWebServer() {
 
     html += "<div class='note'><strong>Nie działa touch (XPT2046)</strong><br>Sprawdź: T_CLK (GPIO 12), T_CS (GPIO 15), T_DIN (GPIO 11), T_DO (GPIO 14). T_IRQ (GPIO 16) jest opcjonalny - dotyk działa bez niego (tryb odpytywania).</div>";
 
-    html += "<div class='note'><strong>Odwrócone kolory</strong><br>Panel ILI9488 IPS wymaga inwersji (TFT_INVERSION_ON). Można też przełączyć w panelu konfiguracji.</div>";
+    html += "<div class='note'><strong>Normalne kolory</strong><br>Panel ILI9488 IPS wymaga odwróconej ramki (wartość 1 w ustawieniu), aby ekran nie był w negatywie. W WWW (Kalibracja TFT) ustawienie to nazywa się teraz „Normalne”.</div>";
 
     // Stopka
     html += "<hr style='margin:40px 0;'>";
     html += "<p style='text-align:center;color:#666;'>";
     html += "<strong>ESP32-HAM-CLOCK v1.2e BETA</strong> | Autor oprogramowania: Tomasz SP9TNV<br>";
-    html += "Na podstawie projektu Konrad WiĹ›niewski SP3KON | Licencja: MIT<br>";
+    html += "Na podstawie projektu Konrad Wiśniewski SP3KON | Licencja: MIT<br>";
     html += "<a href='mailto:SP9TNV@gmail.com'>SP9TNV@gmail.com</a>";
     html += "</p>";
 
-    html += "<a href='/' class='back-btn'>â† PowrĂłt do gĹ‚Ăłwnej</a>";
+    html += "<a href='/' class='back-btn'>← Powrót do głównej</a>";
     html += "</body></html>";
 
     server->send(200, "text/html; charset=utf-8", html);
@@ -25730,6 +28245,9 @@ void setupWebServer() {
       userLocator = doc["user_locator"].as<String>();
       // GPS (NMEA po UART2). Klucze tylko nadpisuja, gdy obecne w payloadzie.
       if (doc.containsKey("gps_enabled")) gpsEnabled = doc["gps_enabled"].as<bool>();
+      // BLE UART (ESP32-S3: tylko BLE, brak BT Classic). Wlaczenie bez restartu
+      // startuje serwer NUS w blePoll() (lazy init co 2 s).
+      if (doc.containsKey("ble_enabled")) bleEnabled = doc["ble_enabled"].as<bool>();
       // Wybor modulu z zakladki "Moduly". "gps" wlacza odbior NMEA; inne (TNC/BT)
       // nie sa obslugiwane w tym buildzie, ale zapisujemy wybor, zeby przetrwal restart.
       if (doc.containsKey("uart2_connected_module")) {
@@ -25759,6 +28277,7 @@ void setupWebServer() {
       }
       if (doc["gps_rx_pin"].is<int>()) gpsRxPin = doc["gps_rx_pin"].as<int>();
       if (doc["gps_tx_pin"].is<int>()) gpsTxPin = doc["gps_tx_pin"].as<int>();
+      gpsSanitizePins();
       if (doc["timezone"].is<int>()) {
         timezoneHours = doc["timezone"].as<int>();
         if (timezoneHours < -12) timezoneHours = -12;
@@ -25964,23 +28483,30 @@ void setupWebServer() {
         applyMenuThemeFromHue();
       }
       if (doc["callsign_color"].is<int>()) {
-        // Wymuszenie czystej bieli (08.11.2026): user zgłaszal "szare litery"
-        // majac w NVS kolor zegara/znaku zapisany jako jasnoszary. Dla znaku
-        // tak samo wymuszamy biel na zapis z WWW (mozna zmienic legalnie
-        // tylko przez menu koloru - tam zostaje wlaczona mozliwosc).
-        callsignColor = 0xFFFF;
-        Serial.printf("[BL] callsign_color wymuszony 0xFFFF (czysta biel) z WWW\n");
+        int c = doc["callsign_color"].as<int>();
+        if (c <= 0 || c > 0xFFFF) c = 0xFFFF;  // czarny/niewazny -> bialy
+        callsignColor = (uint16_t)c;
       }
       if (doc["clock_color"].is<int>()) {
-        // Jak wyzej - czysta biel na zapis z WWW.
-        clockDigitsColor = 0xFFFF;
-        Serial.printf("[BL] clock_color wymuszony 0xFFFF (czysta biel) z WWW\n");
+        int c = doc["clock_color"].as<int>();
+        if (c <= 0 || c > 0xFFFF) c = 0xFFFF;
+        clockDigitsColor = (uint16_t)c;
       }
       if (doc["clock_font"].is<int>()) {
-        // Wymuszenie wbudowanej grubej czcionki (0) - VLW z antyaliasingiem
-        // sprawia wrazenie "szarego, cienkiego" tekstu w porownaniu do bootu.
-        clockFontIndex = 0;
-        Serial.printf("[BL] clock_font wymuszony 0 (wbudowana czcionka, jak boot) z WWW\n");
+        int f = doc["clock_font"].as<int>();
+        if (f < 0 || f > CLOCK_FONT_COUNT) f = 0;
+        clockFontIndex = (uint8_t)f;
+      }
+      // Tryby TECZA / MIX KOLOR cyfr zegara. Przycisk w WWW wysyla jawnie
+      // false/true; klucze sa opcjonalne, wiec stary/okrojony payload ich nie
+      // nadpisze. Tryby wzajemnie sie wylaczaja (jak w menu dotykowym TFT).
+      if (doc.containsKey("clock_rainbow")) {
+        clockRainbowActive = doc["clock_rainbow"].as<bool>();
+        if (clockRainbowActive) clockColorMixActive = false;
+      }
+      if (doc.containsKey("clock_mix")) {
+        clockColorMixActive = doc["clock_mix"].as<bool>();
+        if (clockColorMixActive) clockRainbowActive = false;
       }
       
       // Konfiguracja filtrĂ„â€šĹ‚w CC-Cluster
@@ -26024,6 +28550,11 @@ void setupWebServer() {
       }
       if (doc["aprs_comment"].is<String>()) {
         aprsUserComment = sanitizeAprsComment(doc["aprs_comment"].as<String>());
+      }
+      if (doc["aprs_qth"].is<String>()) {
+        aprsQthName = doc["aprs_qth"].as<String>();
+        aprsQthName.trim();
+        if (aprsQthName.length() > 32) aprsQthName = aprsQthName.substring(0, 32);
       }
       if (doc["aprs_tocall"].is<String>()) {
         aprsToCall = sanitizeAprsToCall(doc["aprs_tocall"].as<String>());
@@ -26165,6 +28696,15 @@ void setupWebServer() {
           alertDistanceCandidate = alertDistanceStr.toFloat();
         }
         applyAprsAlertDistanceKm(alertDistanceCandidate);
+      }
+      if (doc["enable_buzzer_alert"].is<bool>()) {
+        enableBuzzerAlert = doc["enable_buzzer_alert"].as<bool>();
+      }
+      // Tryb "Buzzer NOC": gdy wlaczony, kazdy alert gra 1 krotki cichy pip
+      // zamiast melodii (patrz aprsBeepPlayForStation()). Nie wylacza tu
+      // enableBuzzerAlert - dzwiek APRS i tak odpala aprsBeepPlayForStation.
+      if (doc.containsKey("aprs_buzzer_noc")) {
+        aprsBuzzerNoc = doc["aprs_buzzer_noc"].as<bool>();
       }
       if (doc["enable_led_alert"].is<bool>()) {
         enableLedAlert = doc["enable_led_alert"].as<bool>();
@@ -26555,41 +29095,17 @@ void setupWebServer() {
         g_cachedChannel = 0;
         g_haveCachedBssid = false;
       }
-      // Restart TYLKO gdy zmiana wymaga pelnej reinicjalizacji sprzetu: nowa siec
-      // WiFi albo geometria ekranu (rotacja/odwrocenie kolorow). Pozostale
-      // ustawienia (APRS, pogoda, kolory, czasy) dzialaja na zywo - zapis z WWW
-      // nie resetuje juz ESP bez potrzeby.
-      const bool tftGeometryChanged = (tftRotation != prevTftRotation) ||
-                                      (tftInvertColors != prevTftInvert);
-      const bool needRestart = wifiChanged || tftGeometryChanged;
       (void)wifiConfigured;
-      if (needRestart) {
-        server->send(200, "application/json", "{\"status\":\"ok\",\"action\":\"restart\"}");
-        Serial.println("Zapisano konfiguracje wymagajaca restartu. Restart ESP...");
-        requestRestart(1500);
-      } else {
-        // Zmiana serwerow: rozlacz klientow, a petla polaczy ponownie z nowymi
-        // ustawieniami (connectToCluster/Pota/APRS w loop()).
-        if (clusterHost != prevClusterHost) {
-          telnetClient.stop();
-          telnetConnected = false;
-          clusterLoginSent = false;
-          clusterLoginScheduled = false;
-        }
-        if (potaClusterHost != prevPotaHost) {
-          potaTelnetClient.stop();
-          potaTelnetConnected = false;
-          potaLoginSent = false;
-          potaLoginScheduled = false;
-        }
-        if (aprsIsHost != prevAprsHost) {
-          aprsClient.stop();
-          aprsConnected = false;
-          aprsLoginSent = false;
-        }
-        server->send(200, "application/json", "{\"status\":\"ok\",\"action\":\"saved\"}");
-        Serial.println("Zapisano konfiguracje (bez restartu).");
-      }
+      (void)prevTftRotation;
+      (void)prevTftInvert;
+      (void)prevClusterHost;
+      (void)prevPotaHost;
+      (void)prevAprsHost;
+      // Po kazdym zapisie ustawien z WWW restart ESP - wszystkie zmiany
+      // (kalibracja, ekran, czasy itd.) stosowane od czystego startu.
+      server->send(200, "application/json", "{\"status\":\"ok\",\"action\":\"restart\"}");
+      Serial.println("Zapisano konfiguracje. Restart ESP...");
+      requestRestart(1500);
     } else {
       server->send(400, "application/json", "{\"status\":\"error\"}");
     }
@@ -26624,6 +29140,41 @@ void setupWebServer() {
       }
     }
     server->send(bOk ? 200 : 400, "application/json", jsonResp);
+  });
+
+  // API - tryby TECZA / MIX KOLOR cyfr zegara (bez restartu, na zywo).
+  // Zwykly /api/save konczy sie restartem ESP; tutaj zmieniamy tylko tryby
+  // koloru, zeby nie wylaczac zegara na kilka sekund.
+  server->on("/api/clock_modes", HTTP_POST, []() {
+    String body = server->arg("plain");
+    DynamicJsonDocument jd(512);
+    bool ok = false;
+    if (body.length() > 0 && !deserializeJson(jd, body)) {
+      if (jd.containsKey("clock_rainbow")) {
+        clockRainbowActive = jd["clock_rainbow"].as<bool>();
+        if (clockRainbowActive) clockColorMixActive = false;
+        ok = true;
+      }
+      if (jd.containsKey("clock_mix")) {
+        clockColorMixActive = jd["clock_mix"].as<bool>();
+        if (clockColorMixActive) clockRainbowActive = false;
+        ok = true;
+      }
+      if (ok) {
+        savePreferences();
+        clockMonoInvalidate();
+      }
+    }
+    if (ok) {
+      String resp = "{\"status\":\"ok\",\"clock_rainbow\":";
+      resp += clockRainbowActive ? "true" : "false";
+      resp += ",\"clock_mix\":";
+      resp += clockColorMixActive ? "true" : "false";
+      resp += "}";
+      server->send(200, "application/json", resp);
+    } else {
+      server->send(400, "application/json", "{\"status\":\"error\"}");
+    }
   });
 
   // API - resetuj kalibracjÄ™ dotyku do wartoĹ›ci domyĹ›lnych
@@ -26742,6 +29293,7 @@ void setupWebServer() {
     doc["hamalert_password"] = hamalertPassword;
     doc["user_callsign"] = userCallsign;
     doc["user_locator"] = userLocator;
+    doc["aprs_qth"] = aprsQthName;
     doc["timezone"] = timezoneHours;
     doc["dst_auto"] = autoDst;
     doc["user_lat"] = userLat;
@@ -26749,6 +29301,7 @@ void setupWebServer() {
     doc["user_lat_lon_valid"] = userLatLonValid;
     // GPS (NMEA po UART2) + automatyczny lokator Maidenhead
     doc["gps_enabled"] = gpsEnabled;
+    doc["ble_enabled"] = bleEnabled;
     doc["uart2_connected_module"] = uart2ConnectedModule;
     doc["uart2_mode"] = gpsEnabled ? "gps" : "off";
     doc["gps_use_for_position"] = gpsUseForPosition;
@@ -26807,6 +29360,8 @@ void setupWebServer() {
     doc["callsign_color"] = callsignColor;
     doc["clock_color"] = clockDigitsColor;
     doc["clock_font"] = clockFontIndex;
+    doc["clock_rainbow"] = clockRainbowActive;
+    doc["clock_mix"] = clockColorMixActive;
     doc["qrz_status"] = qrzStatus;
     doc["cluster_noann"] = clusterNoAnnouncements;
     doc["cluster_nowwv"] = clusterNoWWV;
@@ -26845,6 +29400,8 @@ void setupWebServer() {
     doc["aprs_alert_min_sec"] = aprsAlertMinSeconds;
     doc["aprs_alert_screen_sec"] = aprsAlertScreenSeconds;
     doc["aprs_alert_distance_km"] = aprsAlertDistanceKm;
+    doc["enable_buzzer_alert"] = enableBuzzerAlert;
+    doc["aprs_buzzer_noc"] = aprsBuzzerNoc;
     doc["enable_led_alert"] = enableLedAlert;
     doc["led_alert_duration_ms"] = ledAlertDurationMs;
     doc["led_alert_blink_ms"] = ledAlertBlinkMs;
@@ -26989,6 +29546,7 @@ void setupWebServer() {
     doc["uart2_mode"] = mode;
     doc["uart2_connected_module"] = uart2ConnectedModule;
     doc["gps_enabled"] = gpsEnabled;
+    doc["ble_enabled"] = bleEnabled;
     doc["gps_active"] = detected;
     doc["gps_fix"] = gpsFix;
     doc["gps_has_position"] = gpsHasPosition;
@@ -27070,35 +29628,6 @@ void setupWebServer() {
     handleUpload("mapa");
   });
   
-  // Znajduje aktualny plik ekranu startowego (dowolne obslugiwane rozszerzenie).
-  // (definiowane jako lambda, uzywana przez /splash_preview ponizej)
-
-  // Upload ekranu startowego (splash) - zachowany dla zakladki Linki.
-  server->on("/upload_splash", HTTP_POST, []() {
-    String accept = server->header("Accept");
-    if (accept.indexOf("text/html") >= 0 && !uploadNoSpace) {
-      server->sendHeader("Location", "/");
-      server->send(303, "text/plain", "uploaded");
-    } else {
-      sendUploadResult("{\"status\":\"ok\",\"message\":\"uploaded\"}");
-    }
-  }, []() {
-    handleUpload("splash");
-  });
-
-  // Upload ekranu powitalnego (zastepuje ekran z wersja/autorami).
-  server->on("/upload_welcome", HTTP_POST, []() {
-    String accept = server->header("Accept");
-    if (accept.indexOf("text/html") >= 0 && !uploadNoSpace) {
-      server->sendHeader("Location", "/");
-      server->send(303, "text/plain", "uploaded");
-    } else {
-      sendUploadResult("{\"status\":\"ok\",\"message\":\"uploaded\"}");
-    }
-  }, []() {
-    handleUpload("welcome");
-  });
-
   // Upload ikony alertu pogodowego (burza/wiatr). Zapisuje /wxicon_storm.<ext>
   // albo /wxicon_wind.<ext> i aktualizuje sciezke w NVS.
   server->on("/upload_wxicon_storm", HTTP_POST, []() {
@@ -27110,6 +29639,76 @@ void setupWebServer() {
     sendUploadResult("{\"status\":\"ok\",\"message\":\"uploaded\"}");
   }, []() {
     handleUpload("wxicon_wind");
+  });
+  // Upload tapety ekranu glownego (BMP/PNG/JPG -> /wall.<ext>). Po udanym
+  // wgraniu wlacza tapete i odswieza ekran zegara.
+  server->on("/upload_wallpaper", HTTP_POST, []() {
+    sendUploadResult("{\"status\":\"ok\",\"message\":\"uploaded\"}");
+  }, []() {
+    handleUpload("wallpaper");
+  });
+
+  // Upload ekranu powitalnego (BMP/PNG/JPG -> /welcome.<ext>). Wywoluje
+  // handleUpload("welcome"); naglowek X-Upload-Target z WWW moze nadpisac cel.
+  server->on("/upload_welcome", HTTP_POST, []() {
+    sendUploadResult("{\"status\":\"ok\",\"message\":\"uploaded\"}");
+  }, []() {
+    handleUpload("welcome");
+  });
+
+  // Podglad wgranego ekranu powitalnego (dla WWW).
+  server->on("/welcome_preview", HTTP_GET, []() {
+    String path = findWelcomePath();
+    if (path.length() > 0 && streamLittleFsFile(path.c_str(), "image/*", 0)) return;
+    server->send(404, "text/plain", "no welcome image");
+  });
+
+  // Usuwa ekran powitalny (przywraca domyslna wiadomosc z autorstwem).
+  server->on("/welcome_clear", HTTP_POST, []() {
+    removeOldWelcomeVariants();
+    server->send(200, "application/json", "{\"status\":\"ok\"}");
+  });
+
+  // Podglad wgranej tapety (dla WWW).
+  server->on("/wallpaper_preview", HTTP_GET, []() {
+    String path = findWallpaperPath();
+    if (path.length() > 0 && streamLittleFsFile(path.c_str(), "image/*", 0)) return;
+    server->send(404, "text/plain", "no wallpaper");
+  });
+
+  // Usuwa tapete (przywraca czarne tlo zegara).
+  server->on("/wallpaper_clear", HTTP_POST, []() {
+    removeOldWallpaperVariants();
+    wallpaperPath = "";
+    wallpaperEnabled = false;
+    if (preferences) {
+      preferences->putBool(NVS_KEY_WALLPAPER_ENABLED, wallpaperEnabled);
+      preferences->putString(NVS_KEY_WALLPAPER_PATH, wallpaperPath);
+    }
+    if (currentScreen == SCREEN_HAM_CLOCK) clockMonoGeneration = 0;
+    server->send(200, "application/json", "{\"status\":\"ok\"}");
+  });
+
+  // Wlacza/wylacza tapete bez usuwania pliku. POST ?enabled=1|0 lub bez
+  // parametru (wowczas przełącza stan na przeciwny - uzywa przycisk WWW).
+  server->on("/wallpaper_toggle", HTTP_POST, []() {
+    if (server->hasArg("enabled")) {
+      wallpaperEnabled = (server->arg("enabled") != "0");
+    } else {
+      wallpaperEnabled = !wallpaperEnabled;
+    }
+    if (wallpaperEnabled) {
+      wallpaperPath = findWallpaperPath();   // odswiez sciezke gdy plik jest
+    } else {
+      wallpaperPath = "";
+    }
+    if (preferences) {
+      preferences->putBool(NVS_KEY_WALLPAPER_ENABLED, wallpaperEnabled);
+      preferences->putString(NVS_KEY_WALLPAPER_PATH, wallpaperPath);
+    }
+    if (currentScreen == SCREEN_HAM_CLOCK) clockMonoGeneration = 0;
+    server->send(200, "application/json", "{\"status\":\"ok\",\"enabled\":" +
+                 String(wallpaperEnabled ? "true" : "false") + "}");
   });
 
   // Podglad ikony alertu pogodowego (WWW). type=storm|wind.
@@ -27141,55 +29740,16 @@ void setupWebServer() {
     server->send(200, "application/json", "{\"status\":\"ok\"}");
   });
 
-  // Podglad wgranej grafiki ekranu powitalnego (dla WWW - zakladka TFT).
-  server->on("/welcome_preview", HTTP_GET, []() {
-    static const char *wcands[] = {
-      "/welcome.png", "/welcome.jpg", "/welcome.jpeg", "/welcome.bmp"};
-    for (const char *c : wcands) {
-      if (LittleFS.exists(c)) {
-        String lc = String(c);
-        lc.toLowerCase();
-        const char *ct = lc.endsWith(".png") ? "image/png"
-                       : lc.endsWith(".bmp") ? "image/bmp" : "image/jpeg";
-        // no-cache: obrazki podmieniane uploadem (URL z ?t= w WWW).
-        if (streamLittleFsFile(c, ct, 0)) return;
-        break;
-      }
-    }
-    server->send(404, "text/plain", "no welcome image");
-  });
-
-  // Podglad aktualnego ekranu startowego (dla WWW - zakladka Linki).
-  server->on("/splash_preview", HTTP_GET, []() {
-    static const char *cands[] = {
-      "/splash.png", "/splash.jpg", "/splash.jpeg", "/splash.bmp",
-      "/splash_16bit.bmp", "/splash16.bmp", "/icon50/splash.bmp",
-      "/boot.bmp", "/boot.png", "/logo.bmp", "/logo.png",
-      "/start.bmp", "/start.png"};
-    for (const char *c : cands) {
-      if (LittleFS.exists(c)) {
-        String lc = String(c);
-        lc.toLowerCase();
-        const char *ct = lc.endsWith(".png") ? "image/png"
-                       : lc.endsWith(".bmp") ? "image/bmp" : "image/jpeg";
-        // no-cache: obrazki podmieniane uploadem (URL z ?t= w WWW).
-        if (streamLittleFsFile(c, ct, 0)) return;
-        break;
-      }
-    }
-    server->send(404, "text/plain", "no splash");
-  });
-
   // Prosty formularz do uploadu mapy
   server->on("/upload", HTTP_GET, []() {
     String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>";
-    html += "<h1>Wgraj nowÄ… mapÄ™ BMP</h1>";
+    html += "<h1>Wgraj nową mapę BMP</h1>";
     html += "<form method='POST' action='/upload/bmp' enctype='multipart/form-data'>";
     html += "<input type='file' name='file' accept='.bmp'><br><br>";
-    html += "<input type='submit' value='Wgraj mapÄ™'>";
+    html += "<input type='submit' value='Wgraj mapę'>";
     html += "</form>";
     html += "<p>Rozmiar: 480x320 px</p>";
-    html += "<p><a href='/'>â† PowrĂłt</a></p>";
+    html += "<p><a href='/'>← Powrót</a></p>";
     html += "</body></html>";
     server->send(200, "text/html; charset=utf-8", html);
   });
@@ -27535,7 +30095,7 @@ String getMainHTML() {
       <div class="row" style="margin-top:8px">
         <div class="field"><label>Min. odstep czasowy (sek)</label><input id="aprs_alert_min_sec" type="number" min="0" max="3600"></div>
         <div class="field"><label>Czas wyswietlania ekranu (sek)</label><input id="aprs_alert_screen_sec" type="number" min="3" max="300"></div>
-        <div class="field"><label>Max dystans alertu (km)</label><input id="aprs_alert_distance_km" type="number" min="1" max="5000"></div>
+        <div class="field"><label>Dystans alertu stacji ruchomych (km)</label><input id="aprs_alert_distance_km" type="number" min="0.1" max="500" step="0.1"></div>
       </div>
     </div>
     <div class="panel">
@@ -27550,7 +30110,11 @@ String getMainHTML() {
       </div>
     </div>
     <div class="panel">
-      <h2>LED Alert</h2>
+      <h2>Alert - LED i buzzer</h2>
+      <div class="row">
+        <label class="check"><input id="enable_buzzer_alert" type="checkbox"> Buzzer alert wlaczony</label>
+        <label class="check"><input id="aprs_buzzer_noc" type="checkbox" onchange="if(this.checked){$('enable_buzzer_alert').checked=false;}"> Buzzer NOC (cichy, 1 pik dla alertow APRS)</label>
+      </div>
       <div class="row">
         <label class="check"><input id="enable_led_alert" type="checkbox"> LED alert wlaczony</label>
       </div>
@@ -27622,7 +30186,7 @@ String getMainHTML() {
         <div class="field"><label>Czcionka zegara (0-14)</label><input id="clock_font" type="number" min="0" max="14"></div>
       </div>
       <div class="row" style="margin-top:8px">
-        <label class="check"><input id="tft_invert" type="checkbox"> Odwrocone kolory TFT</label>
+        <label class="check"><input id="tft_invert" type="checkbox"> Normalne kolory TFT (ekran nie w negatywie)</label>
       </div>
     </div>
     <div class="panel">
@@ -27726,7 +30290,8 @@ String getMainHTML() {
             <option value="11">CN3791</option>
             <option value="12">IP5306</option>
             <option value="13">IP5328</option>
-            <option value="14">Inny / brak</option>
+            <option value="14">MH-CD42</option>
+            <option value="15">Inny / brak</option>
           </select>
         </div>
       </div>
@@ -27803,7 +30368,9 @@ const SCREENS = [
   ['dxcluster','DX Cluster'],['aprsis','APRS-IS'],['aprsradar','APRS Radar'],
   ['weather','Pogoda'],['weatherforecast','Prognoza'],['pota','POTA'],
   ['hamalert','HamAlert'],['pskmap','PSK Map'],['systeminfo','Informacje systemowe'],
-  ['matrix','Matrix'],['iss','ISS'],['off','Wylaczony']
+  ['matrix','Matrix'],['iss','ISS'],['radiosondy','Radiosondy'],
+  ['station','Stacja'],['logger','Logger QSO'],
+  ['off','Wylaczony']
 ];
 const $=id=>document.getElementById(id);
 const val=(id,v)=>{ $(id).value=v??''; };
@@ -27829,7 +30396,7 @@ function getTabKeyword(n){return{dashboard:'pulpit',station:'stacja',services:'u
 
 function buildScreenOrderSelects(){
   const c=$('screenOrderRow'); c.innerHTML='';
-  for(let i=0;i<14;i++){
+  for(let i=0;i<17;i++){
     const d=document.createElement('div'); d.className='field';
     let opts=''; SCREENS.forEach(([v,l])=>{ opts+='<option value="'+v+'">'+l+'</option>'; });
     d.innerHTML='<label>Poz. '+(i+1)+'</label><select id="screen_'+i+'">'+opts+'</select>';
@@ -27891,7 +30458,9 @@ function fillForm(cfg){
   val('aprs_alert_min_sec',cfg.aprs_alert_min_sec);
   val('aprs_alert_screen_sec',cfg.aprs_alert_screen_sec);
   val('aprs_alert_distance_km',cfg.aprs_alert_distance_km);
-  // LED Alert
+  // LED / Buzzer Alert
+  chk('enable_buzzer_alert',cfg.enable_buzzer_alert);
+    chk('aprs_buzzer_noc',cfg.aprs_buzzer_noc);
   chk('enable_led_alert',cfg.enable_led_alert);
   val('led_alert_duration_ms',cfg.led_alert_duration_ms);
   val('led_alert_blink_ms',cfg.led_alert_blink_ms);
@@ -28004,6 +30573,8 @@ function buildFromForm(){
     aprs_alert_min_sec:gint('aprs_alert_min_sec',60),
     aprs_alert_screen_sec:gint('aprs_alert_screen_sec',30),
     aprs_alert_distance_km:parseFloat(gstr('aprs_alert_distance_km'))||100,
+    enable_buzzer_alert:$('enable_buzzer_alert').checked,
+    aprs_buzzer_noc:$('aprs_buzzer_noc').checked,
     enable_led_alert:$('enable_led_alert').checked,
     led_alert_duration_ms:gint('led_alert_duration_ms',5000),
     led_alert_blink_ms:gint('led_alert_blink_ms',250),
@@ -28037,7 +30608,7 @@ function buildFromForm(){
     touch_swap:$('touch_swap').checked,
     touch_invx:$('touch_invx').checked,
     touch_invy:$('touch_invy').checked,
-    screen_order:Array.from({length:14},(_,i)=>{const s=$('screen_'+i);return s?s.value:'off';})
+    screen_order:Array.from({length:17},(_,i)=>{const s=$('screen_'+i);return s?s.value:'off';})
   };
 }
 
@@ -28291,7 +30862,8 @@ void uiTaskLoop(void *parameter) {
         }
       }
 
-      if (aprsAlertDrawPending) {
+      // Nie nadpisuj popupu odpowiedzi nowym alertem (uzytkownik odpowiada).
+      if (aprsAlertDrawPending && !aprsReplyPopupActive) {
         APRSStation pendingStation;
         portENTER_CRITICAL(&aprsAlertPendingMux);
         pendingStation = aprsAlertPendingStation;
@@ -28318,8 +30890,11 @@ void uiTaskLoop(void *parameter) {
       updateGpsScreen();
       handleTouchNavigation();
       
-      // Rysuj wygaszacz gdy jest aktywny
-      if (screenSaverActive && !screenSaverMenuActive && !alarmRingScreenActive) {
+      // Rysuj zegar w trybie uspienia ekranu (ladny zegarek na srodku)
+      // albo wygaszacz, gdy jest aktywny.
+      if (screenSleepActive) {
+        drawSleepClock();
+      } else if (screenSaverActive && !screenSaverMenuActive && !alarmRingScreenActive) {
         drawScreenSaver();
       }
     }
@@ -28339,7 +30914,7 @@ void uiTaskLoop(void *parameter) {
       lastScreenSaverCheckMs = now;
     }
 
-    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !gpsScreenActive && !touchCalActive && !brightnessMenuActive && !callsignColorMenuActive && !clockColorMenuActive && !alarmMenuActive && !qrzPopupActive) {
+    if (tftAutoSwitchEnabled && tftInitialized && !inMenu && !aprsAlertScreenActive && !aprsMsgHistoryActive && !gpsScreenActive && !touchCalActive && !brightnessMenuActive && !callsignColorMenuActive && !clockColorMenuActive && !alarmMenuActive && !qrzPopupActive) {
       unsigned long nowSwitch = millis();
       if (tftAutoSwitchLastMs == 0 || tftAutoSwitchLastScreen != currentScreen) {
         tftAutoSwitchLastMs = nowSwitch;
@@ -28366,7 +30941,7 @@ void uiTaskLoop(void *parameter) {
         lastWifiBarsRefreshMs = now;
         drawWifiBarsQuickUpdate();
       }
-      if (tftInitialized && currentScreen == SCREEN_HAM_CLOCK && !inMenu && !aprsAlertScreenActive && !gpsScreenActive) {
+      if (tftInitialized && currentScreen == SCREEN_HAM_CLOCK && !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive && !gpsScreenActive && !screenSleepActive) {
         if (screen1ClockStyle == 1) {
           updateScreen1ClockClassic();
           updateScreen1HeaderClassic();
@@ -28379,7 +30954,7 @@ void uiTaskLoop(void *parameter) {
         }
       }
 
-      if (tftInitialized && currentScreen == SCREEN_DX_CLUSTER && !inMenu && !aprsAlertScreenActive && !qrzPopupActive) {
+      if (tftInitialized && currentScreen == SCREEN_DX_CLUSTER && !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive && !qrzPopupActive) {
         if (now - lastScreenUpdate > 100) {
           updateScreen2Data();
           lastScreenUpdate = now;
@@ -28392,7 +30967,7 @@ void uiTaskLoop(void *parameter) {
         // }
       }
 
-      if (tftInitialized && currentScreen == SCREEN_POTA_CLUSTER && !inMenu && !aprsAlertScreenActive && !qrzPopupActive) {
+      if (tftInitialized && currentScreen == SCREEN_POTA_CLUSTER && !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive && !qrzPopupActive) {
         if (now - lastScreen7UpdateMs > 200) {
           updateScreen7Data();
           lastScreen7UpdateMs = now;
@@ -28405,7 +30980,7 @@ void uiTaskLoop(void *parameter) {
         }
       }
 
-      if (tftInitialized && currentScreen == SCREEN_HAMALERT_CLUSTER && !inMenu && !aprsAlertScreenActive && !qrzPopupActive) {
+      if (tftInitialized && currentScreen == SCREEN_HAMALERT_CLUSTER && !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive && !qrzPopupActive) {
         if (now - lastScreen8UpdateMs > 200) {
           updateScreen8Data();
           lastScreen8UpdateMs = now;
@@ -28418,21 +30993,41 @@ void uiTaskLoop(void *parameter) {
         }
       }
 
-      if (tftInitialized && (currentScreen == SCREEN_APRS_IS || currentScreen == SCREEN_APRS_RADAR) && !inMenu && !aprsAlertScreenActive) {
+      if (tftInitialized && (currentScreen == SCREEN_APRS_IS || currentScreen == SCREEN_APRS_RADAR) && !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive) {
         if (now - lastScreenUpdate > 100) {
           updateScreen6Data();
           lastScreenUpdate = now;
         }
       }
 
-      if (tftInitialized && currentScreen == SCREEN_SUN_SPOTS && !inMenu && !aprsAlertScreenActive) {
-        if (now - lastScreen3UpdateMs > 1000) {
-          updateScreen3Data();
-          lastScreen3UpdateMs = now;
+      if (tftInitialized && currentScreen == SCREEN_SUN_SPOTS && !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive) {
+        // Mape pobiera task tla (propMapFetchBgTask) - UI sie nie blokuje.
+        if (propMapFetchDone) {
+          propMapFetchDone = false;
+          drawScreen(SCREEN_SUN_SPOTS);   // nowa mapa / blad gotowy do pokazania
+        } else if (propMapFetching && !propMapFetchBusy) {
+          if (!propMapFetchReq && propMapFetchTaskHandle != nullptr) {
+            propMapFetchReq = true;       // popros task tla o pobranie
+          }
+          // Status "LADOWANIE..." - rysuj max co 300 ms (updateScreen3Data
+          // rysuje cale tlo mapy przy zmianie sygnatury i jest dosc drogie).
+          if (now - lastScreen3UpdateMs > 300) {
+            lastScreen3UpdateMs = now;
+            updateScreen3Data();
+          }
+        } else if (propMapReady && (propMapUtcHour != propUtcHour() || propMapRegionUsed != propRegionIndex) &&
+                   propMapFetchTaskHandle != nullptr && !propMapFetchBusy && !propMapFetchReq) {
+          // Zmienila sie godzina UTC albo region (GPS/lokator) - odswiez mape w tle.
+          propMapFetchReq = true;
+        } else {
+          if (now - lastScreen3UpdateMs > 1000) {
+            updateScreen3Data();
+            lastScreen3UpdateMs = now;
+          }
         }
       }
 
-      if (tftInitialized && currentScreen == SCREEN_BAND_INFO && !inMenu && !aprsAlertScreenActive) {
+      if (tftInitialized && currentScreen == SCREEN_BAND_INFO && !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive) {
         if (now - lastScreen4UpdateMs > 1000) {
           updateScreen4Data();
           lastScreen4UpdateMs = now;
@@ -28447,7 +31042,7 @@ void uiTaskLoop(void *parameter) {
 
       if (tftInitialized &&
           (currentScreen == SCREEN_WEATHER_DSP || currentScreen == SCREEN_WEATHER_FORECAST) &&
-          !inMenu && !aprsAlertScreenActive) {
+          !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive) {
         if (now - lastScreen5UpdateMs > 1000) {
           updateScreen5Data();
           lastScreen5UpdateMs = now;
@@ -28464,11 +31059,11 @@ void uiTaskLoop(void *parameter) {
         }
       }
 
-      if (tftInitialized && currentScreen == SCREEN_MATRIX_CLOCK && !inMenu && !aprsAlertScreenActive) {
+      if (tftInitialized && currentScreen == SCREEN_MATRIX_CLOCK && !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive) {
         updateScreen10();
       }
 
-      if (tftInitialized && currentScreen == SCREEN_SYSTEM_INFO && !inMenu && !aprsAlertScreenActive) {
+      if (tftInitialized && currentScreen == SCREEN_SYSTEM_INFO && !inMenu && !aprsMsgHistoryActive && !aprsAlertScreenActive) {
         updateSystemInfo();
       }
 
@@ -28477,7 +31072,7 @@ void uiTaskLoop(void *parameter) {
       // nigdy nie odpalal i ekran zamarzal na danych z chwili wejscia. Wolamy
       // periodycznie, ale tylko gdy minie interwal i nie trwa backoff po 429
       // (inaczej pelne przerysowanie powtarzaloby sie w kolko).
-      if (tftInitialized && currentScreen == SCREEN_PSK_MAP && !inMenu &&
+      if (tftInitialized && currentScreen == SCREEN_PSK_MAP && !inMenu && !aprsMsgHistoryActive &&
           !pskMapMenuOpen && !aprsAlertScreenActive && !pskMqttEnabled &&
           pskAutoRefreshMinutes > 0 && lastPskFetchMs != 0) {
         unsigned long pskIntervalMs = (unsigned long)pskAutoRefreshMinutes * 60UL * 1000UL;
@@ -28497,7 +31092,7 @@ void uiTaskLoop(void *parameter) {
       // Ciezkie fetche (historia 3 MB / LOWCY 1.3 MB) sa przeniesione do
       // osobnego taska (sondeFetchBgTask) - UI nie czeka, wiec dotyk i wyjscie
       // dzialaja. Task ustawia sondeFetchBgDone, tu tylko przerysowujemy.
-      if (tftInitialized && currentScreen == SCREEN_RADIOSONDE && !inMenu &&
+      if (tftInitialized && currentScreen == SCREEN_RADIOSONDE && !inMenu && !aprsMsgHistoryActive &&
           !sondeMenuActive && !sondeDetailActive && !aprsAlertScreenActive &&
           (lastSondeAttemptMs != 0 || sondeHistNeedsFetch || sondeHuntNeedsFetch)) {
         bool hist = (radiosondeMode == "history");
@@ -28577,7 +31172,8 @@ void uiTaskLoop(void *parameter) {
     // (fillScreen + pushSprite 480x320) dotkniecie trafialo w okno, w ktorym
     // XPT2046 nie byl odpytywany.
     if (currentScreen == SCREEN_APRS_RADAR && tftInitialized && !inMenu &&
-        !screenSleepActive && !bootSequenceActive &&
+        !screenSleepActive && !bootSequenceActive && !aprsAlertScreenActive &&
+        !weatherAlertScreenActive && !aprsReplyPopupActive &&
         (millis() - screenSleepLastActivityMs) > 500) {
       static unsigned long lastAprsRadarTickMs = 0;
       if (now - lastAprsRadarTickMs >= 100) {
@@ -28685,7 +31281,10 @@ bool fetchPskReporterData() {
 
   // Wybierz klienta na podstawie protokołu HTTP/HTTPS
   bool useHttps = url.startsWith("https://");
-  http.setTimeout(15000);
+  // Krotki timeout: fetchPskReporterData() jest wolany z UI_Task (dotyk mapy,
+  // auto-refresh). Z 15 s pojedyncze zapytanie moglo "zamrazac" ekran na wiele
+  // sekund, gdy API/siecenia zwalnialo. PSKReporter zwykle odpowiada w <2 s.
+  http.setTimeout(5000);
   if (useHttps) {
     pskSecureClient.setInsecure();
     http.begin(pskSecureClient, url);
@@ -29960,7 +32559,7 @@ bool fetchIssTLE() {
   for (int i = 0; i < 2 && !got; i++) {
     HTTPClient http;
     http.begin(client, textUrls[i]);
-    http.setTimeout(10000);
+    http.setTimeout(4000);
     http.addHeader("User-Agent", "ESP32-HAM-CLOCK/1.2 (TLE fetch)");
     int code = http.GET();
     if (code == 200) {
@@ -29982,7 +32581,7 @@ bool fetchIssTLE() {
   if (!got) {
     HTTPClient http;
     http.begin(client, "https://db.satnogs.org/api/tle/?norad_cat_id=25544");
-    http.setTimeout(10000);
+    http.setTimeout(4000);
     int code = http.GET();
     if (code == 200) {
       DynamicJsonDocument filter(256);
@@ -30220,7 +32819,7 @@ static void fetchIssVisualPassesFromN2yo() {
                String(userLatLocal, 4) + "/" + String(userLonLocal, 4) + "/0/2/0/" +
                "&apiKey=" + n2yoApiKey;
   http.begin(client, url);
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   int httpCode = http.GET();
   if (httpCode != 200) {
     Serial.printf("[ISS PASS n2yo] visualpasses HTTP kod: %d\n", httpCode);
@@ -30298,7 +32897,7 @@ bool fetchIssNextPassFromN2yo() {
                String(userLatLocal, 4) + "/" + String(userLonLocal, 4) + "/0/2/5/" +
                "&apiKey=" + n2yoApiKey;
   http.begin(client, url);
-  http.setTimeout(10000);
+  http.setTimeout(4000);
   int httpCode = http.GET();
 
   bool ok = false;
@@ -30540,7 +33139,7 @@ void fetchIssData() {
   // Jesli klucz n2yo jest dostepny, uzyj ich API do pozycji ISS
   if (n2yoApiKey.length() > 0) {
     HTTPClient http;
-    http.setTimeout(10000);
+    http.setTimeout(4000);
     String url = "https://api.n2yo.com/rest/v1/satellite/positions/25544/" +
                  String(userLatLocal, 4) + "/" + String(userLonLocal, 4) + "/0/1/&apiKey=" + n2yoApiKey;
     Serial.printf("[ISS] Pobieram pozycje z n2yo.com...\n");
@@ -30571,7 +33170,7 @@ void fetchIssData() {
   // Fallback na wheretheiss.at jesli n2yo nie dal pozycji
   if (!gotPosition) {
     HTTPClient http;
-    http.setTimeout(10000);
+    http.setTimeout(4000);
     http.begin(issSecureClient, "https://api.wheretheiss.at/v1/satellites/25544");
     int httpCode = http.GET();
     if (httpCode == 200) {
@@ -33060,6 +35659,44 @@ void setupPskMqtt() {
 
 // ========== SETUP & LOOP ==========
 
+// Alokuje duze, stale tablice spotow/sond w PSRAM (8 MB) zeby nie obciazac
+// wewnetrznej DRAM (~62 KB), ktora jest krotka na WiFi/TLS/web server.
+// Fallback: jesli PSRAM niedostepny/alokacja nie powiedzie, robimy malloc
+// (DRAM) - dziala, ale mniej pamieci dla stack'ow i TLS.
+static void initBigBuffers() {
+  struct Buf { void **ptr; size_t bytes; const char *name; };
+  const Buf bufs[] = {
+    { (void**)&pskSpots,       sizeof(PskSpot) * PSK_MAX_SPOTS,             "pskSpots" },
+    { (void**)&spots,          sizeof(DXSpot) * MAX_SPOTS,                  "spots" },
+    { (void**)&potaSpots,      sizeof(DXSpot) * MAX_POTA_SPOTS,             "potaSpots" },
+    { (void**)&hamalertSpots,  sizeof(DXSpot) * MAX_POTA_SPOTS,             "hamalertSpots" },
+    { (void**)&sondeSpots,     sizeof(SondeSpot) * SONDE_MAX_FETCH,         "sondeSpots" },
+    { (void**)&sondeHunters,   sizeof(SondeHunter) * SONDE_MAX_HUNTERS,     "sondeHunters" },
+    { (void**)&sondeHist,      sizeof(SondeHistFlight) * SONDE_HIST_MAX_SONDES, "sondeHist" },
+  };
+  size_t totalPsram = 0, totalDram = 0;
+  for (const Buf &b : bufs) {
+    void *p = heap_caps_malloc(b.bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (p) {
+      memset(p, 0, b.bytes);
+      *b.ptr = p;
+      totalPsram += b.bytes;
+      continue;
+    }
+    // Fallback do DRAM (zasilanie bez PSRAM / alokacja sie nie powiodla).
+    p = calloc(1, b.bytes);
+    if (!p) {
+      Serial.printf("[RAM] BLAD: nie mozna zaalokowac %s (%d B)!\n", b.name, (int)b.bytes);
+      continue;
+    }
+    *b.ptr = p;
+    totalDram += b.bytes;
+    Serial.printf("[RAM] %s: brak PSRAM - fallback DRAM (%d B)\n", b.name, (int)b.bytes);
+  }
+  Serial.printf("[RAM] Tablice spotow/sond: %d B PSRAM + %d B DRAM (fallback)\n",
+                (int)totalPsram, (int)totalDram);
+}
+
 void setup() {
   // Najpierw inicjalizacja Serial dla diagnostyki
   Serial.begin(115200);
@@ -33099,6 +35736,8 @@ void setup() {
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   #endif
   
+  // Duze tablice spotow/sond przenosimy do PSRAM (oszczedza DRAM na WiFi/TLS).
+  initBigBuffers();
   // Zapisz czas startu systemu
   bootTimeMs = millis();
   
@@ -33141,6 +35780,11 @@ void setup() {
     pskMqttBufferMutex = xSemaphoreCreateMutex();
   }
 
+  // Mutex na bufor mapy propagacji (task tla dekoduje, UI_Task rysuje).
+  if (propMapMux == nullptr) {
+    propMapMux = xSemaphoreCreateMutex();
+  }
+
   // Mutex serializujacy dostep do TFT/SPI. TFT_eSPI nie jest bezpieczny
   // watkowo (wspolna flaga 'locked' + jeden mutex SPI), a po TFT rysuja DWA
   // zadania: UI_Task (rdzen 1, prio 2) i loopTask (rdzen 1, prio 1). Bez tego
@@ -33169,7 +35813,7 @@ void setup() {
   batteryVoltage = readBatteryVoltage();
   if (batteryVoltage < 1.0f) { batteryVoltage = 0.0f; }  // brak akumulatora/dzielnika
   batteryPercentage = calculateBatteryPercentage(batteryVoltage);
-  batteryCharging = (batteryVoltage > 4.08f);
+  batteryCharging = (batteryVoltage > 3.9f);
   Serial.printf("[BATTERY] Init: %.3fV (%d%%) cal=%.4f off=%.3f %s\n",
                 batteryVoltage, batteryPercentage, batteryDividerCal, batteryVoltOffset,
                 batteryCharging ? "[CHARGING]" : "");
@@ -33247,11 +35891,9 @@ void setup() {
     Serial.printf("[PWR] LittleFS listing done: %.2f V\n", readBatteryVoltage());
 #endif
 #ifdef TFT_BOOT_VERBOSE
-    bool splashExists = LittleFS.exists("/splash.bmp");
     bool indexExists = LittleFS.exists("/index.html");
     bool mapaExists = LittleFS.exists("/mapa.bmp");
     bool pskMapExists = LittleFS.exists("/Mapa swiata.bmp");
-    Serial.printf("[LittleFS] /splash.bmp: %s\n", splashExists ? "YES" : "NO");
     Serial.printf("[LittleFS] /index.html: %s\n", indexExists ? "YES" : "NO");
     Serial.printf("[LittleFS] /mapa.bmp: %s\n", mapaExists ? "YES" : "NO");
     Serial.printf("[LittleFS] /Mapa swiata.bmp: %s\n", pskMapExists ? "YES" : "NO");
@@ -33262,7 +35904,27 @@ void setup() {
   bootLogLine("");
   bootLogLine("ESP32 DX Cluster Receiver");
   bootLogLine("==============================");
-  
+
+  // DIAGNOSTYKA: powod ostatniego resetu - pozwala odroznic brownout/panic/
+  // watchdog (restart w petli) od zwyklego resetu. Odczyt, nie zapisuje NVS.
+  {
+    const char* rstName = "UNKNOWN";
+    switch (esp_reset_reason()) {
+      case ESP_RST_POWERON:  rstName = "POWERON";  break;
+      case ESP_RST_EXT:      rstName = "EXT_PIN";  break;
+      case ESP_RST_SW:       rstName = "SW_RESTART"; break;
+      case ESP_RST_PANIC:    rstName = "PANIC";    break;
+      case ESP_RST_INT_WDT:  rstName = "INT_WDT";  break;
+      case ESP_RST_TASK_WDT: rstName = "TASK_WDT"; break;
+      case ESP_RST_WDT:      rstName = "WDT";      break;
+      case ESP_RST_DEEPSLEEP:rstName = "DEEPSLEEP";break;
+      case ESP_RST_BROWNOUT: rstName = "BROWNOUT"; break;
+      case ESP_RST_SDIO:     rstName = "SDIO";     break;
+      default:               rstName = "UNKNOWN";  break;
+    }
+    bootLogLine("Reset: " + String(rstName));
+  }
+
   // DIAGNOSTYKA: SprawdĹş czy ENABLE_TFT_DISPLAY jest zdefiniowane
 #ifdef ENABLE_TFT_DISPLAY
   bootLogLine("ENABLE_TFT_DISPLAY - init TFT");
@@ -33278,6 +35940,8 @@ void setup() {
 #endif
   bootLogLine("LittleFS ready: " + String(littleFsReady ? "YES" : "NO"));
   loadPreferences();
+  // Start BLE UART (jeśli włączone w NVS "ble_en") po wczytaniu ustawień.
+  bleInit();
 #ifdef BATTERY_MONITORING_ENABLED
   Serial.printf("[PWR] Napiecie po Config load: %.2f V\n", readBatteryVoltage());
 #endif
@@ -33363,6 +36027,10 @@ void setup() {
     if (connectToWiFi()) {
       bootLogLine("WiFi connected!");
       yield();
+      // AP rownolegly do STA: http://192.168.4.1 dziala zawsze, nawet gdy
+      // telefon ma polaczenie z domowa siecia (router z izolacja klientow).
+      startConcurrentAP();
+      yield();
       updateNTPTime();
       yield();
       connectToCluster();
@@ -33407,55 +36075,19 @@ void setup() {
   String ipStr = wifiConnected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   bootLogLine("IP: " + ipStr);
   
-  // Aktualizuj wyĹ›wietlacz TFT (ekran startowy)
+  // Ekran powitalny: domyslna wiadomosc (tytul/grafika/autorstwo) albo wlasna
+  // grafika /welcome.<ext> wgrana przez WWW. Czeka ~4 s albo do dotkniecia.
 #ifdef ENABLE_TFT_DISPLAY
-  // Ekran powitalny (czarny ekran, bialy tekst) - krotko, dotyk pomija.
-  // Bylo 20 s: dlugi postoj na boot logu, gdy podswietlenie chwilowo siada
-  // przy odczycie flasha, wiec skrocono do 3 s.
-  drawWelcomeScreenYellow();
-  unsigned long welcomeStart = millis();
-  while ((millis() - welcomeStart) < 3000) {
-    uint16_t tx, ty;
-    if (readTouchPoint(tx, ty)) {
-      break;
-    }
-    delay(50);
-  }
-
-  // Ekran splash SP9TNV z opcjÄ… pominiÄ™cia - wyĹ›wietla siÄ™ PO ekranie powitalnym
-  drawSplashScreen();
-  
-  // PokaĹĽ ikonÄ™ baterii od razu na ekranie splash
-#ifdef BATTERY_MONITORING_ENABLED
-  drawBatteryQuickUpdate(true);
-#endif
-  
-  // Czekaj na dotyk lub timeout (3 s, bylo 10 s)
-  unsigned long splashStart = millis();
-  bool splashSkipped = false;
-  unsigned long lastBatteryUpdate = 0;
-  while (!splashSkipped && (millis() - splashStart) < 3000) {
-    uint16_t tx, ty;
-    if (readTouchPoint(tx, ty)) {
-      splashSkipped = true;
-    }
-    // OdĹ›wieĹĽaj ikonÄ™ baterii co 1 sekundÄ™ podczas czekania
-    unsigned long now = millis();
-    if (now - lastBatteryUpdate >= 1000) {
-      lastBatteryUpdate = now;
-      updateBatteryStatus();
-      drawBatteryQuickUpdate(true);
-    }
-    delay(50);
-  }
-  // OdĹ›wieĹĽaj ikonÄ™ baterii co 1 sekundÄ™ podczas czekania
-  unsigned long now = millis();
-  if (now - lastBatteryUpdate >= 1000) {
-    lastBatteryUpdate = now;
-    updateBatteryStatus();
-    drawBatteryQuickUpdate(true);
-  }
   delay(50);
+  drawWelcomeScreenYellow();
+  {
+    unsigned long welcomeStart = millis();
+    while ((millis() - welcomeStart) < 4000) {
+      uint16_t tx, ty;
+      if (readTouchPoint(tx, ty)) break;
+      delay(20);
+    }
+  }
   bootSequenceActive = false;
   // Boot zakonczony: teraz dopiero wchodzi jasnosc docelowa (z nocnym
   // obnizeniem, jesli aktywne). Podczas bootu PWM byl wymuszony na 100%.
@@ -33497,6 +36129,20 @@ void setup() {
         0                       // Core 0 (UI_Task jest na Core 1)
       );
     }
+
+    // Zadanie tla pobierania mapy propagacji - tez poza UI_Task (TLS + PNG),
+    // zeby przyciski odpowiadaly natychmiast, a mapa ladowala sie w tle.
+    if (propMapFetchTaskHandle == nullptr) {
+      xTaskCreatePinnedToCore(
+        propMapFetchBgTask,
+        "PropMapFetch_Task",
+        24576,                  // HTTPS + TLS (WiFiClientSecure na stosie) + pngle
+        nullptr,
+        1,                      // nizszy priorytet niz UI_Task
+        &propMapFetchTaskHandle,
+        0                       // Core 0 (UI_Task jest na Core 1)
+      );
+    }
   }
 #endif
 }
@@ -33510,6 +36156,9 @@ void loop() {
   
   // Feed watchdog
   yield();
+
+  // BLE UART - poll (lazy init po wlaczeniu w WWW, jesli jeszcze nie wystartowal).
+  blePoll();
 
   // W trybie AP co 3 s odswiez banner z SSID/haslem/IP (takze po wyjsciu z menu).
   static unsigned long lastApBannerMs = 0;
@@ -33561,12 +36210,13 @@ void loop() {
     wifiConnected = true;
     Serial.print("STA poĹ‚Ä…czoneĂ˘â‚¬Â¦czone. IP: ");
     Serial.println(WiFi.localIP());
-    // JeĹĽeli wczeĹ›niej byĹ‚ uruchomiony AP do konfiguracji, wyĹ‚Ä…cz go po udanym poĹ‚Ä…czeniu STA,
-    // ĹĽeby nie robiÄ‡ wraĹĽenia "zwiechy" (klient AP traci link przy przeĹ‚Ä…czeniu kanaĹ‚u).
-    if (WiFi.getMode() & WIFI_AP) {
-      Serial.println("WyĹ‚Ä…czam AP (portal) po poĹ‚Ä…czeniu STA. UĹĽyj IP z sieci domowej.");
-      WiFi.softAPdisconnect(true);
-      WiFi.mode(WIFI_STA);
+    // AP rownolegly do STA (WIFI_AP_STA): http://192.168.4.1 jest dostepny
+    // zawsze (bezposrednio z telefonu), a internet/APRS/mapa ida przez STA.
+    if (!(WiFi.getMode() & WIFI_AP)) {
+      WiFi.mode(WIFI_AP_STA);
+      startConcurrentAP();
+    } else {
+      WiFi.mode(WIFI_AP_STA);
     }
     
 

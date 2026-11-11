@@ -743,3 +743,160 @@ h3 { color: var(--text); margin-top: 22px; margin-bottom: 10px; border-top: 1px 
 .sat-metric.hl .metric-ico { color: var(--accent-2); }
 .sat-metric.warn .metric-ico { color: var(--warn); }
 
+/* ---------- Przełącznik motywu jasny / ciemny ---------- */
+.theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    margin-left: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dim);
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.14s;
+}
+
+.theme-toggle:hover {
+    background: var(--bg-3);
+    color: var(--text);
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+}
+
+/* ---------- Motyw jasny ---------- */
+body.theme-light {
+    --bg-0: #f4f7fb;
+    --bg-1: #e9eef6;
+    --bg-2: #dfe7f1;
+    --bg-3: #d3deec;
+    --surface: rgba(255, 255, 255, 0.82);
+    --surface-solid: #ffffff;
+    --border: rgba(20, 50, 90, 0.16);
+    --border-strong: rgba(20, 60, 110, 0.30);
+    --text: #14202e;
+    --text-dim: #42536a;
+    --text-faint: #6b7c92;
+    --accent: #0e9a86;
+    --accent-2: #2f7fd6;
+    --accent-3: #8a5bd6;
+    --warn: #b97a08;
+    --bad: #d64545;
+    --good: #1fa34f;
+    --shadow: 0 10px 30px rgba(30, 50, 80, 0.18);
+    --shadow-soft: 0 4px 14px rgba(30, 50, 80, 0.12);
+    --glow: 0 0 0 1px rgba(14, 154, 134, 0.25), 0 0 22px rgba(14, 154, 134, 0.16);
+
+    /* Twarde motywy, których zmienne nie obejmują */
+    background:
+        radial-gradient(1200px 600px at 12% -8%, rgba(14, 154, 134, 0.08), transparent 60%),
+        radial-gradient(1000px 520px at 88% 4%, rgba(47, 127, 214, 0.08), transparent 55%),
+        linear-gradient(180deg, var(--bg-0), var(--bg-1) 40%, var(--bg-0));
+    background-attachment: fixed;
+}
+
+body.theme-light .nav {
+    background: linear-gradient(180deg, rgba(244, 247, 251, 0.94), rgba(233, 238, 246, 0.72));
+}
+
+body.theme-light .nav-btn.active {
+    background: linear-gradient(135deg, rgba(14, 154, 134, 0.18), rgba(47, 127, 214, 0.16));
+    color: #0a2233;
+    border-color: rgba(14, 154, 134, 0.5);
+}
+
+body.theme-light .nav-btn.active .nav-ico svg { stroke: #0a2233; }
+
+body.theme-light input, body.theme-light textarea, body.theme-light select {
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--text);
+}
+
+body.theme-light input:focus, body.theme-light textarea:focus, body.theme-light select:focus {
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(14, 154, 134, 0.15);
+}
+
+body.theme-light tbody tr:nth-child(even) { background: rgba(20, 50, 90, 0.04); }
+body.theme-light tbody tr:hover { background: rgba(14, 154, 134, 0.06); }
+
+body.theme-light .save-btn {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #ffffff;
+}
+
+body.theme-light .github-flasher-box {
+    border-color: rgba(14, 154, 134, 0.3);
+    background: rgba(14, 154, 134, 0.06);
+}
+
+body.theme-light .pota-raw-json {
+    background: rgba(255, 255, 255, 0.85);
+    color: #0d5c40;
+}
+
+body.theme-light .sat-map-canvas {
+    background: radial-gradient(120% 140% at 50% 0%, #bfd4ec 0%, #dbe7f5 70%);
+}
+
+body.theme-light .sat-pass {
+    background: linear-gradient(135deg, rgba(14, 154, 134, 0.12), rgba(47, 127, 214, 0.10));
+    border: 1px solid rgba(14, 154, 134, 0.28);
+}
+
+/* Jasny motyw: mobilna "skórka urządzenia" (twarde kolory w style.mobile.css) */
+body.theme-light .dx-mobile-shell {
+    border-color: var(--border-strong);
+    background: var(--surface-solid);
+    box-shadow: var(--shadow-soft);
+}
+
+body.theme-light .dx-mobile-shell .cyd-container {
+    background: var(--bg-1);
+}
+
+body.theme-light .dx-mobile-shell table {
+    background: var(--bg-2);
+}
+
+body.theme-light .dx-mobile-shell table thead th {
+    background: var(--bg-3);
+    color: var(--text);
+}
+
+body.theme-light .dx-mobile-shell .btn {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text-dim);
+}
+
+body.theme-light .dx-mobile-shell .btn.active {
+    background: var(--bg-3);
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+body.theme-light .dx-mobile-shell .status {
+    background: var(--bg-2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+}
+
+body.theme-light .propagation-mobile-shell .prop-metrics-table tr { background: var(--bg-2); }
+body.theme-light .propagation-mobile-shell .prop-metrics-table tr:nth-child(even) { background: var(--bg-3); }
+body.theme-light .propagation-mobile-shell .prop-metrics-table th,
+body.theme-light .propagation-mobile-shell .prop-metrics-table td {
+    background: var(--bg-2);
+    border-color: var(--border);
+}
+
+body.theme-light .dx-mobile-shell .dx-panel-title {
+    color: #ffffff;
+    border-color: var(--border-strong);
+}
+

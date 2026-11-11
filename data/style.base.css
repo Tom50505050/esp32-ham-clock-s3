@@ -55,11 +55,6 @@ body {
     background: #0e1a0e;
 }
 
-.splash-upload-box {
-    border-color: #2a2f45;
-    background: #0e111e;
-}
-
 .download-bar {
     display: flex;
     align-items: center;
@@ -91,46 +86,6 @@ body {
 
 .download-bar-btn:hover {
     background: #7fe3ff;
-}
-
-.splash-preview-wrap {
-    margin: 8px 0;
-    text-align: center;
-}
-
-.splash-preview {
-    max-width: 100%;
-    width: 320px;
-    image-rendering: auto;
-    border: 1px solid #2e2e2e;
-    border-radius: 6px;
-    background: #000;
-}
-
-.splash-file-input {
-    display: block;
-    margin: 8px 0;
-    color: #c0c0c0;
-    font-size: 13px;
-}
-
-.splash-upload-btn {
-    padding: 10px 22px;
-    background: #1c2f4a;
-    border: 1px solid #2f4a6e;
-    color: #dff0ff;
-    border-radius: 6px;
-    font-size: 14px;
-    cursor: pointer;
-}
-
-.splash-upload-btn:hover {
-    background: #26405f;
-}
-
-.splash-upload-btn:disabled {
-    opacity: 0.55;
-    cursor: default;
 }
 
 .github-release-text {

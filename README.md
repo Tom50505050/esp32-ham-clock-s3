@@ -33,7 +33,7 @@ zaadaptowany oraz rozbudowany przez **Tomasza SP9TNV** (z użyciem AI).
   Satelity / Propagacja / ALERT / Ekran TFT / Ustawienia / Moduły / Instrukcja / Linki,
   z ikonami SVG i responsywnym układem.
 - **Dekodery obrazów**: BMP (24/16-bit), **PNG (pngle)**, **JPG (TJpg_Decoder)** —
-  pełnoekranowy splash 480×320 oraz przesłanianie plakatu przez WWW.
+  plakaty/ikony pogodowe oraz przesłanianie plakatu przez WWW.
 - **Moduły zewnętrzne**: GPS, APRS TNC2 / TNC-KISS, ESP32-BRIDGE (Bluetooth SPP).
 - Konfiguracja **dotyku** (rotacja, zamiana osi, inwersje) i **TFT** (rotacja,
   jasność, nocne ściemnianie) online, bez rekompilacji.
@@ -71,7 +71,7 @@ zaadaptowany oraz rozbudowany przez **Tomasza SP9TNV** (z użyciem AI).
 ```bash
 pio run -e esp32-s3-n16r8                 # build
 pio run -e esp32-s3-n16r8 -t upload       # firmware
-pio run -e esp32-s3-n16r8 -t uploadfs     # dane (LittleFS: index.html, splash.bmp, mapa.bmp)
+pio run -e esp32-s3-n16r8 -t uploadfs     # dane (LittleFS: index.html, mapa.bmp)
 pio device monitor                        # logi
 ```
 
@@ -106,7 +106,7 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 | Wersja | Data | Najważniejsze zmiany |
 |---|---|---|
-| **v1.2e BETA** | 06.11.2026 | **Naprawa migotania cyfr zegara** (wszystkie 15 czcionek): rysowanie tylko **zmienionych komórek** (dirty cells, ~67% mniej pikseli na SPI), **stały pionowy offset atramentu** (`clockTimeInkOffset()`, koniec drgania 1 px), guard przerysowania w klasycznym zegarze |
+| **v1.2e-beta** | 06.11.2026 | **Naprawa migotania cyfr zegara** (wszystkie 15 czcionek): rysowanie tylko **zmienionych komórek** (dirty cells, ~67% mniej pikseli na SPI), **stały pionowy offset atramentu** (`clockTimeInkOffset()`, koniec drgania 1 px), guard przerysowania w klasycznym zegarze |
 | **v1.2c** | 18.10.2026 | **Naprawa PSK MQTT**: zmiana pasma/trybu nie ściągała spotów (filtr subskrypcji 6-segmentowy → `.../<pasmo>/<tryb>/#`) · mapowanie pasm **160/30/17/12 m** (HTTP i MQTT) · poprawka indeksu odbiorcy (5→6) · czyszczenie spotów po zapisie filtra · **ikona baterii 12 px w lewo** na wszystkich ekranach · synchronizacja `tools/render_header_preview.py` |
 | **v1.2b** | 17.10.2026 | **Nagłówek**: ikona **GPS po lewej** stronie (za godziną) · ikona **baterii na wszystkich ekranach** · wspólny `drawHeaderTime()` · Nowe ekrany: **STACJA** (15.) i **ESP32 HAM LOGGER** (16., dziennik ADIF: formularz QSO, klawiatura, tabela ostatnich łączności, SAVE QSO/CLEAR/EXPORT ADIF/SETTINGS, log w **PSRAM** + zapis **plik tymczasowy + rename**, autouzupełnianie NAME/QTH z **QRZ.com → HamDB → callook**, eksport **`/qso.adi`**, endpoint **`/api/qrz_upload`**) · STACJA: wyszukiwanie znaku w **QRZ.com → HamDB → callook.info**, dwa transceivery, dystans + kierunek geograficzny · podglądy 1:1 `tools/render_station_preview.py`, `render_logger_preview.py` |
 | **v1.2a** | 16.10.2026 | Poprawki ekranu **PSK MAP**: **kumulacja spotów** (dedup znak+pasmo+tryb, limit 200) · **auto-RESET** po 200 spotach · **panel informacyjny po prawej** (licznik + lista najnowszych, zwężona ramka) · **odświeżanie tylko spotów** (bez przerysowywania nagłówka, paska, ikony baterii i napisów) · **MQTT domyślnie włączone** (start bez HTTP) · eksport rozmów do Markdown |
@@ -116,13 +116,13 @@ Gotowe, zbudowane obrazy i paczki są dostępne na stronie
 
 ---
 
-## Zmiany między v1.1 a v1.2e BETA
+## Zmiany między v1.1 a v1.2e-beta
 
-Pełna lista zmian: **RELEASE_NOTES.md** (sekcja „v1.2e BETA").
+Pełna lista zmian: **RELEASE_NOTES.md** (sekcja „v1.2e-beta").
 
 § Sekcja poniżej opisuje podzbiór zmian (v1.2c → v1.2e):
 
-Wydanie **v1.2e BETA** (06.11.2026) to wydanie zbiorcze poprawkowe: **migotanie cyfr zegara**
+Wydanie **v1.2e-beta** (06.11.2026) to wydanie zbiorcze poprawkowe: **migotanie cyfr zegara**
 dla wszystkich czcionek.
 
 ### Naprawa: migotanie cyfr zegara (wszystkie czcionki)
@@ -336,6 +336,11 @@ i narzędzi projektu. Nie zmieniono innych ekranów ani zależności.
 Poniżej pełne zestawienie zmian wprowadzonych od wydania **v1** do **v1.2**
 (100 commitów).
 
+> Uwaga: **splash (ekran startowy)** opisany niżej został **usunięty** w nowszym
+> wydaniu. **Ekran powitalny (welcome)** został **przywrócony** — patrz
+> INSTRUKCJA.md sekcja 8.3; upload grafiki `/welcome.<ext>` działa z WWW
+> (cel „Ekran powitalny").
+
 ### Nowe ekrany
 - **APRS RADAR (ekran 9)** — ekran taktyczny: sprite w PSRAM, animowana smuga,
   kafelki zakresu, QTH „Moja Stacja", tarcza azymut/elewacja, naprawa fałszywej
@@ -426,7 +431,7 @@ tft_setup.h              # konfiguracja TFT_eSPI dla ILI9488
 platformio.ini           # środowiska: esp32-s3-n16r8 (+ -notouch)
 partitions.csv           # 16 MB flash: app + LittleFS
 data/                    # pliki serwowane z LittleFS (UI WWW, czcionki .vlw, bitmapy)
-tools/                   # skrypty pomocnicze (konwersja flag, splash, ZIP)
+tools/                   # skrypty pomocnicze (konwersja flag, mapy, ZIP)
 dist/, download/         # zbudowane artefakty (.bin, .zip)
 README_S3.md             # instrukcja S3/ILI9488
 INSTRUKCJA.md            # instrukcja obsługi

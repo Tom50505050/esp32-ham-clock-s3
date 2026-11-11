@@ -45,7 +45,7 @@ pio run -e esp32-s3-n16r8
 # wgranie firmware
 pio run -e esp32-s3-n16r8 -t upload
 
-# wgranie plików LittleFS (splash.bmp, mapa.bmp, index.html) - jeśli używasz
+# wgranie plików LittleFS (mapa.bmp, "Mapa swiata.bmp", index.html) - jeśli używasz
 pio run -e esp32-s3-n16r8 -t uploadfs
 
 # podgląd logów
@@ -206,16 +206,20 @@ albo gotowy obraz `merged-flash-notouch.bin` (offset `0x0`, 16 MB).
 Bez dotknięcia: `x=4095 y=0 z~9`. Z dotknięciem: `x/y` 500–3900, `z` 400–2100.
 Filtr w `readRawTouchPoint()` odrzuca `x==0&&y==0` oraz `z>=4000`.
 
-## 6. Wgrywanie plików LittleFS (mapy, splash, pelny interfejs WWW)
+## 6. Wgrywanie plików LittleFS (mapy, pelny interfejs WWW)
 
-Pliki takie jak `splash.bmp`, `mapa.bmp`, `Mapa swiata.bmp`, `index.html` umieść w
+Pliki takie jak `mapa.bmp`, `Mapa swiata.bmp`, `index.html` umieść w
 katalogu `data/`, a następnie:
 
 ```bash
 pio run -e esp32-s3-n16r8 -t uploadfs
 ```
 
-W repo jest `data/splash.bmp` (placeholder 480x320, 24-bit), `data/fonts/*.vlw`
+(Splash — ekran startowy — został usunięty; nie dodawaj `data/splash.bmp`.
+Ekran powitalny **welcome** działa: umieść w `data/` plik `welcome.bmp` lub
+`welcome.png` — patrz INSTRUKCJA.md 8.3; można go też wgrać z WWW.)
+
+W repo są `data/fonts/*.vlw`
 (fonty Inter/DejaVu/Roboto dla polskich znaków), **pełny interfejs WWW**
 (`data/index.html` 148 KB, `data/indexEN.html` 145 KB) wraz z arkuszami stylów
 (`data/style.base.css`, `data/style.css`, `data/style.desktop.css`,
@@ -230,10 +234,10 @@ wgraj cały zestaw z `data/`.
 Fonty VLW: firmware szuka ich pod `/fonts/Inter-RegularNN.vlw`. Pliki `data/fonts/`
 są wgrywane razem z LittleFS przez `-t uploadfs` — albo od razu przez `dist/merged-flash.bin`.
 
-Adres startowy partycji LittleFS w tej tablicy to `0x250000` (patrz `partitions.csv`) —
-przy ręcznym wgrywaniu `.bin` używaj tego offsetu. Partycja ma **14 286 848 B
-(~13,6 MB)** — rozmiar jest wielokrotnością 4096 (wymaganie `mklittlefs`);
-`0x250000 + 0xDA0000` kończy się dokładnie przed coredumpem (`0xFF0000`).
+Adres startowy partycji LittleFS w tej tablicy to `0x2B0000` (patrz `partitions.csv`) —
+przy ręcznym wgrywaniu `.bin` używaj tego offsetu. Partycja ma **13 926 400 B
+(~13,3 MB)** — rozmiar jest wielokrotnością 4096 (wymaganie `mklittlefs`);
+`0x2B0000 + 0xD40000` kończy się dokładnie przed coredumpem (`0xFF0000`).
 
 ## 7. Gotowe obrazy (katalog `dist/`)
 
@@ -267,7 +271,7 @@ esptool.py --chip esp32s3 --port COM9 --baud 921600 write_flash 0x0 merged-flash
 python -m esptool --chip esp32s3 merge-bin -o merged-flash.bin \
   --flash-mode dio --flash-freq 80m --flash-size 16MB \
   0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin \
-  0x10000 firmware.bin 0x250000 littlefs.bin
+  0x10000 firmware.bin 0x2B0000 littlefs.bin
 ```
 
 > **Tryb flash = DIO.** Wszystkie obrazy są zbudowane w trybie `dio`

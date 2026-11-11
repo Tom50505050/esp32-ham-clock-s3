@@ -27,7 +27,7 @@ rozbudowę i publikację artefaktów. Dokument uzupełnia (nie zastępuje) `READ
 │   ├── tft_flags/*.BMP      # flagi 24-bit BMP dla ekranu TFT (254 pliki)
 │   ├── fonts/*.vlw          # fonty VLW (polskie znaki)
 │   ├── icon50/*.bmp         # ikony pogody
-│   └── *.bmp                # splash.bmp, mapa.bmp, "Mapa swiata.bmp"
+│   └── *.bmp                # mapa.bmp, "Mapa swiata.bmp"
 ├── tools/                   # skrypty pomocnicze (konwersje, test dotyku)
 ├── dist/                    # gotowe obrazy do wgrania
 ├── download/                # kopie artefaktów do publikacji
@@ -195,7 +195,7 @@ ESPTOOL=/workspace/pio_core/packages/tool-esptoolpy/esptool.py
 python3 $ESPTOOL --chip esp32s3 merge_bin -o merged-flash.bin \
   --flash_mode dio --flash_freq 80m --flash_size 16MB \
   0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin \
-  0x10000 firmware.bin 0x250000 littlefs.bin
+  0x10000 firmware.bin 0x2B0000 littlefs.bin
 ```
 
 ### Publikacja artefaktów (ZIP)
@@ -251,44 +251,19 @@ Ekran TFT, Ustawienia, Moduły, Instrukcja, Linki.
 - Menu PSK: pole **Dni** pozwala wybrać zakres **1–30** dni (`psk_report_days`).
 - Kolory linii zależą od odległości DX; spoty wg pasma.
 
-### 8.3 Ekran startowy (splash)
-Firmware wczytuje grafikę startową z LittleFS w `drawSplashScreen()`, korzystając
-z uniwersalnego `drawImageFromFS()`. Obsługiwane formaty:
+### 8.3 Ekran powitalny (welcome)
+Po starcie firmware przez ok. 4 s wyświetla **ekran powitalny**: grafikę
+`/welcome.<ext>` (BMP/PNG/JPG/JPEG) z LittleFS, a gdy jej brak — domyślną
+wiadomość z nazwą wersji. Dotknięcie ekranu pomija powitanie.
 
-| Format | Dekoder | Uwagi |
-|--------|---------|-------|
-| BMP (24-bit RGB888, 16-bit RGB565) | wbudowany `drawBmpFromFS` / `drawBmp16FromFS` | najszybszy, bez alokacji |
-| PNG | `pngle` | obsługa kanału alfa (przezroczyste = czarne tło) |
-| JPG / JPEG | `TJpg_Decoder` | skala 1/2, 1/4, 1/8 |
-
-Obraz większy niż 480×320 jest automatycznie skalowany (PNG: 2/4/8×, JPG: skala
-sprzętowa dekodera), a mniejszy rysowany 1:1. Firmware szuka kolejno plików:
-`/splash.png`, `/splash.jpg`, `/splash.jpeg`, `/icon50/splash.bmp`, `/splash.bmp`,
-`/splash_16bit.bmp`, `/splash16.bmp`, `/boot.bmp`, `/boot.png`, `/logo.bmp`,
-`/logo.png`, `/start.bmp`, `/start.png`.
-
-**Najprościej — przez WWW (bez rekompilacji):**
-1. Otwórz stronę urządzenia i zakładkę **LINKI**.
-2. W sekcji „Wgraj ekran startowy" wybierz plik PNG / JPG / BMP.
-3. Kliknij **Wgraj ekran startowy**. Plik trafia do LittleFS jako `/splash.<ext>`,
-   a nowy obraz od razu pokazuje się na TFT (podgląd widoczny też w WWW).
-
-**Przez `data/` + LittleFS (przy buildzie projektu):**
-```bash
-# masz gotowy BMP 480x320:
-cp twoj_splash.bmp data/splash.bmp
-pio run -e esp32-s3-n16r8 -t uploadfs   # LittleFS (bez zmiany firmware!)
-
-# masz PNG/JPG - możesz wgrać bezpośrednio (firmware ma dekodery):
-cp obraz.png data/splash.png
-pio run -e esp32-s3-n16r8 -t uploadfs
-
-# lub przekonwertuj PNG/JPG do 24-bit BMP 480x320:
-python3 tools/make_splash.py obraz.png data/splash.bmp
-pio run -e esp32-s3-n16r8 -t uploadfs
-```
-
-Ekran startowy pokazuje się na kilka sekund i można go pominąć dotknięciem ekranu.
+- **Upload przez WWW**: w zakładce „Ekran TFT" → „Grafika na ekran" wybierz cel
+  **„Ekran powitalny"** (PL) lub odpowiednik w innym języku. Plik jest zapisywany
+  jako `/welcome.<ext>`, a stare warianty są usuwane.
+- Endpointy firmware: `/upload_welcome` (multipart lub surowe ciało RAW z
+  nagłówkiem `X-Upload-Target: welcome`), podgląd `/welcome_preview`,
+  usuwanie `/welcome_clear`.
+- Splash (ekran startowy) pozostaje usunięty — po starcie przechodzi wprost do
+  ekranu powitalnego, a następnie głównego zegara.
 
 ### 8.4 Flagi ISS — ponowna generacja
 ```bash
@@ -310,7 +285,7 @@ pio run -e esp32-s3-n16r8 -t buildfs   # przepakuj LittleFS
 | Dotyk `x=0 y=0 z=4095` | T_DO/MISO (GPIO 14) nie dochodzi — brak wspólnej GND lub zły styk. |
 | Reset przy WiFi/TLS | Za słabe zasilanie; sprawdź PSRAM (OPI). |
 | Bootloop `SHA-256 comparison failed` | Wgraj od nowa po `erase_flash`, całym `merged-flash.bin` pod `0x0`. |
-| Brak LittleFS | `pio run -t uploadfs`; sprawdź offset partycji `0x250000`. |
+| Brak LittleFS | `pio run -t uploadfs`; sprawdź offset partycji `0x2B0000`. |
 
 ---
 

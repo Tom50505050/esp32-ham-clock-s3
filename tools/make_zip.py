@@ -12,7 +12,7 @@ ROOT_FILES = [
     "partitions.csv", ".gitignore", "main.cpp", "flash.bat", "tft_setup.h",
     "iss_worldmask.h", "aprs_modern_icons.h", "poland_mask.h", "radiosonde_icons.h",
     "flash.sh", "README_S3.md", "PINOUT.md", "INSTRUKCJA.md",
-    "RELEASE_NOTES.md", "README.md",
+    "RELEASE_NOTES.md", "README.md", "ZMIANY_I_NAWIGACJA.md",
 ]
 # Do paczki trafiaja tylko scalone obrazy (merged-flash*.bin) - zawieraja
 # bootloader, partycje, aplikacje i LittleFS w jednym pliku (flash pod 0x0).
